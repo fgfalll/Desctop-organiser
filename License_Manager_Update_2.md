@@ -181,5 +181,4 @@ Proprietary - © 2024 Taras
 ## Documentation Information
 
 **Version**: 2.0
-**Last Updated**: March 25, 2024 *(Adjust date as needed)*
-```
+**Last Updated**: March 25, 2024

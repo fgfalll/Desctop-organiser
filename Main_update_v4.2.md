@@ -1,6 +1,6 @@
 # Desktop Organizer v4.2 (Авто-організатор робочого столу)
 
-![Desktop Organizer Screenshot]()
+![Desktop Organizer Screenshot](MainUI_current.PNG)
 *Automated desktop file management with modular extensions, configurable timer, drive selection, settings persistence, and dynamic module loading.*
 
 ## Table of Contents
