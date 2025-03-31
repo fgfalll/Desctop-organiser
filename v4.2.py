@@ -1,3 +1,23 @@
+#---Imports for program_installer module---
+import json
+import logging
+import pythoncom
+import subprocess
+import winreg
+import fnmatch
+import math
+from pathlib import Path
+from typing import List, Dict, Optional, Set, Callable, Tuple, Any
+from dataclasses import dataclass, field
+import pywin32_system32
+import pywin32_testutil
+import pywin32_bootstrap
+import pywin
+import win32api
+import msilib
+#---End import---
+
+
 import sys
 import os
 import importlib.util
@@ -15,6 +35,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
+
 
 try:
     from license_manager import LicenseManager

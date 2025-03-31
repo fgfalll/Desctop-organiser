@@ -83,8 +83,8 @@
 
 1.  **Клонування репозиторію:**
     ```bash
-    git clone <URL_вашого_репозиторію>
-    cd <назва_директорії_проекту>
+    git clone /fgfalll/Desctop-organiser
+    cd Desctop-organiser
     ```
     Або завантажте архів проекту та розпакуйте його.
 
@@ -94,12 +94,10 @@
     python -m venv venv
     # Windows
     .\venv\Scripts\activate
-    # Linux/macOS
-    source venv/bin/activate
     ```
     Встановіть залежності (переконайтесь, що у вас є файл `requirements.txt`, або встановіть вручну):
     ```bash
-    # Рекомендований спосіб (якщо є requirements.txt)
+    # Рекомендований спосіб
     pip install -r requirements.txt
 
     # Або встановлення вручну:
@@ -107,8 +105,6 @@
     # Тільки для Windows:
     pip install pywin32
     ```
-    *Примітка:* Якщо файл `requirements.txt` відсутній, створіть його з переліком бібліотек вище.
-
 3.  **Розміщення опціональних модулів:**
     Щоб активувати функціонал керування ліцензіями та інсталяції програм, скопіюйте файли `license_manager.py` та `program_install.py` у піддиректорію `modules`, розташовану в кореневій папці проекту. Якщо директорія `modules` відсутня, створіть її.
 

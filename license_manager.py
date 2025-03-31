@@ -194,46 +194,46 @@ class LicenseManager(QMainWindow):
         toolbar.setIconSize(QSize(16, 16))
         self.addToolBar(toolbar)
 
-        self.action_open = QAction(QIcon.fromTheme("document-open", QIcon()), "&Open...", self)
+        self.action_open = QAction(QIcon.fromTheme("document-open", QIcon()), "&Відкрити...", self)
         self.action_open.setShortcut("Ctrl+O")
-        self.action_open.setToolTip("Open an .ngit license file (Ctrl+O)")
+        self.action_open.setToolTip("Відкрити .ngit файл (Ctrl+O)")
         self.action_open.triggered.connect(self.open_file)
         toolbar.addAction(self.action_open)
 
-        self.action_generate = QAction(QIcon.fromTheme("document-new", QIcon()), "&Generate Template...", self)
+        self.action_generate = QAction(QIcon.fromTheme("document-new", QIcon()), "&Згенерувати приклад файлу...", self)
         self.action_generate.setShortcut("Ctrl+N")
-        self.action_generate.setToolTip("Generate a sample .ngit file (Ctrl+N)")
+        self.action_generate.setToolTip("Згенерувати .ngit файл (Ctrl+N)")
         self.action_generate.triggered.connect(self.generate_sample)
         toolbar.addAction(self.action_generate)
 
         toolbar.addSeparator()
 
-        self.action_validate_file = QAction(QIcon.fromTheme("document-properties", QIcon()), "&Validate File", self)
+        self.action_validate_file = QAction(QIcon.fromTheme("document-properties", QIcon()), "&Перевірка файлу", self)
         self.action_validate_file.setShortcut("F5")
-        self.action_validate_file.setToolTip("Validate the syntax and format of the current file (F5)")
+        self.action_validate_file.setToolTip("Перевірка синтаксису і формату завантаженого файлу (F5)")
         self.action_validate_file.triggered.connect(self.validate_file_action)
         toolbar.addAction(self.action_validate_file)
 
-        self.action_check_system = QAction(QIcon.fromTheme("system-search", QIcon()), "Check &System", self)
+        self.action_check_system = QAction(QIcon.fromTheme("system-search", QIcon()), "Перевірка ліцензій", self)
         self.action_check_system.setShortcut("F6")
-        self.action_check_system.setToolTip("Check currently active system environment licenses (F6)")
+        self.action_check_system.setToolTip("Перевірка поточних активних ліцензій системного середовища (F6)")
         self.action_check_system.triggered.connect(self.check_system_action)
         toolbar.addAction(self.action_check_system)
 
         toolbar.addSeparator()
 
-        self.action_install = QAction(QIcon.fromTheme("system-software-install", QIcon()), "&Install Licenses", self)
+        self.action_install = QAction(QIcon.fromTheme("system-software-install", QIcon()), "&Встановити ліцензії", self)
         self.action_install.setShortcut("Ctrl+I")
-        self.action_install.setToolTip("Install the validated licenses from the file (Ctrl+I)")
+        self.action_install.setToolTip("Встановлення підтверджених ліцензій з файлу (Ctrl+I)")
         self.action_install.triggered.connect(self.install_licenses)
         toolbar.addAction(self.action_install)
 
-        self.install_system_wide_cb = QCheckBox("System-Wide (Admin)")
-        self.install_system_wide_cb.setToolTip("Install for all users (requires administrator privileges)")
+        self.install_system_wide_cb = QCheckBox("Загальносистемний (адміністратор)")
+        self.install_system_wide_cb.setToolTip("Встановити для всіх користувачів (потрібні права адміністратора)")
         toolbar.addWidget(self.install_system_wide_cb)
 
         self.conflict_indicator_label = QLabel("⚠️")
-        self.conflict_indicator_label.setToolTip("Conflicts detected between file and system licenses!")
+        self.conflict_indicator_label.setToolTip("Виявлено конфлікти між файлом та встановленими ліцензіями!")
         self.conflict_indicator_label.setStyleSheet("color: orange; font-weight: bold;")
         self.conflict_indicator_label.setVisible(False)
         toolbar.addWidget(self.conflict_indicator_label)
@@ -242,15 +242,15 @@ class LicenseManager(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         toolbar.addWidget(spacer)
 
-        self.action_toggle_log = QAction(QIcon.fromTheme("view-list-text", QIcon()), "&Toggle Logs", self)
+        self.action_toggle_log = QAction(QIcon.fromTheme("view-list-text", QIcon()), "&Сховати логи", self)
         self.action_toggle_log.setShortcut("Ctrl+L")
-        self.action_toggle_log.setToolTip("Show/Hide the log panel (Ctrl+L)")
+        self.action_toggle_log.setToolTip("Показати\сховати логи (Ctrl+L)")
         self.action_toggle_log.triggered.connect(self.toggle_log)
         toolbar.addAction(self.action_toggle_log)
 
-        self.action_clear_log = QAction(QIcon.fromTheme("edit-clear", QIcon()), "C&lear Log", self)
+        self.action_clear_log = QAction(QIcon.fromTheme("edit-clear", QIcon()), "О&чистити логи", self)
         self.action_clear_log.setShortcut("Ctrl+Shift+L")
-        self.action_clear_log.setToolTip("Clear all messages from the log panel (Ctrl+Shift+L)")
+        self.action_clear_log.setToolTip("Очистити всі повідомлення з панелі логів (Ctrl+Shift+L)")
         self.action_clear_log.triggered.connect(self.clear_log)
         toolbar.addAction(self.action_clear_log)
 
@@ -338,23 +338,23 @@ class LicenseManager(QMainWindow):
 
 
     def generate_sample(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Sample Template", "template.ngit", "NGIT Files (*.ngit)")
+        path, _ = QFileDialog.getSaveFileName(self, "Зберегти зразок шаблону", "template.ngit", "NGIT Files (*.ngit)")
         if not path: return
         try:
             with open(path, 'w', encoding='utf-8') as f: f.write(generate_ngit_template())
-            self.log("success", f"Sample template created: {os.path.basename(path)}")
+            self.log("success", f"Зразок шаблону створено: {os.path.basename(path)}")
             self._load_file_content(path)
         except Exception as e:
-            self.log("error", f"Failed to create sample: {str(e)}")
+            self.log("error", f"Не вдалося створити зразок: {str(e)}")
 
 
     def open_file(self):
         if self.is_dirty():
-             reply = QMessageBox.question(self, 'Unsaved Changes',
-                                          "You have unsaved changes. Open new file and discard changes?",
+             reply = QMessageBox.question(self, 'Незбережені зміни',
+                                          "У вас є незбережені зміни. Відкрити новий файл і скасувати зміни?",
                                           QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
              if reply == QMessageBox.No: return
-        path, _ = QFileDialog.getOpenFileName(self, "Open License File", "", "NGIT Files (*.ngit)")
+        path, _ = QFileDialog.getOpenFileName(self, "Відкрити файл ліцензії", "", "NGIT Files (*.ngit)")
         if not path: return
         self._load_file_content(path)
 
@@ -367,12 +367,12 @@ class LicenseManager(QMainWindow):
             self.txt_content.setPlainText(content)
             self.txt_content.textChanged.connect(self.mark_dirty)
             self.current_file_content_hash = hash(content)
-            self.log("info", f"File loaded: {os.path.basename(path)}")
+            self.log("info", f"Файл завантажено: {os.path.basename(path)}")
             self.validate_file_action(triggered_by_load=True)
             self.txt_content.document().clearUndoRedoStacks()
             self.txt_content.moveCursor(self.txt_content.textCursor().Start)
         except Exception as e:
-            self.log("error", f"Error loading file {os.path.basename(path)}: {str(e)}")
+            self.log("error", f"Помилка завантаження файлу {os.path.basename(path)}: {str(e)}")
             self.file_path = ""
             self.current_file_content_hash = None
             self.txt_content.clear()
@@ -392,12 +392,12 @@ class LicenseManager(QMainWindow):
 
     def validate_file_action(self, triggered_by_load=False):
         if not self.file_path:
-            self.log("warning", "No file open to validate.")
+            self.log("warning", "Немає відкритих файлів для перевірки.")
             return
         if not triggered_by_load:
-             self.log("info", "Manual validation requested...")
-        self.log("info", f"Starting validation for {os.path.basename(self.file_path)}...")
-        self.status_label.setText(f"Validating {os.path.basename(self.file_path)}...")
+             self.log("info", "Потрібна перевірка вручну...")
+        self.log("info", f"Початок перевірки для {os.path.basename(self.file_path)}...")
+        self.status_label.setText(f"Перевірка {os.path.basename(self.file_path)}...")
         QApplication.processEvents()
         current_content = self.txt_content.toPlainText()
         self.worker = FileValidator(current_content)
@@ -406,17 +406,17 @@ class LicenseManager(QMainWindow):
 
 
     def check_system_action(self):
-        self.log("info", "Checking system environment licenses...")
-        self.status_label.setText("Checking system licenses...")
+        self.log("info", "Перевірка ліцензій системного середовища...")
+        self.status_label.setText("Перевірка ліцензій...")
         QApplication.processEvents()
         self.system_licenses = self._get_system_licenses()
         if not self.system_licenses:
-            self.log("warning", "No relevant licenses found in system environment.")
+            self.log("warning", "У системному середовищі не знайдено ліцензій.")
         else:
-            self.log("info", "Active system licenses found:")
+            self.log("info", "Знайдено активні системні ліцензії:")
             for key, value in self.system_licenses.items():
                 self.log("system", f"  {key} = {value}")
-        self.status_label.setText("System check complete.")
+        self.status_label.setText("Перевірку системи завершено.")
         if self.license_data: self.check_license_conflicts()
         self.update_ui_state()
 
@@ -432,17 +432,17 @@ class LicenseManager(QMainWindow):
     def handle_validation_result(self, errors, data):
         error_lines = set()
         if errors:
-            self.log("error", f"Validation failed for {os.path.basename(self.file_path)}:")
+            self.log("error", f"Помилка перевірки {os.path.basename(self.file_path)}:")
             max_errors_to_show = 10
             for i, (line_num, err_msg) in enumerate(errors):
-                if i < max_errors_to_show: self.log("error", f"  Line {line_num}: {err_msg}")
+                if i < max_errors_to_show: self.log("error", f"  Рядок {line_num}: {err_msg}")
                 error_lines.add(line_num)
-            if len(errors) > max_errors_to_show: self.log("error", f"  ... and {len(errors) - max_errors_to_show} more errors.")
+            if len(errors) > max_errors_to_show: self.log("error", f"  ... та {len(errors) - max_errors_to_show} більше помилок.")
             self.license_data = {}
         else:
-            self.log("success", f"Validation passed for {os.path.basename(self.file_path)}.")
+            self.log("success", f"Перевірка пройдена {os.path.basename(self.file_path)}.")
             self.license_data = data
-            self.log("info", "Validated licenses in file:")
+            self.log("info", "Підтверджені ліцензії у файлі:")
             for k, v in data.items(): self.log("detail", f"  {k} = {v}")
         self.highlighter.set_error_lines(error_lines)
         self.check_license_conflicts()
@@ -459,34 +459,34 @@ class LicenseManager(QMainWindow):
             if system_value is not None and system_value != file_value:
                 found_conflicts[key] = {'system': system_value, 'file': file_value}
         if found_conflicts:
-            self.log("warning", "License conflicts DETECTED:")
+            self.log("warning", "ВИЯВЛЕНО конфлікти ліцензій:")
             for key, values in found_conflicts.items():
-                self.log("warning", f"  {key}: System='{values['system']}' vs File='{values['file']}'")
+                self.log("warning", f"  {key}: Система='{values['system']}' vs Файл='{values['file']}'")
         else:
-             if self.system_licenses: self.log("info", "No conflicts found between file and system licenses.")
+             if self.system_licenses: self.log("info", "Конфліктів між файлом та системними ліцензіями не виявлено.")
         self.conflicts = found_conflicts
 
 
     def install_licenses(self):
         if not self.license_data or self.highlighter.error_lines:
-            self.log("error", "Cannot install: Validation failed or no valid data loaded.")
-            QMessageBox.critical(self, "Installation Error", "Cannot install licenses because the file is invalid or hasn't been validated successfully.")
+            self.log("error", "Неможливо встановити: помилка перевірки або не завантажено дійсні дані.")
+            QMessageBox.critical(self, "Помилка встановлення", "Неможливо встановити ліцензії, оскільки файл недійсний або не пройшов перевірку.")
             return
         if self.conflicts:
             if not self._confirm_overwrite(self.conflicts):
-                self.log("info", "Installation cancelled by user due to conflicts.")
+                self.log("info", "Встановлення скасовано користувачем.")
                 return
 
         system_wide = self.install_system_wide_cb.isChecked()
-        target = "System-Wide (All Users)" if system_wide else "Current User Only"
-        self.log("info", f"Starting installation for: {target}...")
-        self.status_label.setText(f"Installing ({target})...")
+        target = "Загальносистемний (адміністратор)" if system_wide else "Current User Only"
+        self.log("info", f"Початок встановлення для: {target}...")
+        self.status_label.setText(f"Встановлення ({target})...")
         QApplication.processEvents()
         install_ok = False
         try:
             current_os = platform.system()
             if current_os == 'Windows':
-                if not winreg: raise OSError("Windows Registry access module (winreg) not available.")
+                if not winreg: raise OSError("Модуль доступу до реєстру Windows (winreg) недоступний.")
                 if system_wide: install_ok = self._install_windows_registry(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment", True)
                 else: install_ok = self._install_windows_registry(winreg.HKEY_CURRENT_USER, "Environment", False)
             # REMOVED Linux elif block
@@ -501,21 +501,21 @@ class LicenseManager(QMainWindow):
 
         except PermissionError as pe:
              priv = "administrator/root" if system_wide and platform.system() == 'Windows' else "write" # Adjust privilege name
-             self.log("error", f"Installation failed: Permission denied. Ensure you have sufficient ({priv}) privileges.")
-             QMessageBox.critical(self, "Permission Error", f"Installation failed due to insufficient privileges.\nTry running as {priv} or check permissions.")
+             self.log("error", f"Помилка встановлення: у дозволі відмовлено. Переконайтеся, що у вас достатньо ({priv}) прав.")
+             QMessageBox.critical(self, "Помилка дозволу", f"Помилка встановлення через недостатні права.\nСпробуйте запустити як {priv} або перевірте дозволи.")
              install_ok = False
         except Exception as e:
-            self.log("error", f"Installation failed: {str(e)}")
-            QMessageBox.critical(self, "Installation Error", f"An unexpected error occurred during installation:\n{e}")
+            self.log("error", f"Помилка встановлення: {str(e)}")
+            QMessageBox.critical(self, "Помилка інсталяції", f"Під час інсталяції сталася неочікувана помилка:\n{e}")
             install_ok = False
         if install_ok:
-            self.log("success", "License installation completed successfully.")
-            self.status_label.setText("Installation successful.")
+            self.log("success", "Встановлення ліцензії успішно завершено.")
+            self.status_label.setText("Встановлення успішне.")
             self.check_system_action() # Re-check system state
         else:
             # Check if error was due to unsupported OS and avoid redundant message
             if not (platform.system() not in ['Windows', 'Darwin']):
-                self.status_label.setText("Installation failed.")
+                self.status_label.setText("Помилка встановлення.")
             else:
                  self.status_label.setText("Installation unavailable on this OS.")
         self.update_ui_state()
@@ -533,30 +533,30 @@ class LicenseManager(QMainWindow):
                 key = winreg.OpenKey(root_hkey, key_path, 0, access_mask)
             except PermissionError:
                 hk_name = 'HKLM' if root_key == winreg.HKEY_LOCAL_MACHINE else 'HKCU'
-                self.log("error", f"Permission denied to access registry key: {hk_name}\\{key_path}")
-                if requires_admin: self.log("error", "Try running the application as Administrator.")
+                self.log("error", f"Відмовлено в доступі до розділу реєстру: {hk_name}\\{key_path}")
+                if requires_admin: self.log("error", "Спробуйте запустити програму від імені адміністратора.")
                 raise
             except FileNotFoundError:
                 hk_name = 'HKLM' if root_key == winreg.HKEY_LOCAL_MACHINE else 'HKCU'
-                self.log("error", f"Registry key not found: {hk_name}\\{key_path}")
+                self.log("error", f"Ключ реєстру не знайдено: {hk_name}\\{key_path}")
                 return False
             set_errors = 0
             for var_name, value in self.license_data.items():
                 try:
                     winreg.SetValueEx(key, var_name, 0, winreg.REG_SZ, value)
-                    self.log("detail", f"Set registry value: {var_name}")
+                    self.log("detail", f"Встановіть значення реєстру: {var_name}")
                 except OSError as oe:
                     set_errors += 1; win_err_code = getattr(oe, 'winerror', 'N/A')
-                    self.log("error", f"Failed to set registry value {var_name}: WinError {win_err_code}")
+                    self.log("error", f"Не вдалося встановити значення реєстру {var_name}: WinError {win_err_code}")
                 except Exception as e:
-                    set_errors += 1; self.log("error", f"Unexpected error setting registry value {var_name}: {e}")
-            if set_errors > 0: self.log("error", f"{set_errors} error(s) occurred while setting registry values."); return False
+                    set_errors += 1; self.log("error", f"Неочікувана помилка налаштування значення реєстру {var_name}: {e}")
+            if set_errors > 0: self.log("error", f"{set_errors} під час встановлення значень реєстру виникли помилки."); return False
             try:
                 HWND_BROADCAST = 0xFFFF; WM_SETTINGCHANGE = 0x001A; SMTO_ABORTIFHUNG = 0x0002
                 result = windll.user32.SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", SMTO_ABORTIFHUNG, 5000, None)
-                if result == 0: self.log("warning", "Failed to broadcast environment change message (result=0). Manual refresh may be needed.")
-                else: self.log("info", "Environment change message broadcast.")
-            except Exception as e: self.log("warning", f"Broadcasting environment change failed: {e}")
+                if result == 0: self.log("warning", "Не вдалося передати повідомлення про зміну середовища (результат=0). Може знадобитися ручне оновлення.")
+                else: self.log("info", "Трансляція повідомлень про зміну середовища.")
+            except Exception as e: self.log("warning", f"Не вдалося змінити середовище трансляції: {e}")
             return True
         finally:
             # Corrected indentation for try/except within finally
@@ -564,12 +564,12 @@ class LicenseManager(QMainWindow):
                 try:
                     winreg.CloseKey(key)
                 except Exception as close_e:
-                    print(f"Ignoring error closing registry key: {close_e}") # Non-critical usually
+                    print(f"Ігнорування помилки закриття розділу реєстру: {close_e}") # Non-critical usually
             if root_hkey:
                 try:
                     winreg.CloseKey(root_hkey) # Close registry handle
                 except Exception as close_e:
-                    print(f"Ignoring error closing registry handle: {close_e}") # Non-critical usually
+                    print(f"Ігнорування помилки закриття дескриптора реєстру: {close_e}") # Non-critical usually
 
     # --- REMOVED Linux Install Methods ---
     # _install_linux_system
@@ -603,14 +603,14 @@ class LicenseManager(QMainWindow):
     def _confirm_overwrite(self, conflicts_dict):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Warning)
-        msg.setWindowTitle("Confirm Overwrite")
-        msg.setText(f"Found {len(conflicts_dict)} license(s) in the file that conflict with existing system settings.")
+        msg.setWindowTitle("Підтвердити перезапис")
+        msg.setText(f"Знайдено {len(conflicts_dict)} ліцензії у файлі, які суперечать існуючим налаштуванням системи.")
         conflict_list = []
         max_show = 5
         for i, (key, values) in enumerate(conflicts_dict.items()):
-             if i >= max_show: conflict_list.append(f"... and {len(conflicts_dict) - max_show} more."); break
-             conflict_list.append(f" • {key}:\n    System = {values['system']}\n    File     = {values['file']}")
-        msg.setInformativeText("Do you want to overwrite the existing system settings with the values from the file?")
+             if i >= max_show: conflict_list.append(f"... та {len(conflicts_dict) - max_show} більше."); break
+             conflict_list.append(f" • {key}:\n    Система = {values['system']}\n    Файл     = {values['file']}")
+        msg.setInformativeText("Чи бажаєте ви замінити існуючі параметри системи значеннями з файлу??")
         msg.setDetailedText("\n\n".join(conflict_list))
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.setDefaultButton(QMessageBox.No)
@@ -619,8 +619,8 @@ class LicenseManager(QMainWindow):
 
     def closeEvent(self, event):
          if self.is_dirty():
-              reply = QMessageBox.question(self, 'Unsaved Changes',
-                                           "You have unsaved changes. Do you want to discard them and close?",
+              reply = QMessageBox.question(self, 'Незбережені зміни',
+                                           "У вас є незбережені зміни. Ви хочете відмінити їх і закрити?",
                                            QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Cancel)
               if reply == QMessageBox.Discard: event.accept()
               else: event.ignore()
@@ -638,26 +638,26 @@ class FileValidator(QThread):
             stripped_line = line.strip()
             if not stripped_line or stripped_line.startswith('#'): continue
             if '=' not in stripped_line:
-                if re.match(r'^[A-Z_][A-Z0-9_]*\s*$', stripped_line): errors.append((line_num, f"Missing '=' and value for key '{stripped_line}'"))
-                else: errors.append((line_num, f"Invalid format (missing '=') in '{stripped_line[:50]}'"))
+                if re.match(r'^[A-Z_][A-Z0-9_]*\s*$', stripped_line): errors.append((line_num, f"Пропущено '=' і значення для ключа '{stripped_line}'"))
+                else: errors.append((line_num, f"Невірний формат (пропущено '=') в '{stripped_line[:50]}'"))
                 continue
             parts = stripped_line.split('=', 1); key = parts[0].strip(); value = parts[1].strip()
-            if key in seen_keys: errors.append((line_num, f"Duplicate key '{key}' found")); continue
+            if key in seen_keys: errors.append((line_num, f"Дублікат '{key}' знайдено")); continue
             seen_keys.add(key)
-            if not re.fullmatch(r'[A-Z_][A-Z0-9_]*', key): errors.append((line_num, f"Invalid characters or format in key name '{key}'")); continue
-            if key not in MANDATORY_LICENSES: errors.append((line_num, f"Unknown license key '{key}'")); continue
+            if not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_]*', key): errors.append((line_num, f"Неправильні символи або формат назви ключа '{key}'")); continue
+            if key not in MANDATORY_LICENSES: errors.append((line_num, f"Невідомий ліцензійний ключ '{key}'")); continue
             regex_pattern = MANDATORY_LICENSES.get(key)
             if regex_pattern:
                  is_path_key = key.endswith('_FILE') or key.endswith('_LICENSE_FILE')
                  if platform.system() == "Windows" and is_path_key and not value.startswith('\\\\') and ':' not in value and not re.match(r'^\d+@', value):
                       pass # Heuristic check for bad Windows paths
                  try:
-                      if not re.fullmatch(regex_pattern, value): errors.append((line_num, f"Invalid value format for {key}")); continue
-                 except re.error as re_err: errors.append((line_num, f"Internal regex error for {key}: {re_err}")); continue
+                      if not re.fullmatch(regex_pattern, value): errors.append((line_num, f"Недійсний формат значення для {key}")); continue
+                 except re.error as re_err: errors.append((line_num, f"Внутрішня помилка регулярного виразу для {key}: {re_err}")); continue
             license_data[key] = value
             if key in MANDATORY_LICENSES: mandatory_found = True
         if not any(k in license_data for k in MANDATORY_LICENSES):
-            if not errors: errors.append((len(lines) + 1, "No valid mandatory licenses found in the file"))
+            if not errors: errors.append((len(lines) + 1, "У файлі не знайдено дійсних обов’язкових ліцензій"))
         errors.sort(key=lambda x: x[0])
         self.validation_complete.emit(errors, license_data)
 
@@ -666,35 +666,23 @@ class FileValidator(QThread):
 MANDATORY_LICENSES = {
     "CMG_LIC_HOST": r"^\d+@[\w\.\-]+$",
     "SLBSLS_LICENSE_FILE": r"^(\d+@[\w\.\-]+|([a-zA-Z]:\\|[\\/]{1,2})[\w\.\\\/\s\-\(\)]+\.lic)$",
-    "LM_LICENSE_FILE": r"^(\d+@[\w\.\-]+|([a-zA-Z]:\\|[\\/]{1,2})[\w\.\\\/\s\-\(\)]+\.lic)$",
-    "SCPLMD_LICENSE_FILE": r"^([a-zA-Z]:\\|[\\/]{1,2})[\w\.\\\/\s\-\(\)]+\.lic$",
-    "tNavigator_LICENSE_SERVER": r"^([\w\.\-]+(:\d+)?|https?://[\w\.\-:%/]+)(;\S+)*$"
+    "LM_LICENSE_FILE": r"^[a-zA-Z]:\\(?:[^<>:|?*\n\r\\]+\\)*[^<>:|?*\n\r\\]*$",
+    "SCPLMD_LICENSE_FILE": r"^(\d+@[\w\.\-]+|([a-zA-Z]:\\|[\\/]{1,2})[\w\.\\\/\s\-\(\)]+\.lic)$",
+    "tNavigator_LICENSE_SERVER": r"^https:\/\/[a-zA-Z0-9\-\.]+:[0-9]+\/[a-zA-Z0-9\-\/]+\/?$"
 }
 
 
 def generate_ngit_template():
-    return """# NGIT License Configuration File v1.5
-# Lines starting with # are comments.
-# Ensure values are correct for your environment.
-# At least one of the following licenses is typically required.
+    return """###################################################################
+# NGIT License Configuration File v1.5
+# Mandatory licenses (at least one required)
+###################################################################
 
-# Example: Port@Hostname or Port@IP_Address
 CMG_LIC_HOST = 2700@license-server.example.com
-
-# Example: Port@Hostname or a valid file path to a .lic file
-SLBSLS_LICENSE_FILE = C:\\ProgramData\\Schlumberger\\Schlumberger Licensing\\slbsls.lic
-# SLBSLS_LICENSE_FILE = 27027@another-server.local
-
-# Example: Port@Hostname or a valid file path to a .lic file
-LM_LICENSE_FILE = D:\\licenses\\flexlm\\product.lic
-# LM_LICENSE_FILE = 27000@primary-lic-server
-
-# Example: Must be a valid file path to a .lic file
-SCPLMD_LICENSE_FILE = E:\\Licenses\\Company\\scplmd.lic
-
-# Example: Hostname or Hostname:Port or URL (Check required format)
-tNavigator_LICENSE_SERVER = tnav-license.corp.net:5053
-# tNavigator_LICENSE_SERVER = https://tnav-license.cloud.com/auth
+SLBSLS_LICENSE_FILE = C:\\Path\\To\\license.lic
+LM_LICENSE_FILE = 27025@flex-server.company.com
+SCPLMD_LICENSE_FILE = D:\\Licenses\\scplmd_v2.lic
+tNavigator_LICENSE_SERVER = tnav-server:22100
 """
 
 # --- Main Execution ---
