@@ -1,23 +1,3 @@
-#---Imports for program_installer module---
-import json
-import logging
-import pythoncom
-import subprocess
-import winreg
-import fnmatch
-import math
-from pathlib import Path
-from typing import List, Dict, Optional, Set, Callable, Tuple, Any
-from dataclasses import dataclass, field
-import pywin32_system32
-import pywin32_testutil
-import pywin32_bootstrap
-import pywin
-import win32api
-import msilib
-#---End import---
-
-
 import sys
 import os
 import importlib.util
@@ -32,22 +12,25 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QButtonGroup, QComboBox,
     QMenuBar, QAction, QDialog, QTabWidget, QFormLayout,
     QSpinBox, QCheckBox, QLineEdit, QListWidget, QListWidgetItem,
-    QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog
+    QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
+import subprocess
 
-
+# Assuming license_manager.py contains the LicenseManager class
 try:
     from license_manager import LicenseManager
 except ImportError:
-    print("WARNING: Could not import LicenseManager. License functionality will be unavailable.")
+    # Provide a dummy class if the import fails, so the app can still run partially
+    # You might want to show a warning to the user as well
+    print("ПОПЕРЕДЖЕННЯ: Не вдалося імпортувати Менеджер Ліцензій. Функціонал ліцензій буде недоступний.")
     class LicenseManager(QMainWindow): # Dummy class
         log_signal = pyqtSignal(str, str)
         def __init__(self, parent=None):
             super().__init__(parent)
-            self.setWindowTitle("License Manager (Unavailable)")
+            self.setWindowTitle("Менеджер Ліцензій (Недоступний)")
             layout = QVBoxLayout()
-            label = QLabel("Error: License Manager module not found.")
+            label = QLabel("Помилка: Модуль Менеджера Ліцензій не знайдено.")
             layout.addWidget(label)
             widget = QWidget()
             widget.setLayout(layout)
@@ -57,6 +40,7 @@ except ImportError:
 # --- Configuration File Path ---
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.yaml")
+LAST_RUN_FILE = os.path.join(CONFIG_DIR, "last_run.txt")
 os.makedirs(CONFIG_DIR, exist_ok=True)
 
 # --- Default Settings ---
@@ -75,7 +59,32 @@ DEFAULT_SETTINGS = {
         'max_file_size_mb': 100,
         'allowed_extensions': ['.lnk'],
         'allowed_filenames': []
+    },
+    'schedule': {
+        'type': 'disabled',  # 'вимкнено', 'щодня', 'щотижня', 'щомісяця', 'щокварталу'
+        'time_start': '15:00',
+        'time_end': '17:00',
+        'day_of_week': 1,  # 1=Понеділок, 7=Неділя
+        'day_of_month': 1,
+        'quarter_month': 1, # 1, 2, 3
+        'quarter_day': 1
     }
+}
+
+SCHEDULE_TYPE_MAP = {
+    "disabled": "Вимкнено",
+    "daily": "Щодня",
+    "weekly": "Щотижня",
+    "monthly": "Щомісяця",
+    "quarterly": "Щокварталу",
+}
+
+REVERSE_SCHEDULE_TYPE_MAP = {
+    "Вимкнено": "disabled",
+    "Щодня": "daily",
+    "Щотижня": "weekly",
+    "Щомісяця": "monthly",
+    "Щокварталу": "quarterly",
 }
 
 # --- Module Loading Configuration ---
@@ -84,14 +93,20 @@ EXPECTED_MODULES = {
     "license_manager": {
         "filename": "license_manager.py",
         "class_name": "LicenseManager", # Expected main class in the module
-        "menu_text": "&Запустити модуль",
+        "menu_text": "&Керування Ліцензіями...",
         "menu_object_name": "manageLicenseAction" # To find the action later
     },
     "program_install": {
         "filename": "program_install.py",
         "class_name": "ProgramInstallerUI", # Assuming this will be the class name
-        "menu_text": "Запустити модуль",
+        "menu_text": "Встановити Нову Програму...",
         "menu_object_name": "installProgramAction"
+    },
+    "license_checker": {
+        "filename": "license_test.py",
+        "class_name": "LicenseCheckerUI",
+        "menu_text": "Перевірка стану ліцензії...",
+        "menu_object_name": "checkLicenseStateAction"
     },
     # Add more modules here if needed
 }
@@ -103,7 +118,7 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.current_settings = current_settings.copy()
-        self.setWindowTitle("Налаштування")
+        self.setWindowTitle("Налаштування Додатку")
         self.setMinimumWidth(500)
 
         layout = QVBoxLayout(self)
@@ -112,6 +127,7 @@ class SettingsDialog(QDialog):
 
         self.create_general_tab()
         self.create_file_manager_tab()
+        self.create_schedule_tab()
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
         self.button_box.button(QDialogButtonBox.Apply).clicked.connect(self.apply_changes)
@@ -120,32 +136,33 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.button_box)
 
         self.load_settings_to_ui()
+        self.changes_applied = False
 
     def create_general_tab(self):
         tab_general = QWidget()
         layout = QVBoxLayout(tab_general)
 
-        app_group = QGroupBox("Поведінка таймера")
+        app_group = QGroupBox("Поведінка Додатку")
         app_layout = QFormLayout(app_group)
-        self.chk_enable_autostart = QCheckBox("Автоматичний старт таймера при запуску")
+        self.chk_enable_autostart = QCheckBox("Автоматично запускати таймер при старті")
         app_layout.addRow(self.chk_enable_autostart)
 
-        timer_group = QGroupBox("Налаштування таймера")
+        timer_group = QGroupBox("Налаштування Таймера")
         timer_layout = QFormLayout(timer_group)
-        self.chk_override_timer = QCheckBox("Встановити користувацьке значення")
+        self.chk_override_timer = QCheckBox("Перевизначити тривалість таймера за замовчуванням")
         self.spin_default_timer = QSpinBox()
         self.spin_default_timer.setRange(1, 60)
-        self.spin_default_timer.setSuffix(" минут")
+        self.spin_default_timer.setSuffix(" хвилин")
         self.chk_override_timer.toggled.connect(self.spin_default_timer.setEnabled)
         timer_layout.addRow(self.chk_override_timer)
         timer_layout.addRow("Тривалість за замовчуванням:", self.spin_default_timer)
 
-        drive_group = QGroupBox("Налаштування дисків")
+        drive_group = QGroupBox("Налаштування Дисків")
         drive_layout = QVBoxLayout(drive_group)
         drive_layout.addWidget(QLabel("Резервний диск завжди C:"))
 
         self.rb_drive_d = QRadioButton("Встановити основний диск D:")
-        self.rb_drive_auto = QRadioButton("Автоматичне визначення наступного доступного диска")
+        self.rb_drive_auto = QRadioButton("Автоматично визначити наступний доступний диск (незнімний)")
         drive_layout.addWidget(self.rb_drive_d)
         drive_layout.addWidget(self.rb_drive_auto)
 
@@ -162,16 +179,16 @@ class SettingsDialog(QDialog):
         self.spin_max_size = QSpinBox()
         self.spin_max_size.setRange(1, 10240)
         self.spin_max_size.setSuffix(" MB")
-        layout.addRow("Максимальний розмір файлу:", self.spin_max_size)
+        layout.addRow("Макс. розмір файлу:", self.spin_max_size)
 
         ext_layout = QHBoxLayout()
         self.list_extensions = QListWidget()
         self.list_extensions.setFixedHeight(80)
         ext_controls_layout = QVBoxLayout()
         self.edit_add_ext = QLineEdit()
-        self.edit_add_ext.setPlaceholderText(".example")
+        self.edit_add_ext.setPlaceholderText(".приклад")
         btn_add_ext = QPushButton("Додати")
-        btn_rem_ext = QPushButton("Видалити вибране")
+        btn_rem_ext = QPushButton("Видалити Вибране")
         btn_add_ext.clicked.connect(self.add_extension)
         btn_rem_ext.clicked.connect(self.remove_extension)
         ext_controls_layout.addWidget(self.edit_add_ext)
@@ -179,16 +196,16 @@ class SettingsDialog(QDialog):
         ext_controls_layout.addWidget(btn_rem_ext)
         ext_layout.addWidget(self.list_extensions)
         ext_layout.addLayout(ext_controls_layout)
-        layout.addRow("Пропустити розширення:", ext_layout)
+        layout.addRow("Пропускати розширення:", ext_layout)
 
         name_layout = QHBoxLayout()
         self.list_filenames = QListWidget()
         self.list_filenames.setFixedHeight(80)
         name_controls_layout = QVBoxLayout()
         self.edit_add_name = QLineEdit()
-        self.edit_add_name.setPlaceholderText("імя_файлу_без_розширення")
+        self.edit_add_name.setPlaceholderText("ім'я_файлу_без_розширення")
         btn_add_name = QPushButton("Додати")
-        btn_rem_name = QPushButton("Видалити вибране")
+        btn_rem_name = QPushButton("Видалити Вибране")
         btn_add_name.clicked.connect(self.add_filename)
         btn_rem_name.clicked.connect(self.remove_filename)
         name_controls_layout.addWidget(self.edit_add_name)
@@ -196,9 +213,101 @@ class SettingsDialog(QDialog):
         name_controls_layout.addWidget(btn_rem_name)
         name_layout.addWidget(self.list_filenames)
         name_layout.addLayout(name_controls_layout)
-        layout.addRow("Пропустити файли:", name_layout)
+        layout.addRow("Пропускати імена файлів:", name_layout)
 
-        self.tabs.addTab(tab_fm, "Фільтри для файлів")
+        self.tabs.addTab(tab_fm, "Фільтри Файлів")
+
+    def create_schedule_tab(self):
+        tab_schedule = QWidget()
+        self.schedule_layout = QFormLayout(tab_schedule)
+
+        self.schedule_type_combo = QComboBox()
+        self.schedule_type_combo.addItems(["Вимкнено", "Щодня", "Щотижня", "Щомісяця", "Щокварталу"])
+        self.schedule_type_combo.currentIndexChanged.connect(self.update_schedule_ui)
+        self.schedule_layout.addRow("Тип розкладу:", self.schedule_type_combo)
+
+        self.schedule_time_range_widget = QWidget()
+        time_range_layout = QHBoxLayout(self.schedule_time_range_widget)
+        time_range_layout.setContentsMargins(0, 0, 0, 0)
+        self.schedule_time_start_edit = QTimeEdit()
+        self.schedule_time_start_edit.setDisplayFormat("HH:mm")
+        self.schedule_time_end_edit = QTimeEdit()
+        self.schedule_time_end_edit.setDisplayFormat("HH:mm")
+        time_range_layout.addWidget(self.schedule_time_start_edit)
+        time_range_layout.addWidget(QLabel("до"))
+        time_range_layout.addWidget(self.schedule_time_end_edit)
+        self.schedule_layout.addRow("Діапазон часу виконання:", self.schedule_time_range_widget)
+
+        # --- Weekly ---
+        self.schedule_day_of_week_combo = QComboBox()
+        self.schedule_day_of_week_combo.addItems(["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"])
+        self.schedule_day_of_week_row = QWidget()
+        self.schedule_day_of_week_row_layout = QHBoxLayout(self.schedule_day_of_week_row)
+        self.schedule_day_of_week_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.schedule_day_of_week_row_layout.addWidget(self.schedule_day_of_week_combo)
+        self.schedule_layout.addRow("День тижня:", self.schedule_day_of_week_row)
+
+
+        # --- Monthly ---
+        self.schedule_day_of_month_spin = QSpinBox()
+        self.schedule_day_of_month_spin.setRange(1, 31)
+        self.schedule_day_of_month_row = QWidget()
+        self.schedule_day_of_month_row_layout = QHBoxLayout(self.schedule_day_of_month_row)
+        self.schedule_day_of_month_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.schedule_day_of_month_row_layout.addWidget(self.schedule_day_of_month_spin)
+        self.schedule_layout.addRow("День місяця:", self.schedule_day_of_month_row)
+
+        # --- Quarterly ---
+        self.schedule_quarter_month_combo = QComboBox()
+        self.schedule_quarter_month_combo.addItems(["Перший", "Другий", "Третій"])
+        self.schedule_quarter_day_spin = QSpinBox()
+        self.schedule_quarter_day_spin.setRange(1, 31)
+        self.schedule_quarter_row = QWidget()
+        self.schedule_quarter_row_layout = QHBoxLayout(self.schedule_quarter_row)
+        self.schedule_quarter_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.schedule_quarter_row_layout.addWidget(QLabel("Місяць кварталу:"))
+        self.schedule_quarter_row_layout.addWidget(self.schedule_quarter_month_combo)
+        self.schedule_quarter_row_layout.addWidget(QLabel("День місяця:"))
+        self.schedule_quarter_row_layout.addWidget(self.schedule_quarter_day_spin)
+        self.schedule_layout.addRow(self.schedule_quarter_row)
+
+
+        self.tabs.addTab(tab_schedule, "Розклад")
+
+    def update_schedule_ui(self, index):
+        schedule_type = self.schedule_type_combo.itemText(index)
+
+        # Visibility flags based on selection
+        is_daily = (schedule_type == "Щодня")
+        is_weekly = (schedule_type == "Щотижня")
+        is_monthly = (schedule_type == "Щомісяця")
+        is_quarterly = (schedule_type == "Щокварталу")
+        is_disabled = (schedule_type == "Вимкнено")
+
+        # Time range is visible for all except 'disabled'
+        self.schedule_time_range_widget.setVisible(not is_disabled)
+        # Also toggle the label for the time range
+        time_range_label = self.schedule_layout.labelForField(self.schedule_time_range_widget)
+        if time_range_label:
+            time_range_label.setVisible(not is_disabled)
+
+        # Toggle weekly settings
+        self.schedule_day_of_week_row.setVisible(is_weekly)
+        day_of_week_label = self.schedule_layout.labelForField(self.schedule_day_of_week_row)
+        if day_of_week_label:
+            day_of_week_label.setVisible(is_weekly)
+
+        # Toggle monthly settings
+        self.schedule_day_of_month_row.setVisible(is_monthly)
+        day_of_month_label = self.schedule_layout.labelForField(self.schedule_day_of_month_row)
+        if day_of_month_label:
+            day_of_month_label.setVisible(is_monthly)
+
+        # Toggle quarterly settings
+        self.schedule_quarter_row.setVisible(is_quarterly)
+        quarterly_label = self.schedule_layout.labelForField(self.schedule_quarter_row)
+        if quarterly_label:
+            quarterly_label.setVisible(is_quarterly)
 
     def add_extension(self):
         ext = self.edit_add_ext.text().strip().lower()
@@ -207,7 +316,7 @@ class SettingsDialog(QDialog):
                 self.list_extensions.addItem(ext)
                 self.edit_add_ext.clear()
         else:
-            QMessageBox.warning(self, "Неправильне розширення", "Розширення повинно починатися з “.” і не бути порожнім.")
+            QMessageBox.warning(self, "Неправильне розширення", "Розширення повинно починатися з '.' і бути не порожнім.")
 
     def remove_extension(self):
         for item in self.list_extensions.selectedItems():
@@ -251,6 +360,27 @@ class SettingsDialog(QDialog):
         self.list_filenames.clear()
         self.list_filenames.addItems(fm_cfg.get('allowed_filenames', []))
 
+        schedule_cfg = self.current_settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        schedule_type_en = schedule_cfg.get('type', 'disabled')
+        
+        schedule_type_ua = SCHEDULE_TYPE_MAP.get(schedule_type_en, "Вимкнено")
+        
+        index = self.schedule_type_combo.findText(schedule_type_ua)
+        if index != -1:
+            self.schedule_type_combo.setCurrentIndex(index)
+
+        time_start_str = schedule_cfg.get('time_start', '22:00')
+        self.schedule_time_start_edit.setTime(QTime.fromString(time_start_str, "HH:mm"))
+        time_end_str = schedule_cfg.get('time_end', '23:00')
+        self.schedule_time_end_edit.setTime(QTime.fromString(time_end_str, "HH:mm"))
+        
+        self.schedule_day_of_week_combo.setCurrentIndex(schedule_cfg.get('day_of_week', 1) - 1)
+        self.schedule_day_of_month_spin.setValue(schedule_cfg.get('day_of_month', 1))
+        self.schedule_quarter_month_combo.setCurrentIndex(schedule_cfg.get('quarter_month', 1) - 1)
+        self.schedule_quarter_day_spin.setValue(schedule_cfg.get('quarter_day', 1))
+
+        self.update_schedule_ui(self.schedule_type_combo.currentIndex())
+
     def get_settings_from_ui(self):
         updated_settings = {
             'application': {
@@ -267,6 +397,15 @@ class SettingsDialog(QDialog):
                 'max_file_size_mb': self.spin_max_size.value(),
                 'allowed_extensions': sorted([self.list_extensions.item(i).text() for i in range(self.list_extensions.count())]),
                 'allowed_filenames': sorted([self.list_filenames.item(i).text() for i in range(self.list_filenames.count())])
+            },
+            'schedule': {
+                'type': REVERSE_SCHEDULE_TYPE_MAP.get(self.schedule_type_combo.currentText(), "disabled"),
+                'time_start': self.schedule_time_start_edit.time().toString("HH:mm"),
+                'time_end': self.schedule_time_end_edit.time().toString("HH:mm"),
+                'day_of_week': self.schedule_day_of_week_combo.currentIndex() + 1,
+                'day_of_month': self.schedule_day_of_month_spin.value(),
+                'quarter_month': self.schedule_quarter_month_combo.currentIndex() + 1,
+                'quarter_day': self.schedule_quarter_day_spin.value()
             }
         }
         return updated_settings
@@ -275,9 +414,11 @@ class SettingsDialog(QDialog):
         new_settings = self.get_settings_from_ui()
         self.current_settings = new_settings
         self.settings_applied.emit(new_settings)
+        self.changes_applied = True
 
     def accept(self):
-        self.apply_changes()
+        if not self.changes_applied:
+            self.apply_changes()
         super().accept()
 
 
@@ -314,7 +455,7 @@ class FileMover(QThread):
                  effective_base_path = fallback_base_path
             else:
                 self.update_signal.emit(f"❌ Критична помилка: Цільовий диск {self.target_drive}: та резервний {self.fallback_drive}: недоступні.")
-                self.finished_signal.emit(0, 0, "Error: No accessible drives")
+                self.finished_signal.emit(0, 0, "Помилка: Немає доступних дисків")
                 return
 
             year = now.strftime("%Y")
@@ -370,17 +511,259 @@ class FileMover(QThread):
 
         except Exception as e:
             self.update_signal.emit(f"❌ Критична помилка потоку: {str(e)}")
-            self.finished_signal.emit(0, 0, "Error in thread")
+            self.finished_signal.emit(0, 0, "Помилка в потоці")
 
     def check_drive_exists(self, drive_letter):
         drive = f"{drive_letter}:\\"
         return os.path.exists(drive)
 
+# --- Run Statistics Dialog ---
+class RunStatisticsDialog(QDialog):
+    def __init__(self, success, errors, path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Статистика виконання")
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout(self)
+
+        stats_text = f"Успішно переміщено: {success}\nПомилок: {errors}"
+        if not path.startswith("Error"):
+            stats_text += f"\nВихідна папка: {path}"
+
+        stats_label = QLabel(stats_text)
+        layout.addWidget(stats_label)
+
+        button_layout = QHBoxLayout()
+        self.open_folder_btn = QPushButton("Відкрити вихідну папку")
+        self.open_folder_btn.clicked.connect(lambda: self.open_folder(path))
+        if path.startswith("Error"):
+            self.open_folder_btn.setEnabled(False)
+        button_layout.addWidget(self.open_folder_btn)
+
+        self.close_btn = QPushButton("Закрити")
+        self.close_btn.clicked.connect(self.close)
+        button_layout.addWidget(self.close_btn)
+
+        layout.addLayout(button_layout)
+
+        self.auto_close_timer = QTimer(self)
+        self.auto_close_timer.setSingleShot(True)
+        self.auto_close_timer.timeout.connect(self.close)
+        self.auto_close_timer.start(60000) # 1 minute
+
+    def open_folder(self, path):
+        try:
+            os.startfile(path)
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити папку: {e}")
+
+
+# --- Main Window ---
+# --- End of content ---
+
+def _merge_dicts(base, updates):
+    for key, value in updates.items():
+        if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+            _merge_dicts(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+def load_settings():
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            loaded_settings = yaml.safe_load(f)
+            if loaded_settings:
+                merged = _merge_dicts(DEFAULT_SETTINGS.copy(), loaded_settings)
+                return merged
+            else:
+                return DEFAULT_SETTINGS.copy()
+    except FileNotFoundError:
+        print(f"Файл конфігурації не знайдено за шляхом {CONFIG_FILE}. Використовуються стандартні налаштування.")
+        return DEFAULT_SETTINGS.copy()
+    except yaml.YAMLError as e:
+        print(f"Помилка розбору файлу конфігурації {CONFIG_FILE}: {e}. Використовуються стандартні налаштування.")
+        return DEFAULT_SETTINGS.copy()
+    except Exception as e:
+        print(f"Неочікувана помилка завантаження конфігурації {CONFIG_FILE}: {e}. Використовуються стандартні налаштування.")
+        return DEFAULT_SETTINGS.copy()
+
+def find_next_available_drive():
+    available_drives = []
+    try:
+        partitions = psutil.disk_partitions(all=False)
+        for p in partitions:
+            if platform.system() == "Windows" and re.match("^[A-Z]:\\?$", p.mountpoint) and p.mountpoint[0] != 'C':
+                if p.fstype and 'cdrom' not in p.opts.lower():
+                     if 'removable' not in p.opts.lower():
+                         if os.path.exists(p.mountpoint):
+                              available_drives.append(p.mountpoint[0])
+        available_drives.sort()
+        return available_drives[0] if available_drives else None
+    except Exception as e:
+        print(f"⚠️ Помилка визначення дисків: {e}. Використовується резервний варіант.")
+        return None
+
+def is_scheduled_day(schedule_cfg):
+    now = datetime.now()
+    schedule_type = schedule_cfg.get('type', 'disabled')
+
+    if schedule_type == 'daily':
+        return True
+    elif schedule_type == 'weekly':
+        return now.isoweekday() == schedule_cfg.get('day_of_week', 1)
+    elif schedule_type == 'monthly':
+        return now.day == schedule_cfg.get('day_of_month', 1)
+    elif schedule_type == 'quarterly':
+        quarter_month = schedule_cfg.get('quarter_month', 1)  # 1, 2, 3
+        quarter_day = schedule_cfg.get('quarter_day', 1)
+        month_of_quarter = (now.month - 1) % 3 + 1
+        return month_of_quarter == quarter_month and now.day == quarter_day
+    return False
+
+# --- Background Task Runner ---
+class BackgroundTaskRunner:
+    def __init__(self):
+        self.settings = load_settings()
+        self.mover_thread = None
+        self.selected_drive = 'C'
+        self.auto_configure_drive()
+
+    def log_message(self, message):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"[{timestamp}] {message}")
+
+    def load_last_run_date(self):
+        try:
+            with open(LAST_RUN_FILE, 'r') as f:
+                date_str = f.read().strip()
+                return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (FileNotFoundError, ValueError):
+            return None
+
+    def save_last_run_date(self, date):
+        try:
+            with open(LAST_RUN_FILE, 'w') as f:
+                f.write(date.strftime('%Y-%m-%d'))
+        except Exception as e:
+            self.log_message(f"❌ Помилка збереження дати останнього запуску: {e}")
+
+    def auto_configure_drive(self):
+        policy = self.settings.get('drives', {}).get('main_drive_policy', 'D')
+        initial_drive = None
+        d_exists = os.path.exists("D:\\")
+        e_exists = os.path.exists("E:\\")
+
+        if policy == 'D' and d_exists:
+            initial_drive = 'D'
+        elif policy == 'auto':
+            detected_drive = find_next_available_drive()
+            if detected_drive:
+                initial_drive = detected_drive
+            elif d_exists:
+                self.log_message("ℹ️ Автовизначення не вдалося, використовується диск D:")
+                initial_drive = 'D'
+        elif policy == 'D' and not d_exists and e_exists:
+            self.log_message("ℹ️ Встановлено політику 'D', але диск D: не знайдено. Використовується диск E:")
+            initial_drive = 'E'
+        elif e_exists and not initial_drive:
+            self.log_message(f"ℹ️ Політика '{policy}' не спрацювала, використовується диск E:")
+            initial_drive = 'E'
+
+        if initial_drive:
+            self.selected_drive = initial_drive
+        else:
+            self.selected_drive = 'C'
+            if policy != 'C':
+                self.log_message("⚠️ Не знайдено відповідного диска. Використовується диск C:")
+        self.log_message(f"⚙️ Основний диск встановлено на: {self.selected_drive}:")
+
+    def check_and_run(self):
+        schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        schedule_type = schedule_cfg.get('type', 'disabled')
+
+        if schedule_type == 'disabled':
+            self.log_message("ℹ️ Розклад вимкнено. Вихід.")
+            return False
+
+        now = datetime.now()
+        today = now.date()
+        last_run_date = self.load_last_run_date()
+
+        if not is_scheduled_day(schedule_cfg):
+            self.log_message("ℹ️ Не запланований день. Вихід.")
+            return False
+
+        if last_run_date == today:
+            self.log_message("ℹ️ Заплановане завдання вже виконано сьогодні. Вихід.")
+            return False
+
+        start_time = QTime.fromString(schedule_cfg.get('time_start', '22:00'), "HH:mm")
+        end_time = QTime.fromString(schedule_cfg.get('time_end', '23:00'), "HH:mm")
+        current_time = QTime.currentTime()
+
+        run_now = False
+        if start_time <= current_time <= end_time:
+            cpu_usage = psutil.cpu_percent(interval=1)
+            self.log_message(f"ℹ️ У вікні розкладу. ЦП: {cpu_usage}%.")
+            if cpu_usage < 15.0:
+                self.log_message("⏰ Низьке завантаження ЦП. Запуск запланованого завдання.")
+                run_now = True
+        elif current_time > end_time:
+            self.log_message("⚠️ Вікно розкладу пропущено. Запуск завдання зараз.")
+            run_now = True
+
+        if run_now:
+            self.launch_gui_app() # Call the new method to launch GUI
+            self.save_last_run_date(today)
+            return True
+        else:
+            self.log_message("ℹ️ Умови для запуску завдання зараз не виконані. Вихід.")
+            return False
+
+    def launch_gui_app(self):
+        self.log_message("🚀 Запуск графічного інтерфейсу для виконання запланованого завдання...")
+        try:
+            # Determine the path to the current script
+            script_path = os.path.abspath(sys.argv[0])
+            
+            # Use sys.executable to ensure the same Python interpreter is used
+            # Pass a special argument to indicate it's a scheduled run
+            subprocess.Popen([sys.executable, script_path, '--scheduled-run'])
+            
+            # Since we are launching a new process, the background runner can exit
+            QCoreApplication.instance().quit()
+        except Exception as e:
+            self.log_message(f"❌ Помилка запуску графічного інтерфейсу: {e}")
+
+    def start_process(self):
+        if self.mover_thread and self.mover_thread.isRunning():
+            self.log_message("⚠️ Процес вже запущено.")
+            return
+
+        self.log_message(f"\n🚀 Початок переміщення файлів на диск {self.selected_drive}:...")
+        self.mover_thread = FileMover(target_drive=self.selected_drive, fallback_drive='C', settings=self.settings.copy())
+        self.mover_thread.update_signal.connect(self.log_message)
+        self.mover_thread.finished_signal.connect(self.process_finished)
+        self.mover_thread.start()
+
+    def process_finished(self, success, errors, path):
+        self.log_message("\n🏁 Результат:")
+        self.log_message(f"✅ Успішно: {success}")
+        if errors > 0:
+            self.log_message(f"❌ Помилок: {errors}")
+        if not path.startswith("Error"):
+            self.log_message(f"📁 Збережено до: {path}")
+        else:
+            self.log_message(f"❌ {path}")
+        QCoreApplication.instance().quit()
+
+
 # --- Main Window ---
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, is_scheduled_run=False):
         super().__init__()
-        self.settings = self.load_settings()
+        self.settings = load_settings()
         self.mover_thread = None
         # self.license_manager_window = None # Remove this - we'll handle dynamically
         self.loaded_modules = {}  # Stores loaded module classes/functions
@@ -389,37 +772,29 @@ class MainWindow(QMainWindow):
 
         self.auto_start_timer = QTimer(self)
         self.auto_start_timer.timeout.connect(self.update_timer)
+        self.schedule_timer = QTimer(self)
+        self.schedule_timer.timeout.connect(self.check_schedule)
         self.remaining_time = 0
         self.selected_drive = 'C'
         self.d_exists = False
         self.e_exists = False
+        self.last_scheduled_run_date = None
 
         self.initUI()  # Create UI elements first
         self.load_optional_modules()  # Attempt to load modules
         self.update_ui_for_modules()  # Enable/disable menus based on loaded modules
 
         self.apply_settings_to_ui()  # Apply loaded settings to UI
+        self._log_current_schedule_settings(self.settings.get('schedule', DEFAULT_SETTINGS['schedule']))
 
         QTimer.singleShot(500, self.auto_configure_start)  # Existing delayed config
+        self.schedule_timer.start(60000) # Check every minute
 
-    def load_settings(self):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                loaded_settings = yaml.safe_load(f)
-                if loaded_settings:
-                    merged = self._merge_dicts(DEFAULT_SETTINGS.copy(), loaded_settings)
-                    return merged
-                else:
-                    return DEFAULT_SETTINGS.copy()
-        except FileNotFoundError:
-            print(f"Config file not found at {CONFIG_FILE}. Using defaults.")
-            return DEFAULT_SETTINGS.copy()
-        except yaml.YAMLError as e:
-            print(f"Error parsing config file {CONFIG_FILE}: {e}. Using defaults.")
-            return DEFAULT_SETTINGS.copy()
-        except Exception as e:
-            print(f"Unexpected error loading config {CONFIG_FILE}: {e}. Using defaults.")
-            return DEFAULT_SETTINGS.copy()
+        if is_scheduled_run:
+            self.log_message("ℹ️ Запущено за розкладом. Початок процесу переміщення.")
+            self.start_process()
+
+
 
     def get_module_dir(self):
         """Determines the path to the 'modules' directory relative to the script or executable."""
@@ -434,10 +809,10 @@ class MainWindow(QMainWindow):
     def load_optional_modules(self):
         """Scans the module directory and loads any found optional modules."""
         module_dir = self.get_module_dir()
-        self.log_message(f"ℹ️ Перевірка наявності додаткових модулів у: {module_dir}")
+        self.log_message(f"ℹ️ Перевірка додаткових модулів у: {module_dir}")
 
         if not os.path.isdir(module_dir):
-            self.log_message(f"ℹ️ Каталог модулів не знайдено. Пропущено необов'язкові модулі.")
+            self.log_message(f"ℹ️ Папку модулів не знайдено. Пропуск додаткових модулів.")
             return
 
         for key, config in EXPECTED_MODULES.items():
@@ -452,11 +827,11 @@ class MainWindow(QMainWindow):
                     # Load the module using importlib
                     spec = importlib.util.spec_from_file_location(module_name, module_path)
                     if spec is None:
-                        raise ImportError(f"Не вдалося отримати специфікацію для модуля за адресою {module_path}")
+                        raise ImportError(f"Could not get spec for module at {module_path}")
 
                     module = importlib.util.module_from_spec(spec)
                     if module is None:
-                        raise ImportError(f"Не вдалося створити модуль зі специфікації {module_name}")
+                        raise ImportError(f"Could not create module from spec {module_name}")
 
                     # Add to sys.modules BEFORE executing, crucial for relative imports within the module
                     sys.modules[module_name] = module
@@ -466,10 +841,10 @@ class MainWindow(QMainWindow):
                     # Find the expected class within the loaded module
                     if hasattr(module, config["class_name"]):
                         self.loaded_modules[key] = getattr(module, config["class_name"])
-                        self.log_message(f"✅ Успішно завантажено модуль '{key}'.")
+                        self.log_message(f"✅ Модуль '{key}' успішно завантажено.")
                     else:
                         self.log_message(
-                            f"⚠️ Модуль '{key}' завантажений, але необхідний клас '{config['class_name']}' не знайдено.")
+                            f"⚠️ Модуль '{key}' завантажено, але необхідний клас '{config['class_name']}' не знайдено.")
                         # Optional: Clean up sys.modules if class not found?
                         # del sys.modules[module_name]
 
@@ -481,37 +856,17 @@ class MainWindow(QMainWindow):
             else:
                 self.log_message(f"ℹ️ Додатковий модуль '{config['filename']}' не знайдено.")
 
-    def _merge_dicts(self, base, updates):
-        for key, value in updates.items():
-            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                self._merge_dicts(base[key], value)
-            else:
-                base[key] = value
-        return base
+
 
     def save_settings(self):
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 yaml.dump(self.settings, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
         except Exception as e:
-            print(f"Помилка збереження налаштувань до {CONFIG_FILE}: {e}")
-            QMessageBox.critical(self, "Помилка збереження", f"Could not save settings to {CONFIG_FILE}:\n{e}")
+            print(f"Помилка збереження налаштувань у {CONFIG_FILE}: {e}")
+            QMessageBox.critical(self, "Помилка збереження", f"Не вдалося зберегти налаштування у {CONFIG_FILE}:\n{e}")
 
-    def find_next_available_drive(self):
-        available_drives = []
-        try:
-            partitions = psutil.disk_partitions(all=False)
-            for p in partitions:
-                if platform.system() == "Windows" and re.match("^[A-Z]:\\\\?$", p.mountpoint) and p.mountpoint[0] != 'C':
-                    if p.fstype and 'cdrom' not in p.opts.lower():
-                         if 'removable' not in p.opts.lower():
-                             if os.path.exists(p.mountpoint):
-                                  available_drives.append(p.mountpoint[0])
-            available_drives.sort()
-            return available_drives[0] if available_drives else None
-        except Exception as e:
-            self.log_message(f"⚠️ Error detecting drives: {e}. Falling back.")
-            return None
+
 
     def auto_configure_start(self):
         policy = self.settings.get('drives', {}).get('main_drive_policy', 'D')
@@ -522,17 +877,17 @@ class MainWindow(QMainWindow):
         if policy == 'D' and self.d_exists:
             initial_drive = 'D'
         elif policy == 'auto':
-            detected_drive = self.find_next_available_drive()
+            detected_drive = find_next_available_drive()
             if detected_drive:
                 initial_drive = detected_drive
             elif self.d_exists:
-                self.log_message("ℹ️ Auto-detect failed or no suitable drive, falling back to D:")
+                self.log_message("ℹ️ Автовизначення не вдалося або немає відповідного диска, повертаємося до D:")
                 initial_drive = 'D'
         elif policy == 'D' and not self.d_exists and self.e_exists:
-             self.log_message(f"ℹ️ Main drive policy 'D' specified, but D: not found. Falling back to E:")
+             self.log_message(f"ℹ️ Вказано політику основного диска 'D', але D: не знайдено. Повертаємося до E:")
              initial_drive = 'E'
         elif self.e_exists and not initial_drive:
-             self.log_message(f"ℹ️ Main drive policy '{policy}' failed or not applicable, falling back to E:")
+             self.log_message(f"ℹ️ Політика основного диска '{policy}' не вдалася або не застосовна, повертаємося до E:")
              initial_drive = 'E'
 
         if initial_drive:
@@ -540,9 +895,9 @@ class MainWindow(QMainWindow):
         else:
             self.selected_drive = 'C'
             if policy != 'C':
-                self.log_message("⚠️ No suitable main drive found (D:, E:, or auto-detected). Using C:")
+                self.log_message("⚠️ Не знайдено відповідного основного диска (D:, E:, або автовизначеного). Використовується C:")
 
-        self.log_message(f"⚙️ Initial main drive set to: {self.selected_drive}:")
+        self.log_message(f"⚙️ Початковий основний диск встановлено на: {self.selected_drive}:")
         self.update_drive_buttons_visuals()
 
         self.apply_settings_to_ui()
@@ -551,7 +906,7 @@ class MainWindow(QMainWindow):
         if app_settings.get('autostart_timer_enabled', True):
             self.start_auto_timer()
         else:
-             self.log_message("ℹ️ Autostart timer disabled in settings.")
+             self.log_message("ℹ️ Автозапуск таймера вимкнено в налаштуваннях.")
              self.stop_auto_timer(log_disabled=True)
 
 
@@ -628,12 +983,12 @@ class MainWindow(QMainWindow):
             self.module_actions[install_key] = install_program_action
         else:
             # Optional: Add a placeholder if the config is missing entirely
-            placeholder_action = QAction("Install (Not Configured)", self)
+            placeholder_action = QAction("Встановлення (Не налаштовано)", self)
             placeholder_action.setEnabled(False)
             install_menu.addAction(placeholder_action)
 
         # --- License Menu ---
-        license_menu = menubar.addMenu('&Встановлення ліцензій')
+        license_menu = menubar.addMenu('&Ліцензія')
         license_key = "license_manager"
         if license_key in EXPECTED_MODULES:
             config = EXPECTED_MODULES[license_key]
@@ -646,9 +1001,24 @@ class MainWindow(QMainWindow):
             license_menu.addAction(manage_license_action)
             self.module_actions[license_key] = manage_license_action
         else:
-            placeholder_action = QAction("License (Not Configured)", self)
+            placeholder_action = QAction("Ліцензія (Не налаштовано)", self)
             placeholder_action.setEnabled(False)
             license_menu.addAction(placeholder_action)
+
+        # --- Tools Menu (for new modules) ---
+        tools_menu = menubar.addMenu('&Інструменти')
+        
+        # License Checker
+        checker_key = "license_checker"
+        if checker_key in EXPECTED_MODULES:
+            config = EXPECTED_MODULES[checker_key]
+            check_license_action = QAction(config["menu_text"], self)
+            check_license_action.setObjectName(config["menu_object_name"])
+            check_license_action.triggered.connect(
+                lambda checked=False, key=checker_key: self.open_module_window(key))
+            check_license_action.setEnabled(False)  # Initially disabled
+            tools_menu.addAction(check_license_action)
+            self.module_actions[checker_key] = check_license_action
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -690,22 +1060,22 @@ class MainWindow(QMainWindow):
         """Opens a dialog to select .py files and copies them to the standard module directory."""
         source_files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Module Files to Import",
+            "Виберіть файли модулів для імпорту",
             os.path.expanduser("~"),  # Start in user's home directory or last path
-            "Python files (*.py);;All files (*.*)"
+            "Файли Python (*.py);;Всі файли (*.*)"
         )
 
         if not source_files:
-            self.log_message("ℹ️ Module import cancelled by user.")
+            self.log_message("ℹ️ Імпорт модуля скасовано користувачем.")
             return
 
         target_dir = self.get_module_dir()  # Get ./modules path
         try:
             os.makedirs(target_dir, exist_ok=True)  # Ensure the directory exists
         except OSError as e:
-            self.log_message(f"❌ Critical Error: Could not create module directory '{target_dir}': {e}")
-            QMessageBox.critical(self, "Import Error",
-                                 f"Failed to create the target module directory:\n{target_dir}\n\n{e}")
+            self.log_message(f"❌ Критична помилка: Не вдалося створити папку модуля '{target_dir}': {e}")
+            QMessageBox.critical(self, "Помилка імпорту",
+                                 f"Не вдалося створити цільову папку модуля:\n{target_dir}\n\n{e}")
             return
 
         copied_count = 0
@@ -721,33 +1091,33 @@ class MainWindow(QMainWindow):
             if os.path.exists(dest_path):
                 reply = QMessageBox.question(
                     self,
-                    "Confirm Overwrite",
-                    f"The module '{filename}' already exists in the standard folder.\nDo you want to overwrite it?",
+                    "Підтвердити перезапис",
+                    f"Модуль '{filename}' вже існує в стандартній папці.\nВи хочете перезаписати його?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No  # Default to No
                 )
                 if reply == QMessageBox.No:
-                    self.log_message(f"⏭️ Skipped overwrite for: {filename}")
+                    self.log_message(f"⏭️ Пропущено перезапис для: {filename}")
                     skipped_count += 1
                     continue
 
             # Attempt to copy
             try:
                 shutil.copy2(src_path, dest_path)  # copy2 preserves metadata
-                self.log_message(f"✅ Imported: {filename}")
+                self.log_message(f"✅ Імпортовано: {filename}")
                 copied_count += 1
                 modules_changed = True
             except Exception as e:
-                self.log_message(f"❌ Error importing '{filename}': {e}")
+                self.log_message(f"❌ Помилка імпорту '{filename}': {e}")
                 error_count += 1
 
-        summary = f"🏁 Import process finished. Copied: {copied_count}, Skipped: {skipped_count}, Errors: {error_count}."
+        summary = f"🏁 Процес імпорту завершено. Скопійовано: {copied_count}, Пропущено: {skipped_count}, Помилок: {error_count}."
         self.log_message(summary)
-        QMessageBox.information(self, "Import Complete", summary)
+        QMessageBox.information(self, "Імпорт завершено", summary)
 
         # Reload modules if any file was successfully copied
         if modules_changed:
-            self.log_message("🔄 Reloading modules after import...")
+            self.log_message("🔄 Перезавантаження модулів після імпорту...")
             self.reload_modules_and_update_ui()
 
     def update_ui_for_modules(self):
@@ -782,12 +1152,12 @@ class MainWindow(QMainWindow):
                     module_window_instance.show()
 
             except Exception as e:
-                self.log_message(f"❌ Error instantiating or showing window for module '{module_key}': {e}")
-                QMessageBox.critical(self, "Module Error", f"Could not launch the '{module_key}' module window.\n\n{e}")
+                self.log_message(f"❌ Помилка створення екземпляра або відображення вікна для модуля '{module_key}': {e}")
+                QMessageBox.critical(self, "Помилка модуля", f"Не вдалося запустити вікно модуля '{module_key}'.\n\n{e}")
         else:
-            self.log_message(f"⚠️ Attempted to open module '{module_key}', but it is not loaded.")
-            QMessageBox.warning(self, "Module Not Available",
-                                f"The required module '{module_key}' was not found or failed to load.")
+            self.log_message(f"⚠️ Спроба відкрити модуль '{module_key}', але він не завантажений.")
+            QMessageBox.warning(self, "Модуль недоступний",
+                                f"Необхідний модуль '{module_key}' не знайдено або не вдалося завантажити.")
 
     def reload_modules_and_update_ui(self):
         """Clears, reloads modules, and updates the UI accordingly."""
@@ -796,13 +1166,13 @@ class MainWindow(QMainWindow):
         for key in keys_to_close:
             window = self.module_windows.pop(key, None)
             if window and window.isVisible():
-                self.log_message(f"Attempting to close window for module '{key}'...")
+                self.log_message(f"Спроба закрити вікно для модуля '{key}'...")
                 try:
                     # Disconnect signals maybe? Depends on module design
                     window.close()
                     # window.deleteLater() # More aggressive cleanup?
                 except Exception as e:
-                    self.log_message(f"Error closing window for '{key}': {e}")
+                    self.log_message(f"Помилка закриття вікна для '{key}': {e}")
             elif window:
                 # window.deleteLater() # Cleanup non-visible too?
                 pass
@@ -813,7 +1183,7 @@ class MainWindow(QMainWindow):
         # Make copies of keys before iterating if deleting during iteration
         loaded_keys = list(self.loaded_modules.keys())
         self.loaded_modules.clear()
-        self.log_message(f"Cleared internal module references: {loaded_keys}")
+        self.log_message(f"Очищено внутрішні посилання на модулі: {loaded_keys}")
 
         # 3. Attempt to clean up sys.modules (Use the specific names we created)
         # This might STILL not be enough for C extensions!
@@ -825,21 +1195,51 @@ class MainWindow(QMainWindow):
                 modules_to_delete.append(mod_name)
 
         for mod_name in modules_to_delete:
-            self.log_message(f"Removing '{mod_name}' from sys.modules...")
+            self.log_message(f"Видалення '{mod_name}' з sys.modules...")
             try:
                 del sys.modules[mod_name]
             except KeyError:
                 pass  # Already gone
 
         self.update_ui_for_modules()
-        self.log_message("--- Module Reload Finished ---")
+        self.log_message("--- Перезавантаження модулів завершено ---")
 
+
+    def _log_current_schedule_settings(self, schedule_cfg):
+        schedule_type_en = schedule_cfg.get('type', 'disabled')
+        schedule_type_ua = SCHEDULE_TYPE_MAP.get(schedule_type_en, "Вимкнено")
+
+        log_str = f"ℹ️ Розклад встановлено: {schedule_type_ua}"
+        if schedule_type_en != 'disabled':
+            time_start = schedule_cfg.get('time_start', '22:00')
+            time_end = schedule_cfg.get('time_end', '23:00')
+            log_str += f", Час: {time_start}-{time_end}"
+
+            if schedule_type_en == 'weekly':
+                day_of_week_index = schedule_cfg.get('day_of_week', 1) - 1
+                day_of_week_ua = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"][day_of_week_index]
+                log_str += f", День тижня: {day_of_week_ua}"
+            elif schedule_type_en == 'monthly':
+                day_of_month = schedule_cfg.get('day_of_month', 1)
+                log_str += f", День місяця: {day_of_month}"
+            elif schedule_type_en == 'quarterly':
+                quarter_month_index = schedule_cfg.get('quarter_month', 1) - 1
+                quarter_month_ua = ["Перший", "Другий", "Третій"][quarter_month_index]
+                quarter_day = schedule_cfg.get('quarter_day', 1)
+                log_str += f", Місяць кварталу: {quarter_month_ua}, День: {quarter_day}"
+        
+        self.log_message(log_str)
 
     def handle_settings_applied(self, new_settings):
         self.settings = new_settings
         self.save_settings()
         self.apply_settings_to_ui()
         self.log_message("⚙️ Налаштування застосовано.")
+
+        # Log schedule settings
+        schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        self._log_current_schedule_settings(schedule_cfg)
+
         if not self.auto_start_timer.isActive():
             app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
             if not app_settings.get('autostart_timer_enabled', True):
@@ -855,7 +1255,7 @@ class MainWindow(QMainWindow):
 
 
     def show_install_placeholder(self):
-        QMessageBox.information(self, "Install Programs", "This feature is not yet implemented.")
+        QMessageBox.information(self, "Встановлення програм", "Ця функція ще не реалізована.")
 
 
     def open_license_manager(self):
@@ -871,9 +1271,9 @@ class MainWindow(QMainWindow):
                 # self.license_manager_window.log_signal.connect(self.handle_license_log)
                 self.license_manager_window.show()
             except ImportError:
-                 QMessageBox.critical(self, "Error", "License Manager module could not be loaded.")
+                 QMessageBox.critical(self, "Помилка", "Модуль Менеджера Ліцензій не вдалося завантажити.")
             except Exception as e:
-                 QMessageBox.critical(self, "Error", f"Failed to open License Manager:\n{e}")
+                 QMessageBox.critical(self, "Помилка", f"Не вдалося відкрити Менеджер Ліцензій:\n{e}")
 
     # Optional: Slot to handle logs from License Manager
     # def handle_license_log(self, level, message):
@@ -931,7 +1331,7 @@ class MainWindow(QMainWindow):
             # Check if autostart is globally disabled by settings before starting
             app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
             if not app_settings.get('autostart_timer_enabled', True):
-                 self.log_message("ℹ️ Timer cannot be started manually when autostart is disabled in settings.")
+                 self.log_message("ℹ️ Таймер не можна запустити вручну, коли автозапуск вимкнено в налаштуваннях.")
                  # Optionally show a QMessageBox here too
                  return
             self.start_auto_timer()
@@ -953,7 +1353,7 @@ class MainWindow(QMainWindow):
         # Explicitly check the setting again before starting
         app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
         if not app_settings.get('autostart_timer_enabled', True):
-             self.log_message("ℹ️ Timer start prevented by application settings (Autostart disabled).")
+             self.log_message("ℹ️ Запуск таймера заблоковано налаштуваннями програми (Автозапуск вимкнено).")
              self.stop_auto_timer(log_disabled=True) # Ensure UI reflects disabled state
              return
 
@@ -1001,6 +1401,48 @@ class MainWindow(QMainWindow):
         return f"{mins:02}:{secs:02}"
 
 
+
+    def check_schedule(self):
+        schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        schedule_type = schedule_cfg.get('type', 'disabled')
+
+        if schedule_type == 'disabled':
+            return
+
+        now = datetime.now()
+        today = now.date()
+
+        # Reset last run date if it's a new day.
+        if self.last_scheduled_run_date and self.last_scheduled_run_date < today:
+            self.last_scheduled_run_date = None
+
+        # Check if today is a scheduled day
+        if not is_scheduled_day(schedule_cfg):
+            return
+
+        # Have we already run for today's schedule?
+        if self.last_scheduled_run_date == today:
+            return
+
+        start_time = QTime.fromString(schedule_cfg.get('time_start', '22:00'), "HH:mm")
+        end_time = QTime.fromString(schedule_cfg.get('time_end', '23:00'), "HH:mm")
+        current_time = QTime.currentTime()
+
+        # If we are within the execution window, check for idle
+        if start_time <= current_time <= end_time:
+            cpu_usage = psutil.cpu_percent(interval=1)
+            self.log_message(f"ℹ️ У вікні розкладу. ЦП: {cpu_usage}%.")
+            if cpu_usage < 15.0:
+                self.log_message("⏰ Низьке завантаження ЦП. Запуск запланованого завдання.")
+                self.start_process()
+                self.last_scheduled_run_date = today
+        # If we are past the window and haven't run, run now.
+        elif current_time > end_time:
+            self.log_message("⚠️ Вікно розкладу пропущено. Запускаємо завдання зараз, оскільки воно не було запущено через високе завантаження ЦП.")
+            self.start_process()
+            self.last_scheduled_run_date = today
+
+
     def start_process(self):
         if not self.selected_drive:
             self.log_message("❌ Помилка: Не вдалося визначити цільовий диск.")
@@ -1040,17 +1482,9 @@ class MainWindow(QMainWindow):
         else:
              self.log_message(f"❌ {path}")
 
-        self.start_now_btn.setEnabled(True)
-        self.timer_control_btn.setEnabled(True)
-        self.time_combo.setEnabled(True)
-        self.check_drive_availability()
-
-        app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
-        if app_settings.get('autostart_timer_enabled', True):
-             self.log_message("⚙️ Перезапуск таймера...")
-             QTimer.singleShot(1000, self.start_auto_timer)
-        else:
-             self.stop_auto_timer(log_disabled=True)
+        stats_dialog = RunStatisticsDialog(success, errors, path, self)
+        stats_dialog.exec_()
+        self.close()
 
 
     def closeEvent(self, event):
@@ -1059,7 +1493,23 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec_())
+    # If started with --background-run, execute headless task check
+    if '--background-run' in sys.argv:
+        from PyQt5.QtCore import QCoreApplication
+
+        def run_background_task():
+            app = QCoreApplication(sys.argv)
+            runner = BackgroundTaskRunner()
+            if not runner.check_and_run():
+                # If no task was started, quit immediately.
+                QCoreApplication.instance().quit()
+            sys.exit(app.exec_())
+
+        run_background_task()
+
+    else:  # Otherwise, start the GUI
+        app = QApplication(sys.argv)
+        is_scheduled_run = '--scheduled-run' in sys.argv
+        window = MainWindow(is_scheduled_run=is_scheduled_run)
+        window.show()
+        sys.exit(app.exec_())
