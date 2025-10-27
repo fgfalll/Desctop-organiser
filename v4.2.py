@@ -7,15 +7,19 @@ import platform
 import psutil
 import re
 from datetime import datetime, timedelta
+from typing import Optional
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QButtonGroup, QComboBox,
     QMenuBar, QAction, QDialog, QTabWidget, QFormLayout,
     QSpinBox, QCheckBox, QLineEdit, QListWidget, QListWidgetItem,
-    QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit
+    QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit, QSplashScreen
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush
 import subprocess
+import json
+from pathlib import Path
 
 # --- Configuration File Path ---
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer")
@@ -67,29 +71,1060 @@ REVERSE_SCHEDULE_TYPE_MAP = {
     "Щокварталу": "quarterly",
 }
 
-# --- Module Loading Configuration ---
-MODULE_DIR_NAME = "modules" # Subdirectory name for optional modules
-EXPECTED_MODULES = {
-    "license_manager": {
-        "filename": "license_manager.py",
-        "class_name": "LicenseManager", # Expected main class in the module
-        "menu_text": "&Керування Ліцензіями...",
-        "menu_object_name": "manageLicenseAction" # To find the action later
-    },
-    "program_install": {
-        "filename": "program_install.py",
-        "class_name": "ProgramInstallerUI", # Assuming this will be the class name
-        "menu_text": "Встановити Нову Програму...",
-        "menu_object_name": "installProgramAction"
-    },
-    "license_checker": {
-        "filename": "license_test.py",
-        "class_name": "LicenseCheckerUI",
-        "menu_text": "Перевірка стану ліцензії...",
-        "menu_object_name": "checkLicenseStateAction"
-    },
-    # Add more modules here if needed
-}
+# --- Module Directory Configuration ---
+MODULE_DIR_NAME = "modules"  # Directory for module subdirectories
+
+# --- Global Splash Screen Reference ---
+global_splash = None
+
+def add_splash_message(message):
+    """Add a message to the splash screen if it's active"""
+    global global_splash
+    if global_splash and hasattr(global_splash, 'add_message') and not getattr(global_splash, 'finished', False):
+        global_splash.add_message(message)
+
+# --- Module Management System ---
+
+class ModuleInfo:
+    """Represents information about a module with embedded manifest"""
+
+    def __init__(self, module_path: str):
+        self.module_path = module_path
+        self.module_dir = os.path.dirname(module_path)
+        self.valid = False
+        self.error = None
+        self.module_name = os.path.splitext(os.path.basename(module_path))[0]
+
+        # Extract embedded manifest from module file
+        try:
+            self.manifest = self._extract_manifest()
+            self._validate_manifest()
+            self.valid = True
+        except Exception as e:
+            self.error = f"Invalid module manifest: {e}"
+            self.manifest = {}
+
+    def _extract_manifest(self) -> dict:
+        """Extract manifest embedded in the module file"""
+        try:
+            with open(self.module_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Look for embedded manifest between special markers
+            start_marker = '"""MODULE_MANIFEST_START'
+            end_marker = 'MODULE_MANIFEST_END"""'
+
+            start_idx = content.find(start_marker)
+            if start_idx == -1:
+                raise ValueError("Module manifest not found in file")
+
+            start_idx += len(start_marker)
+            end_idx = content.find(end_marker, start_idx)
+            if end_idx == -1:
+                raise ValueError("Module manifest end marker not found")
+
+            manifest_json = content[start_idx:end_idx].strip()
+            manifest = json.loads(manifest_json)
+            return manifest
+
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in manifest: {e}")
+        except Exception as e:
+            raise ValueError(f"Error reading module file: {e}")
+
+    def _validate_manifest(self):
+        """Validate required manifest fields"""
+        required_fields = ['name', 'version', 'main_class']
+        for field in required_fields:
+            if field not in self.manifest:
+                raise ValueError(f"Missing required field: {field}")
+
+    @property
+    def name(self) -> str:
+        return self.manifest.get('name', self.module_name)
+
+    @property
+    def version(self) -> str:
+        return self.manifest.get('version', '1.0.0')
+
+    @property
+    def description(self) -> str:
+        return self.manifest.get('description', '')
+
+    @property
+    def menu_text(self) -> str:
+        return self.manifest.get('menu_text', self.name)
+
+    @property
+    def main_class(self) -> str:
+        return self.manifest['main_class']
+
+    @property
+    def dependencies(self) -> list:
+        return self.manifest.get('dependencies', [])
+
+    @property
+    def dependency_packages(self) -> dict:
+        """Returns a mapping of import names to pip package names"""
+        # Support both old format and new format
+        if 'dependency_packages' in self.manifest:
+            return self.manifest['dependency_packages']
+
+        # Auto-generate mapping for simple cases
+        mapping = {}
+        for dep in self.dependencies:
+            if isinstance(dep, str):
+                # Simple string: use same name for both import and package
+                package_name = dep.split('>=')[0].split('==')[0].split('<=')[0].strip()
+                mapping[package_name] = dep
+            elif isinstance(dep, dict):
+                # Dictionary format: {"import_name": "pip_package_spec"}
+                mapping.update(dep)
+        return mapping
+
+    @property
+    def python_version(self) -> str:
+        return self.manifest.get('python_version', '3.8+')
+
+    @property
+    def author(self) -> str:
+        return self.manifest.get('author', 'Unknown')
+
+    @property
+    def category(self) -> str:
+        return self.manifest.get('category', 'General')
+
+
+class SharedVirtualEnvironmentManager:
+    """Manages a shared virtual environment for all modules"""
+
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+        self.venv_dir = os.path.join(base_dir, 'modules_venv')
+        self.installed_packages = set()  # Track installed packages
+        self.package_modules = {}  # Track which modules installed which packages
+        # Store package info in the same directory as settings
+        self.packages_file = os.path.join(CONFIG_DIR, 'module_packages.json')
+        self._load_package_info()
+
+    def _load_package_info(self):
+        """Load package installation info from file and sync with actual venv"""
+        try:
+            # Check if we need to migrate from old location
+            old_packages_file = os.path.join(self.base_dir, 'module_packages.json')
+            if os.path.exists(old_packages_file) and not os.path.exists(self.packages_file):
+                print(f"🔄 Migrating package info from {old_packages_file} to {self.packages_file}")
+                try:
+                    import shutil
+                    shutil.move(old_packages_file, self.packages_file)
+                    print(f"✅ Successfully migrated package info file")
+                except Exception as e:
+                    print(f"⚠️ Failed to migrate package info: {e}")
+                    # Copy the data instead
+                    try:
+                        with open(old_packages_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        with open(self.packages_file, 'w', encoding='utf-8') as f:
+                            json.dump(data, f, indent=2)
+                        print(f"✅ Successfully copied package info file")
+                    except Exception as e2:
+                        print(f"⚠️ Failed to copy package info: {e2}")
+
+            if os.path.exists(self.packages_file):
+                with open(self.packages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.installed_packages = set(data.get('installed_packages', []))
+                    self.package_modules = data.get('package_modules', {})
+                print(f"📋 Loaded package info from {self.packages_file}")
+            else:
+                print(f"📋 No existing package info file found at {self.packages_file}")
+
+            # Sync with actual packages in venv
+            self._sync_installed_packages()
+        except Exception as e:
+            print(f"⚠️ Could not load package info: {e}")
+
+    def _sync_installed_packages(self):
+        """Sync the package list with what's actually installed in the venv"""
+        try:
+            pip_path = self.get_pip_path()
+            if not pip_path:
+                print("⚠️ Cannot sync packages: no pip available")
+                return
+
+            # Get list of installed packages from venv
+            if ' -m pip' in pip_path:
+                cmd = pip_path.split() + ['list', '--format=json']
+            else:
+                cmd = [pip_path, 'list', '--format=json']
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0:
+                import json
+                installed = json.loads(result.stdout)
+                actual_packages = {pkg['name'].lower() for pkg in installed}
+
+                # Update our tracking
+                old_count = len(self.installed_packages)
+                self.installed_packages.update(actual_packages)
+                new_count = len(self.installed_packages)
+
+                print(f"🔄 Synced package list: {len(actual_packages)} packages found")
+                print(f"📋 Tracking {new_count} total packages (added {new_count - old_count} new ones)")
+
+                # Show some of the packages for debugging
+                if actual_packages:
+                    sample_packages = list(sorted(actual_packages))[:5]
+                    print(f"📋 Sample packages: {', '.join(sample_packages)}...")
+            else:
+                print(f"⚠️ Failed to list packages: {result.stderr}")
+        except Exception as e:
+            print(f"⚠️ Could not sync package list: {e}")
+
+    
+    def _is_package_installed(self, package_name: str, use_cache: bool = True) -> bool:
+        """Check if a package is actually installed in the venv"""
+        # Use cache to avoid repeated checks
+        cache_key = f"installed_{package_name.lower()}"
+        if use_cache and hasattr(self, '_package_cache'):
+            if cache_key in self._package_cache:
+                return self._package_cache[cache_key]
+        elif not hasattr(self, '_package_cache'):
+            self._package_cache = {}
+
+        # Check the exact package name - no smart resolution
+        is_installed = self._check_package_direct(package_name)
+        self._package_cache[cache_key] = is_installed
+
+        # Only show detailed logging for first few checks
+        if not use_cache or len(self._package_cache) < 5:
+            if is_installed:
+                print(f"✅ Package {package_name} is installed")
+            else:
+                print(f"❌ Package {package_name} is NOT installed")
+
+        return is_installed
+
+    def _check_package_direct(self, package_name: str) -> bool:
+        """Direct check if a package is installed"""
+        try:
+            pip_path = self.get_pip_path()
+            if not pip_path:
+                return False
+
+            # Check if package is installed using pip show
+            if ' -m pip' in pip_path:
+                cmd = pip_path.split() + ['show', package_name]
+            else:
+                cmd = [pip_path, 'show', package_name]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _get_installed_version(self, package_name: str) -> Optional[str]:
+        """Get the installed version of a package"""
+        try:
+            pip_path = self.get_pip_path()
+            if not pip_path:
+                return None
+
+            # Check the exact package name only
+            if ' -m pip' in pip_path:
+                cmd = pip_path.split() + ['show', package_name]
+            else:
+                cmd = [pip_path, 'show', package_name]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if line.startswith('Version:'):
+                        return line.split(':', 1)[1].strip()
+
+            return None
+        except Exception:
+            return None
+
+    def _check_version_requirement(self, installed_version: str, required_spec: str) -> bool:
+        """Check if installed version meets the requirement specification"""
+        try:
+            from packaging import version, requirements
+
+            # Parse the requirement (e.g., ">=1.0.0", "==2.1.0", etc.)
+            req = requirements.Requirement(required_spec)
+            installed = version.parse(installed_version)
+
+            return installed in req
+        except ImportError:
+            # Fallback: simple string comparison if packaging not available
+            if '>=' in required_spec:
+                required_version = required_spec.split('>=')[1].strip()
+                return installed_version >= required_version
+            elif '==' in required_spec:
+                required_version = required_spec.split('==')[1].strip()
+                return installed_version == required_version
+            elif '<=' in required_spec:
+                required_version = required_spec.split('<=')[1].strip()
+                return installed_version <= required_version
+            else:
+                return True  # No version constraint
+        except Exception:
+            return True  # Assume compatible if checking fails
+
+    def _check_package_availability(self, package_name: str) -> bool:
+        """Check if a package is available in PyPI"""
+        try:
+            import urllib.request
+            import json
+            url = f"https://pypi.org/pypi/{package_name}/json"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                if response.getcode() == 200:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _is_more_specific_requirement(self, spec1: str, spec2: str) -> bool:
+        """Determine which version specification is more specific"""
+        # Simple heuristic: == is more specific than >= which is more specific than no version
+        if '==' in spec1 and '==' not in spec2:
+            return True
+        if '>=' in spec1 and not any(op in spec2 for op in ['>=', '==', '<=', '~=']):
+            return True
+        return False
+
+    def _deduplicate_dependencies(self, dependencies: list, dependency_packages: dict) -> dict:
+        """Deduplicate dependencies, prioritizing dependencies list over dependency_packages"""
+        packages = {}
+
+        # Process dependencies list first (primary source - like requirements.txt)
+        if dependencies:
+            for dep in dependencies:
+                if isinstance(dep, str):
+                    package_spec = dep.strip()
+                    pip_package_name = package_spec.split('>=')[0].split('==')[0].split('<=')[0].split('~=')[0].strip().lower()
+                    packages[pip_package_name] = package_spec
+
+        # Process dependency_packages only if dependencies list is empty (backward compatibility)
+        if not dependencies and dependency_packages:
+            print("⚠️ Using legacy dependency_packages format. Consider updating to use dependencies array.")
+            for import_name, package_spec in dependency_packages.items():
+                pip_package_name = package_spec.split('>=')[0].split('==')[0].split('<=')[0].split('~=')[0].strip().lower()
+                if pip_package_name not in packages:
+                    packages[pip_package_name] = package_spec
+                else:
+                    # Keep the more specific requirement
+                    if self._is_more_specific_requirement(package_spec, packages[pip_package_name]):
+                        packages[pip_package_name] = package_spec
+
+        return packages
+
+    def _save_package_info(self):
+        """Save package installation info to file"""
+        try:
+            data = {
+                'installed_packages': list(self.installed_packages),
+                'package_modules': self.package_modules
+            }
+            with open(self.packages_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            print(f"💾 Saved package info to {self.packages_file}")
+        except Exception as e:
+            print(f"❌ Could not save package info: {e}")
+
+    def create_shared_venv(self) -> bool:
+        """Create shared virtual environment for all modules"""
+        if os.path.exists(self.venv_dir):
+            # Validate existing venv
+            if self._validate_venv():
+                print(f"✅ Using existing shared virtual environment: {self.venv_dir}")
+                return True
+            else:
+                print(f"⚠️ Existing venv appears to have issues, attempting to use it anyway: {self.venv_dir}")
+                print("💡 If you encounter issues, delete the modules_venv folder and restart")
+                # Don't automatically delete - let user decide
+                return True
+
+        try:
+            import venv
+            venv.create(self.venv_dir, with_pip=True)
+            print(f"✅ Created shared virtual environment: {self.venv_dir}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to create shared venv: {e}")
+            return False
+
+    def _validate_venv(self) -> bool:
+        """Validate that the existing venv is properly set up"""
+        try:
+            pip_path = self.get_pip_path()
+            if not pip_path or not os.path.exists(pip_path):
+                print(f"⚠️ Pip not found at {pip_path}")
+                return False
+
+            # Try to run pip to ensure it's working
+            result = subprocess.run([pip_path, '--version'],
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                print(f"⚠️ Pip not working: {result.stderr}")
+                return False
+
+            # Also check that we can list packages (this tests the venv more thoroughly)
+            result = subprocess.run([pip_path, 'list', '--format=json'],
+                                  capture_output=True, text=True, timeout=15)
+            if result.returncode != 0:
+                print(f"⚠️ Cannot list packages in venv: {result.stderr}")
+                return False
+
+            return True
+        except Exception as e:
+            print(f"⚠️ Venv validation failed: {e}")
+            return False
+
+    def get_pip_path(self) -> Optional[str]:
+        """Get pip path for the shared virtual environment, fallback to system pip"""
+        # Try venv pip first
+        if os.path.exists(self.venv_dir):
+            if sys.platform == "win32":
+                venv_pip = os.path.join(self.venv_dir, 'Scripts', 'pip.exe')
+            else:
+                venv_pip = os.path.join(self.venv_dir, 'bin', 'pip')
+
+            if os.path.exists(venv_pip):
+                return venv_pip
+
+        # Fallback to system pip
+        try:
+            # Check if pip is available in PATH
+            result = subprocess.run(['pip', '--version'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("💡 Using system pip (venv pip not available)")
+                return 'pip'
+        except Exception:
+            pass
+
+        # Try python -m pip as last resort
+        try:
+            result = subprocess.run([sys.executable, '-m', 'pip', '--version'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("💡 Using python -m pip (pip not in PATH)")
+                return f'{sys.executable} -m pip'
+        except Exception:
+            pass
+
+        return None
+
+    def install_dependencies(self, module_name: str, dependencies: list, dependency_packages: dict = None) -> bool:
+        """Install dependencies in shared virtual environment"""
+        # Check if there are any dependencies at all - do this first!
+        if not dependencies and not dependency_packages:
+            print(f"✅ No dependencies to install for {module_name}")
+            return True
+
+        if not self.create_shared_venv():
+            return False
+
+        pip_path = self.get_pip_path()
+        if not pip_path:
+            print(f"❌ Could not find pip for installing dependencies")
+            return False
+
+        try:
+
+            # First, sync with actual venv packages to ensure we have accurate tracking
+            self._sync_installed_packages()
+
+            # Deduplicate dependencies from both sources
+            deduplicated_packages = self._deduplicate_dependencies(dependencies, dependency_packages)
+
+            if not deduplicated_packages:
+                print(f"✅ No dependencies to install for {module_name}")
+                return True
+
+            print(f"📦 Processing {len(deduplicated_packages)} unique dependency(ies) for {module_name}: {list(deduplicated_packages.keys())}")
+
+            # Analyze which packages need to be installed or upgraded
+            packages_to_process = {}
+            for pip_package_name, package_spec in deduplicated_packages.items():
+                # Check if package is actually installed in venv
+                if not self._is_package_installed(pip_package_name):
+                    packages_to_process[pip_package_name] = {
+                        'spec': package_spec,
+                        'action': 'install',
+                        'reason': 'not_installed'
+                    }
+                    print(f"📦 Package {pip_package_name} not found, will install")
+                else:
+                    # Package is installed, check version requirements
+                    installed_version = self._get_installed_version(pip_package_name)
+                    if installed_version and ('>=' in package_spec or '==' in package_spec or '<=' in package_spec or '~=' in package_spec):
+                        # Extract version requirement from spec
+                        version_req = package_spec.replace(pip_package_name, '').strip()
+                        if version_req and not self._check_version_requirement(installed_version, version_req):
+                            packages_to_process[pip_package_name] = {
+                                'spec': package_spec,
+                                'action': 'upgrade',
+                                'reason': f'version_mismatch: installed {installed_version}, required {version_req}'
+                            }
+                            print(f"🔄 Package {pip_package_name} version mismatch, will upgrade (installed: {installed_version}, required: {version_req})")
+                        else:
+                            print(f"✅ Package {pip_package_name} v{installed_version} meets requirements")
+                    else:
+                        print(f"✅ Package {pip_package_name} already available in venv")
+
+            if not packages_to_process:
+                print(f"✅ All dependencies for {module_name} already satisfied in shared venv")
+                return True
+
+            # Process packages that need installation or upgrade
+            for import_name, package_info in packages_to_process.items():
+                package_spec = package_info['spec']
+                action = package_info['action']
+                reason = package_info['reason']
+
+                action_emoji = "📦" if action == 'install' else "🔄"
+                print(f"{action_emoji} {action.capitalize()}ing {package_spec} for module {module_name} ({reason})...")
+
+                # Use pip install with --upgrade flag for upgrades
+                if ' -m pip' in pip_path:
+                    # Handle python -m pip format
+                    cmd = pip_path.split() + ['install']
+                else:
+                    # Handle direct pip path
+                    cmd = [pip_path, 'install']
+
+                if action == 'upgrade':
+                    cmd.append('--upgrade')
+                cmd.append(package_spec)
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                    print(f"❌ Failed to {action} {package_spec}: {error_msg}")
+
+                    # Try to provide helpful suggestions
+                    if "could not find" in error_msg.lower() or "404" in error_msg:
+                        print(f"💡 Tip: Package '{pip_package_name}' may not exist. Check the package name.")
+                    elif "permission denied" in error_msg.lower():
+                        print(f"💡 Tip: Permission denied. Try running with appropriate privileges.")
+                    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+                        print(f"💡 Tip: Network error. Check your internet connection.")
+                    elif "already satisfied" in error_msg.lower():
+                        print(f"✅ Package {package_spec} is already installed")
+                        continue  # Continue with next package
+
+                    return False
+                else:
+                    print(f"✅ Successfully {'installed' if action == 'install' else 'upgraded'} {package_spec}")
+
+                    # Update our tracking
+                    installed_package_name = package_spec.split('>=')[0].split('==')[0].split('<=')[0].split('~=')[0].strip().lower()
+
+                    self.installed_packages.add(installed_package_name)
+
+                    if installed_package_name not in self.package_modules:
+                        self.package_modules[installed_package_name] = []
+                    # Track module->package relationship
+                    if module_name not in self.package_modules[installed_package_name]:
+                        self.package_modules[installed_package_name].append(module_name)
+                        print(f"📋 Tracked {installed_package_name} for module {module_name}")
+
+            self._save_package_info()
+            return True
+
+        except Exception as e:
+            print(f"❌ Error installing dependencies: {e}")
+            return False
+
+    def uninstall_dependencies(self, module_name: str, dependencies: list) -> bool:
+        """Uninstall dependencies when a module is removed"""
+        if not dependencies:
+            return True
+
+        pip_path = self.get_pip_path()
+        if not pip_path:
+            return False
+
+        try:
+            packages_to_uninstall = []
+            for dep in dependencies:
+                package_name = dep.split('>=')[0].split('==')[0].split('<=')[0].strip()
+
+                # Check if this is the only module using this package
+                if package_name in self.package_modules:
+                    modules_using_package = self.package_modules[package_name]
+                    # Remove this module from the list
+                    if module_name in modules_using_package:
+                        modules_using_package.remove(module_name)
+
+                    # If no other modules use this package, uninstall it
+                    if not modules_using_package:
+                        packages_to_uninstall.append(package_name)
+                        del self.package_modules[package_name]
+
+            for package in packages_to_uninstall:
+                print(f"🗑️ Uninstalling {package} (no longer needed)...")
+                result = subprocess.run([pip_path, 'uninstall', package, '-y'],
+                                      capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    print(f"⚠️ Failed to uninstall {package}: {result.stderr}")
+                else:
+                    print(f"✅ Uninstalled {package}")
+                    self.installed_packages.discard(package)
+
+            self._save_package_info()
+            return True
+
+        except Exception as e:
+            print(f"❌ Error uninstalling dependencies: {e}")
+            return False
+
+    def get_installed_packages(self) -> list:
+        """Get list of installed packages"""
+        return list(self.installed_packages)
+
+    def get_package_info(self) -> dict:
+        """Get detailed package information"""
+        return {
+            'installed_packages': self.get_installed_packages(),
+            'package_modules': self.package_modules.copy()
+        }
+
+
+class ModuleManager(QObject):
+    """Dynamic module manager with shared virtual environment support"""
+
+    module_loaded = pyqtSignal(str, object)  # module_name, module_class
+    module_error = pyqtSignal(str, str)  # module_name, error_message
+    module_discovered = pyqtSignal(str, dict)  # module_name, module_info
+
+    def __init__(self, modules_dir: str):
+        super().__init__()
+        self.modules_dir = modules_dir
+        self.loaded_modules = {}
+        self.module_info = {}
+        self.venv_manager = SharedVirtualEnvironmentManager(modules_dir)
+
+    def discover_modules(self) -> dict:
+        """Discover all modules in the modules directory"""
+        discovered = {}
+
+        if not os.path.exists(self.modules_dir):
+            print(f"❌ Modules directory not found: {self.modules_dir}")
+            return discovered
+
+        # Look for .py files with embedded manifests
+        for item in os.listdir(self.modules_dir):
+            module_path = os.path.join(self.modules_dir, item)
+
+            # Check if it's a Python file
+            if item.endswith('.py') and os.path.isfile(module_path):
+                module_info = ModuleInfo(module_path)
+                if module_info.valid:
+                    discovered[module_info.name] = module_info
+                    self.module_info[module_info.name] = module_info
+                    self.module_discovered.emit(module_info.name, {
+                        'name': module_info.name,
+                        'version': module_info.version,
+                        'description': module_info.description,
+                        'menu_text': module_info.menu_text,
+                        'author': module_info.author,
+                        'category': module_info.category
+                    })
+                    print(f"✅ Discovered module: {module_info.name} v{module_info.version}")
+                else:
+                    print(f"❌ Invalid module {item}: {module_info.error}")
+                    self.module_error.emit(item, module_info.error)
+
+        return discovered
+
+    def validate_and_repair_dependencies(self) -> bool:
+        """Validate that all discovered modules have their dependencies properly installed in the venv"""
+        if not self.module_info:
+            return True
+
+        print("🔧 Validating module dependencies...")
+        repaired_modules = []
+
+        for module_name, module_info in self.module_info.items():
+            if module_info.dependencies or module_info.dependency_packages:
+                all_deps_installed = True
+
+                # Check each dependency package with version requirements
+                missing_deps = []
+                if module_info.dependency_packages:
+                    for package_name, package_spec in module_info.dependency_packages.items():
+                        if not self.venv_manager._is_package_installed(package_name.lower()):
+                            missing_deps.append(f"{package_name} (not installed)")
+                        else:
+                            # Check version requirements
+                            installed_version = self.venv_manager._get_installed_version(package_name.lower())
+                            if installed_version and ('>=' in package_spec or '==' in package_spec or '<=' in package_spec or '~=' in package_spec):
+                                version_req = package_spec.replace(package_name, '').strip()
+                                if version_req and not self.venv_manager._check_version_requirement(installed_version, version_req):
+                                    missing_deps.append(f"{package_name} (version {installed_version} < {version_req})")
+                elif module_info.dependencies:
+                    for dep in module_info.dependencies:
+                        if isinstance(dep, str):
+                            package_name = dep.split('>=')[0].split('==')[0].split('<=')[0].split('~=')[0].strip().lower()
+                            package_spec = dep.strip()
+                            if not self.venv_manager._is_package_installed(package_name):
+                                missing_deps.append(f"{package_name} (not installed)")
+                            else:
+                                # Check version requirements
+                                installed_version = self.venv_manager._get_installed_version(package_name)
+                                if installed_version and ('>=' in package_spec or '==' in package_spec or '<=' in package_spec or '~=' in package_spec):
+                                    version_req = package_spec.replace(package_name, '').strip()
+                                    if version_req and not self.venv_manager._check_version_requirement(installed_version, version_req):
+                                        missing_deps.append(f"{package_name} (version {installed_version} < {version_req})")
+
+                if not all_deps_installed:
+                    if missing_deps:
+                        print(f"🔧 Installing missing dependencies for {module_name}: {', '.join(missing_deps)}")
+                    else:
+                        print(f"🔧 Installing dependencies for {module_name}...")
+
+                    if self.install_module_dependencies(module_name):
+                        repaired_modules.append(module_name)
+                        print(f"✅ Repaired dependencies for {module_name}")
+                    else:
+                        print(f"❌ Failed to repair dependencies for {module_name}")
+
+        if repaired_modules:
+            print(f"🔧 Repaired dependencies for {len(repaired_modules)} modules: {', '.join(repaired_modules)}")
+        else:
+            print("✅ All module dependencies are properly installed")
+
+        return True
+
+    def install_module_dependencies(self, module_name: str) -> bool:
+        """Install dependencies for a module"""
+        if module_name not in self.module_info:
+            print(f"❌ Module not found: {module_name}")
+            return False
+
+        module_info = self.module_info[module_name]
+        dependencies = module_info.dependencies
+        dependency_packages = module_info.dependency_packages
+
+        if dependencies or dependency_packages:
+            add_splash_message(f"📦 Installing dependencies for {module_name}...")
+            print(f"📦 Installing dependencies for {module_name}: {list(dependency_packages.keys()) if dependency_packages else dependencies}")
+            success = self.venv_manager.install_dependencies(module_name, dependencies, dependency_packages)
+
+            if success:
+                # Track which module installed which packages (already handled in install_dependencies)
+                self.venv_manager._save_package_info()
+
+            return success
+
+    def load_module(self, module_name: str) -> bool:
+        """Load a specific module"""
+        if module_name in self.loaded_modules:
+            print(f"⚠️ Module {module_name} already loaded")
+            return True
+
+        if module_name not in self.module_info:
+            print(f"❌ Module not found: {module_name}")
+            return False
+
+        module_info = self.module_info[module_name]
+
+        try:
+            # Dependencies should already be installed during validation
+            # Only install if validation was skipped or failed
+            dependencies = module_info.dependencies
+            dependency_packages = module_info.dependency_packages
+
+            if dependencies or dependency_packages:
+                # Quick check if dependencies are satisfied (skip full installation)
+                all_deps_satisfied = True
+                if dependency_packages:
+                    for package_name in dependency_packages.keys():
+                        if not self.venv_manager._is_package_installed(package_name.lower()):
+                            all_deps_satisfied = False
+                            break
+                elif dependencies:
+                    for dep in dependencies:
+                        if isinstance(dep, str):
+                            package_name = dep.split('>=')[0].split('==')[0].split('<=')[0].strip().lower()
+                            if not self.venv_manager._is_package_installed(package_name):
+                                all_deps_satisfied = False
+                                break
+
+                if not all_deps_satisfied:
+                    print(f"⚠️ Dependencies not satisfied for {module_name}, installing...")
+                    if not self.install_module_dependencies(module_name):
+                        error_msg = f"Failed to install dependencies for {module_name}"
+                        print(f"❌ {error_msg}")
+                        self.module_error.emit(module_name, error_msg)
+                        return False
+                else:
+                    print(f"✅ Dependencies already satisfied for {module_name}")
+
+            # Load the module
+            spec = importlib.util.spec_from_file_location(f"module_{module_name}", module_info.module_path)
+            if spec is None:
+                raise ImportError(f"Could not create spec for module {module_name}")
+
+            module = importlib.util.module_from_spec(spec)
+
+            # Add to sys.modules
+            sys.modules[f"module_{module_name}"] = module
+
+            # Execute the module
+            spec.loader.exec_module(module)
+
+            # Get the main class
+            if not hasattr(module, module_info.main_class):
+                raise ImportError(f"Module {module_name} does not have class {module_info.main_class}")
+
+            module_class = getattr(module, module_info.main_class)
+            self.loaded_modules[module_name] = module_class
+
+            print(f"✅ Successfully loaded module: {module_name}")
+            self.module_loaded.emit(module_name, module_class)
+            return True
+
+        except Exception as e:
+            error_msg = f"Failed to load module {module_name}: {e}"
+            print(f"❌ {error_msg}")
+            self.module_error.emit(module_name, error_msg)
+            return False
+
+    def load_all_modules(self):
+        """Load all discovered modules"""
+        # Use already discovered modules instead of re-discovering
+        for module_name in self.module_info.keys():
+            if module_name not in self.loaded_modules:
+                self.load_module(module_name)
+
+    def unload_module(self, module_name: str):
+        """Unload a module and clean up dependencies"""
+        if module_name in self.loaded_modules:
+            # Uninstall dependencies if no other modules use them
+            if module_name in self.module_info:
+                dependencies = self.module_info[module_name].dependencies
+                self.venv_manager.uninstall_dependencies(module_name, dependencies)
+
+            # Clean up sys.modules
+            module_key = f"module_{module_name}"
+            if module_key in sys.modules:
+                del sys.modules[module_key]
+
+            del self.loaded_modules[module_name]
+            print(f"✅ Unloaded module: {module_name}")
+
+    def get_module_info(self, module_name: str):
+        """Get information about a module"""
+        return self.module_info.get(module_name)
+
+    def get_loaded_modules(self) -> dict:
+        """Get all loaded modules"""
+        return self.loaded_modules.copy()
+
+    def get_virtual_env_manager(self) -> SharedVirtualEnvironmentManager:
+        """Get the virtual environment manager"""
+        return self.venv_manager
+
+# --- Splash Screen with Console Output ---
+class SplashScreen(QSplashScreen):
+    def __init__(self):
+        # Create a pixmap for the splash screen
+        self.splash_width = 700
+        self.splash_height = 450
+        pixmap = QPixmap(self.splash_width, self.splash_height)
+        pixmap.fill(Qt.transparent)  # Transparent background
+
+        super().__init__(pixmap)
+
+        # Center on screen
+        self.center_on_screen()
+
+        # Configure splash properties
+        self.setFixedSize(self.splash_width, self.splash_height)
+        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        # Initialize console messages
+        self.console_messages = []
+        self.max_messages = 20  # Maximum number of messages to display
+
+        # Add initial messages
+        self.add_message("🚀 Starting Desktop Organizer v4.2...")
+        self.add_message(f"📍 Python version: {sys.version.split()[0]}")
+        self.add_message(f"💻 Platform: {platform.system()} {platform.release()}")
+
+    def center_on_screen(self):
+        """Center the splash screen on the primary screen"""
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            x = (screen_geometry.width() - self.splash_width) // 2
+            y = (screen_geometry.height() - self.splash_height) // 2
+            self.move(x, y)
+
+    
+    def add_message(self, message):
+        """Add a message to the console output"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}"
+        self.console_messages.append(formatted_message)
+
+        # Keep only the last N messages
+        if len(self.console_messages) > self.max_messages:
+            self.console_messages = self.console_messages[-self.max_messages:]
+
+        # Trigger repaint
+        self.update()
+
+        # Process events to ensure immediate display
+        QApplication.processEvents()
+
+    def drawContents(self, painter):
+        """Draw the modern splash screen contents"""
+        # Draw background
+        self.drawBackground(painter)
+
+        # Set up modern fonts
+        title_font = QFont("Segoe UI", 24, QFont.Bold)
+        subtitle_font = QFont("Segoe UI", 12, QFont.Medium)
+        console_font = QFont("Consolas", 10)
+        status_font = QFont("Segoe UI", 9)
+
+        # Draw main title with shadow effect
+        painter.setFont(title_font)
+
+        # Draw shadow
+        painter.setPen(QPen(QColor(0, 0, 0, 100)))
+        title_shadow_rect = QRect(52, 52, self.splash_width - 104, 40)
+        painter.drawText(title_shadow_rect, Qt.AlignCenter, "Desktop Organizer v4.2")
+
+        # Draw main title
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        title_rect = QRect(50, 50, self.splash_width - 100, 40)
+        painter.drawText(title_rect, Qt.AlignCenter, "Desktop Organizer v4.2")
+
+        # Draw subtitle
+        painter.setFont(subtitle_font)
+        painter.setPen(QPen(QColor(180, 180, 185)))
+        subtitle_rect = QRect(50, 95, self.splash_width - 100, 25)
+        painter.drawText(subtitle_rect, Qt.AlignCenter, "Automated File Organization & Module Management")
+
+        # Draw console area background (expanded to use available space)
+        console_rect = QRect(50, 140, self.splash_width - 100, 280)
+
+        # Console background with gradient
+        console_gradient = QColor(30, 30, 35)
+        painter.fillRect(console_rect, console_gradient)
+
+        # Console border with glow effect
+        painter.setPen(QPen(QColor(60, 60, 65), 2))
+        painter.drawRect(console_rect)
+
+        # Draw console header
+        header_rect = QRect(55, 145, self.splash_width - 110, 30)
+        header_gradient = QColor(45, 45, 50)
+        painter.fillRect(header_rect, header_gradient)
+
+        # Console title
+        painter.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        painter.setPen(QPen(QColor(100, 200, 255)))
+        console_title_rect = QRect(65, 150, self.splash_width - 130, 20)
+        painter.drawText(console_title_rect, Qt.AlignLeft, "📋 Console Output")
+
+        # Draw console messages
+        painter.setFont(console_font)
+        y_offset = 185
+        # Calculate available space for messages (console height - header - margin)
+        available_height = 280 - 35 - 10  # Total height - header - bottom margin
+        max_visible_messages = available_height // 18  # 18px per message line
+        visible_messages = min(max_visible_messages, len(self.console_messages))
+
+        # Calculate console boundaries
+        console_bottom = 140 + 280 - 10  # Console start + height - bottom margin
+        max_y_offset = console_bottom - 18  # Leave space for one line
+
+        for i, message in enumerate(self.console_messages[-visible_messages:]):
+            # Stop if we've reached the bottom of the console area
+            if y_offset > max_y_offset:
+                break
+
+            # Color code messages based on content with enhanced colors
+            if "✅" in message or "🚀" in message:
+                painter.setPen(QPen(QColor(100, 255, 150)))  # Bright green
+            elif "❌" in message or "🔴" in message:
+                painter.setPen(QPen(QColor(255, 100, 120)))  # Bright red
+            elif "⚠️" in message:
+                painter.setPen(QPen(QColor(255, 200, 100)))  # Orange
+            elif "📦" in message:
+                painter.setPen(QPen(QColor(150, 200, 255)))  # Light blue
+            elif "🔍" in message:
+                painter.setPen(QPen(QColor(200, 150, 255)))  # Purple
+            elif "⚙️" in message:
+                painter.setPen(QPen(QColor(150, 255, 200)))  # Mint
+            elif "ℹ️" in message:
+                painter.setPen(QPen(QColor(255, 255, 150)))  # Yellow
+            else:
+                painter.setPen(QPen(QColor(220, 220, 225)))  # Light gray
+
+            # Ensure text stays within console boundaries
+            message_rect = QRect(65, y_offset, self.splash_width - 140, 16)
+            painter.drawText(message_rect, Qt.AlignLeft, message)
+            y_offset += 18
+
+        
+    def drawBackground(self, painter):
+        """Draw the modern background"""
+        # Create gradient background
+        gradient = QColor(45, 45, 48)  # Dark modern background
+
+        # Draw main rounded rectangle
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(0, 0, self.splash_width, self.splash_height, 20, 20)
+
+        # Draw subtle inner border
+        painter.setPen(QPen(QColor(80, 80, 85), 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(2, 2, self.splash_width - 4, self.splash_height - 4, 18, 18)
+
+        # Draw top accent bar (static)
+        accent_width = int(self.splash_width * 0.6)
+        accent_x = (self.splash_width - accent_width) // 2
+
+        accent_gradient = QColor(100, 200, 255)  # Blue accent
+        painter.fillRect(accent_x, 8, accent_width, 4, accent_gradient)
+
+    def fade_out_and_close(self, duration=1000):
+        """Fade out the splash screen and close it"""
+        self.fade_timer = QTimer()
+        self.fade_duration = duration
+        self.fade_steps = 20
+        self.fade_step = 0
+        self.original_opacity = self.windowOpacity()
+
+        self.fade_timer.timeout.connect(self._fade_step)
+        self.fade_timer.start(self.fade_duration // self.fade_steps)
+
+    def _fade_step(self):
+        """Perform one step of the fade-out animation"""
+        self.fade_step += 1
+        progress = self.fade_step / self.fade_steps
+        new_opacity = self.original_opacity * (1 - progress)
+        self.setWindowOpacity(new_opacity)
+
+        if self.fade_step >= self.fade_steps:
+            self.fade_timer.stop()
+            self.finished = True
+            self.close()
+
+    def cleanup(self):
+        """Clean up timers"""
+        if hasattr(self, 'fade_timer'):
+            self.fade_timer.stop()
 
 # --- Settings Dialog ---
 class SettingsDialog(QDialog):
@@ -98,8 +1133,9 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.current_settings = current_settings.copy()
+        self.parent_window = parent
         self.setWindowTitle("Налаштування Додатку")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(600)
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -108,6 +1144,7 @@ class SettingsDialog(QDialog):
         self.create_general_tab()
         self.create_file_manager_tab()
         self.create_schedule_tab()
+        self.create_virtual_environment_tab()
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
         self.button_box.button(QDialogButtonBox.Apply).clicked.connect(self.apply_changes)
@@ -253,6 +1290,136 @@ class SettingsDialog(QDialog):
 
 
         self.tabs.addTab(tab_schedule, "Розклад")
+
+    def create_virtual_environment_tab(self):
+        """Create virtual environment management tab"""
+        tab_venv = QWidget()
+        layout = QVBoxLayout(tab_venv)
+
+        # Virtual environment info
+        info_group = QGroupBox("Інформація про Віртуальне Середовище")
+        info_layout = QVBoxLayout(info_group)
+
+        self.venv_status_label = QLabel("Перевірка статусу...")
+        info_layout.addWidget(self.venv_status_label)
+
+        self.venv_path_label = QLabel("")
+        self.venv_path_label.setWordWrap(True)
+        info_layout.addWidget(self.venv_path_label)
+
+        layout.addWidget(info_group)
+
+        # Installed packages
+        packages_group = QGroupBox("Встановлені Пакети")
+        packages_layout = QVBoxLayout(packages_group)
+
+        self.packages_list = QListWidget()
+        self.packages_list.setMaximumHeight(200)
+        packages_layout.addWidget(self.packages_list)
+
+        packages_buttons_layout = QHBoxLayout()
+        self.refresh_packages_btn = QPushButton("Оновити")
+        self.refresh_packages_btn.clicked.connect(self.refresh_package_list)
+        packages_buttons_layout.addWidget(self.refresh_packages_btn)
+
+        self.cleanup_venv_btn = QPushButton("Очистити Віртуальне Середовище")
+        self.cleanup_venv_btn.clicked.connect(self.cleanup_virtual_environment)
+        packages_buttons_layout.addWidget(self.cleanup_venv_btn)
+
+        packages_layout.addLayout(packages_buttons_layout)
+        layout.addWidget(packages_group)
+
+        # Package usage info
+        usage_group = QGroupBox("Використання Пакетів Модулями")
+        usage_layout = QVBoxLayout(usage_group)
+
+        self.package_usage_text = QTextEdit()
+        self.package_usage_text.setReadOnly(True)
+        self.package_usage_text.setMaximumHeight(150)
+        usage_layout.addWidget(self.package_usage_text)
+
+        layout.addWidget(usage_group)
+
+        layout.addStretch()
+
+        self.tabs.addTab(tab_venv, "Віртуальне Середовище")
+
+        # Initialize the tab
+        self.refresh_package_list()
+
+    def refresh_package_list(self):
+        """Refresh the package list and virtual environment information"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            self.venv_status_label.setText("❌ Менеджер модулів недоступний")
+            return
+
+        venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+        # Update status
+        if os.path.exists(venv_manager.venv_dir):
+            self.venv_status_label.setText("✅ Віртуальне середовище створено")
+            self.venv_path_label.setText(f"Шлях: {venv_manager.venv_dir}")
+        else:
+            self.venv_status_label.setText("⚠️ Віртуальне середовище не створено")
+            self.venv_path_label.setText(f"Шлях: {venv_manager.venv_dir}")
+
+        # Update packages list
+        self.packages_list.clear()
+        installed_packages = venv_manager.get_installed_packages()
+        if installed_packages:
+            for package in sorted(installed_packages):
+                self.packages_list.addItem(package)
+        else:
+            self.packages_list.addItem("Немає встановлених пакетів")
+
+        # Update package usage info
+        package_info = venv_manager.get_package_info()
+        package_modules = package_info.get('package_modules', {})
+
+        if package_modules:
+            usage_text = "Пакети та модулі, що їх використовують:\n\n"
+            for package, modules in package_modules.items():
+                usage_text += f"• {package}: {', '.join(modules)}\n"
+        else:
+            usage_text = "Немає активних пакетів або модулів"
+
+        self.package_usage_text.setText(usage_text)
+
+    def cleanup_virtual_environment(self):
+        """Clean up the virtual environment"""
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження Очищення",
+            "Ви впевнені, що хочете видалити віртуальне середовище?\n\n"
+            "Це видалить усі встановлені пакети та потребує\n"
+            "перевстановлення при наступному завантаженні модулів.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+                QMessageBox.warning(self, "Помилка", "Менеджер модулів недоступний")
+                return
+
+            venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+            try:
+                import shutil
+                if os.path.exists(venv_manager.venv_dir):
+                    shutil.rmtree(venv_manager.venv_dir)
+                    print(f"🗑️ Removed virtual environment: {venv_manager.venv_dir}")
+
+                # Reset package tracking
+                venv_manager.installed_packages.clear()
+                venv_manager.package_modules.clear()
+                venv_manager._save_package_info()
+
+                QMessageBox.information(self, "Успіх", "Віртуальне середовище видалено")
+                self.refresh_package_list()
+
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", f"Не вдалося видалити віртуальне середовище:\n{e}")
 
     def update_schedule_ui(self, index):
         schedule_type = self.schedule_type_combo.itemText(index)
@@ -743,12 +1910,18 @@ class BackgroundTaskRunner:
 class MainWindow(QMainWindow):
     def __init__(self, is_scheduled_run=False):
         super().__init__()
+        add_splash_message("📋 Loading configuration...")
         self.settings = load_settings()
         self.mover_thread = None
-        # self.license_manager_window = None # Remove this - we'll handle dynamically
-        self.loaded_modules = {}  # Stores loaded module classes/functions
         self.module_windows = {}  # Stores instances of opened module windows
         self.module_actions = {}  # Stores menu actions related to modules
+
+        add_splash_message("🔧 Initializing module manager...")
+        # Initialize Module Manager
+        self.module_manager = ModuleManager(self.get_module_dir())
+        self.module_manager.module_loaded.connect(self.on_module_loaded)
+        self.module_manager.module_error.connect(self.on_module_error)
+        self.module_manager.module_discovered.connect(self.on_module_discovered)
 
         self.auto_start_timer = QTimer(self)
         self.auto_start_timer.timeout.connect(self.update_timer)
@@ -760,10 +1933,12 @@ class MainWindow(QMainWindow):
         self.e_exists = False
         self.last_scheduled_run_date = None
 
+        add_splash_message("🖼️ Creating user interface...")
         self.initUI()  # Create UI elements first
-        self.load_optional_modules()  # Attempt to load modules
-        self.update_ui_for_modules()  # Enable/disable menus based on loaded modules
+        add_splash_message("🔍 Discovering modules...")
+        self.discover_and_load_modules()  # Discover and load modules dynamically
 
+        add_splash_message("⚙️ Applying settings...")
         self.apply_settings_to_ui()  # Apply loaded settings to UI
         self._log_current_schedule_settings(self.settings.get('schedule', DEFAULT_SETTINGS['schedule']))
 
@@ -773,9 +1948,7 @@ class MainWindow(QMainWindow):
         if is_scheduled_run:
             self.log_message("ℹ️ Запущено за розкладом. Початок процесу переміщення.")
             self.start_process()
-
-
-
+            
     def get_module_dir(self):
         """Determines the path to the 'modules' directory relative to the script or executable."""
         if getattr(sys, 'frozen', False):
@@ -786,55 +1959,62 @@ class MainWindow(QMainWindow):
             base_path = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_path, MODULE_DIR_NAME)
 
-    def load_optional_modules(self):
-        """Scans the module directory and loads any found optional modules."""
-        module_dir = self.get_module_dir()
-        self.log_message(f"ℹ️ Перевірка додаткових модулів у: {module_dir}")
+    def discover_and_load_modules(self):
+        """Discover and load all available modules dynamically."""
+        add_splash_message("🔍 Scanning for modules...")
+        self.log_message("🔍 Discovering modules...")
+        discovered_modules = self.module_manager.discover_modules()
 
-        if not os.path.isdir(module_dir):
-            self.log_message(f"ℹ️ Папку модулів не знайдено. Пропуск додаткових модулів.")
-            return
+        if discovered_modules:
+            add_splash_message(f"📦 Found {len(discovered_modules)} module(s)")
+            self.log_message(f"📦 Found {len(discovered_modules)} module(s)")
 
-        for key, config in EXPECTED_MODULES.items():
-            module_path = os.path.join(module_dir, config["filename"])
+            # Validate and repair dependencies before loading
+            add_splash_message("🔧 Validating dependencies...")
+            self.module_manager.validate_and_repair_dependencies()
 
-            if os.path.exists(module_path):
-                self.log_message(f"ℹ️ Знайдено потенційний файл модуля: {config['filename']}")
-                try:
-                    # Create a unique module name to avoid conflicts
-                    module_name = f"dynamic_modules.{key}"
+            # Load all discovered modules
+            add_splash_message("🚀 Loading modules...")
+            self.module_manager.load_all_modules()
 
-                    # Load the module using importlib
-                    spec = importlib.util.spec_from_file_location(module_name, module_path)
-                    if spec is None:
-                        raise ImportError(f"Could not get spec for module at {module_path}")
+        else:
+            add_splash_message("ℹ️ No modules found")
+            self.log_message("ℹ️ No modules found")
 
-                    module = importlib.util.module_from_spec(spec)
-                    if module is None:
-                        raise ImportError(f"Could not create module from spec {module_name}")
+    def on_module_discovered(self, module_name: str, module_info: dict):
+        """Called when a module is discovered"""
+        add_splash_message(f"🔍 Found: {module_name} v{module_info.get('version', 'Unknown')}")
+        self.log_message(f"🔍 Discovered module: {module_name} v{module_info.get('version', 'Unknown')}")
 
-                    # Add to sys.modules BEFORE executing, crucial for relative imports within the module
-                    sys.modules[module_name] = module
-                    spec.loader.exec_module(module)
+    def on_module_loaded(self, module_name: str, module_class):
+        """Called when a module is successfully loaded"""
+        add_splash_message(f"✅ Loaded: {module_name}")
+        self.log_message(f"✅ Module loaded: {module_name}")
+        self.update_modules_menu()
 
-                    # --- Integration Point ---
-                    # Find the expected class within the loaded module
-                    if hasattr(module, config["class_name"]):
-                        self.loaded_modules[key] = getattr(module, config["class_name"])
-                        self.log_message(f"✅ Модуль '{key}' успішно завантажено.")
-                    else:
-                        self.log_message(
-                            f"⚠️ Модуль '{key}' завантажено, але необхідний клас '{config['class_name']}' не знайдено.")
-                        # Optional: Clean up sys.modules if class not found?
-                        # del sys.modules[module_name]
+    def on_module_error(self, module_name: str, error_message: str):
+        """Called when a module encounters an error"""
+        add_splash_message(f"❌ Error loading {module_name}")
+        self.log_message(f"❌ Module error ({module_name}): {error_message}")
 
-                except Exception as e:
-                    self.log_message(f"❌ Помилка завантаження модуля '{config['filename']}': {e}")
-                    # Ensure partially loaded module is removed from sys.modules
-                    if module_name in sys.modules:
-                        del sys.modules[module_name]
-            else:
-                self.log_message(f"ℹ️ Додатковий модуль '{config['filename']}' не знайдено.")
+    def update_modules_menu(self):
+        """Update the modules menu based on loaded modules"""
+        if hasattr(self, 'modules_menu'):
+            self.modules_menu.clear()
+
+            loaded_modules = self.module_manager.get_loaded_modules()
+            discovered_modules = self.module_manager.module_info
+
+            for module_name in discovered_modules:
+                module_info = discovered_modules[module_name]
+                is_loaded = module_name in loaded_modules
+
+                action = QAction(module_info.menu_text, self)
+                action.setEnabled(is_loaded)
+                action.triggered.connect(lambda checked=False, name=module_name: self.open_module_window(name))
+
+                self.modules_menu.addAction(action)
+                self.module_actions[module_name] = action
 
 
 
@@ -930,6 +2110,7 @@ class MainWindow(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Авто-організатор робочого столу v4.2")
+        self.setFixedSize(991, 701)
         self.setGeometry(300, 300, 991, 701)
 
         menubar = self.menuBar()
@@ -1067,85 +2248,55 @@ class MainWindow(QMainWindow):
             self.log_message("🔄 Перезавантаження модулів після імпорту...")
             self.reload_modules_and_update_ui()
 
-    def update_ui_for_modules(self):
-        self.modules_menu.clear()
-        for key, config in EXPECTED_MODULES.items():
-            is_loaded = key in self.loaded_modules
-            action = QAction(config["menu_text"], self)
-            action.setEnabled(is_loaded)
-            action.triggered.connect(lambda checked=False, key=key: self.open_module_window(key))
-            self.modules_menu.addAction(action)
-            self.module_actions[key] = action
+    def open_module_window(self, module_name):
+        """Open a module window/tab"""
+        loaded_modules = self.module_manager.get_loaded_modules()
+        module_info = self.module_manager.get_module_info(module_name)
 
-    def open_module_window(self, module_key):
-        if module_key in self.loaded_modules:
+        if module_name in loaded_modules and module_info:
             try:
-                ModuleClass = self.loaded_modules[module_key]
+                ModuleClass = loaded_modules[module_name]
 
                 # Check if a tab for this module already exists
                 for i in range(self.tab_widget.count()):
-                    if self.tab_widget.widget(i).property("module_key") == module_key:
+                    if self.tab_widget.widget(i).property("module_name") == module_name:
                         self.tab_widget.setCurrentIndex(i)
                         return
 
                 module_widget = ModuleClass(parent=self)
-                module_widget.setProperty("module_key", module_key)
-                tab_name = EXPECTED_MODULES[module_key].get("menu_text", "Module").replace("&", "").replace("...", "")
+                module_widget.setProperty("module_name", module_name)
+                tab_name = module_info.menu_text.replace("&", "").replace("...", "")
                 self.tab_widget.addTab(module_widget, tab_name)
                 self.tab_widget.setCurrentWidget(module_widget)
 
             except Exception as e:
-                self.log_message(f"❌ Помилка створення екземпляра або відображення вікна для модуля '{module_key}': {e}")
-                QMessageBox.critical(self, "Помилка модуля", f"Не вдалося запустити вікно модуля '{module_key}'.\n\n{e}")
+                self.log_message(f"❌ Error creating module window for '{module_name}': {e}")
+                QMessageBox.critical(self, "Module Error", f"Failed to open module '{module_name}'.\n\n{e}")
         else:
-            self.log_message(f"⚠️ Спроба відкрити модуль '{module_key}', але він не завантажений.")
-            QMessageBox.warning(self, "Модуль недоступний",
-                                f"Необхідний модуль '{module_key}' не знайдено або не вдалося завантажити.")
+            self.log_message(f"⚠️ Attempted to open module '{module_name}', but it's not loaded.")
+            QMessageBox.warning(self, "Module Unavailable",
+                                f"Required module '{module_name}' not found or failed to load.")
 
     def reload_modules_and_update_ui(self):
-        """Clears, reloads modules, and updates the UI accordingly."""
-        # 1. Close existing module windows (Optional but safer)
-        keys_to_close = list(self.module_windows.keys())
-        for key in keys_to_close:
-            window = self.module_windows.pop(key, None)
-            if window and window.isVisible():
-                self.log_message(f"Спроба закрити вікно для модуля '{key}'...")
-                try:
-                    # Disconnect signals maybe? Depends on module design
-                    window.close()
-                    # window.deleteLater() # More aggressive cleanup?
-                except Exception as e:
-                    self.log_message(f"Помилка закриття вікна для '{key}': {e}")
-            elif window:
-                # window.deleteLater() # Cleanup non-visible too?
-                pass
+        """Reload all modules and update the UI accordingly."""
+        self.log_message("🔄 Reloading modules...")
 
-        QApplication.processEvents()  # Allow windows to close
+        # Close existing module tabs
+        tabs_to_close = []
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i).property("module_name"):
+                tabs_to_close.append(i)
 
-        # 2. Clear internal references
-        # Make copies of keys before iterating if deleting during iteration
-        loaded_keys = list(self.loaded_modules.keys())
-        self.loaded_modules.clear()
-        self.log_message(f"Очищено внутрішні посилання на модулі: {loaded_keys}")
+        # Close tabs in reverse order to maintain indices
+        for i in reversed(tabs_to_close):
+            self.tab_widget.removeTab(i)
 
-        # 3. Attempt to clean up sys.modules (Use the specific names we created)
-        # This might STILL not be enough for C extensions!
-        external_prefix = "dynamic_modules.external."
-        default_prefix = "dynamic_modules.default."
-        modules_to_delete = []
-        for mod_name in sys.modules:
-            if mod_name.startswith(external_prefix) or mod_name.startswith(default_prefix):
-                modules_to_delete.append(mod_name)
+        QApplication.processEvents()  # Allow UI to update
 
-        for mod_name in modules_to_delete:
-            self.log_message(f"Видалення '{mod_name}' з sys.modules...")
-            try:
-                del sys.modules[mod_name]
-            except KeyError:
-                pass  # Already gone
+        # Reload modules using the module manager
+        self.discover_and_load_modules()
 
-        self.update_ui_for_modules()
-        self.log_message("--- Перезавантаження модулів завершено ---")
+        self.log_message("✅ Module reload completed")
 
 
     def _log_current_schedule_settings(self, schedule_cfg):
@@ -1435,8 +2586,16 @@ class MainWindow(QMainWindow):
 
 
     def closeEvent(self, event):
+        # Clean up splash screen if it's still active
+        global global_splash
+        if global_splash and hasattr(global_splash, 'cleanup'):
+            global_splash.cleanup()
+
+        # Save settings before closing
+        self.save_settings()
+
         # Optional: Add confirmation before closing if needed
-        pass
+        event.accept()
 
 
 if __name__ == "__main__":
@@ -1454,9 +2613,32 @@ if __name__ == "__main__":
 
         run_background_task()
 
-    else:  # Otherwise, start the GUI
+    else:  # Otherwise, start the GUI with splash screen
         app = QApplication(sys.argv)
+
+        # Create and show splash screen
+        splash = SplashScreen()
+        globals()['global_splash'] = splash
+        splash.show()
+        QApplication.processEvents()  # Ensure splash is displayed immediately
+
         is_scheduled_run = '--scheduled-run' in sys.argv
+
+        # Add startup messages to splash
+        splash.add_message("⚙️ Initializing application...")
+        splash.add_message("📚 Loading settings...")
+
+        # Create main window (this may take time)
         window = MainWindow(is_scheduled_run=is_scheduled_run)
+
+        splash.add_message("🖥️ Main window created...")
+        splash.add_message("✅ Application ready!")
+
+        # Add a small delay to show the final message, then fade out
+        QTimer.singleShot(1500, lambda: splash.fade_out_and_close(800))
         window.show()
+
+        # Clear global reference after splash is closed
+        QTimer.singleShot(2500, lambda: globals().__setitem__('global_splash', None))
+
         sys.exit(app.exec_())
