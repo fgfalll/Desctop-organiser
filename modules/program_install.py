@@ -1761,7 +1761,7 @@ class WorkerThread(QThread):
         self._is_running = False
         self.progress_update.emit(self.task_name, "Cancellation requested...")
 
-class ProgramInstallerUI(QMainWindow):
+class ProgramInstallerUI(QWidget):
     """Main application window."""
     update_tree_signal = pyqtSignal()
 
@@ -1780,10 +1780,7 @@ class ProgramInstallerUI(QMainWindow):
         self.active_threads: List[WorkerThread] = []
         self.pending_updates = False
 
-        self.setWindowTitle("Модуль встановлення програм")
-        self.setMinimumSize(900, 650)
         self._setup_ui()
-        self._load_settings()
 
         self.update_tree_signal.connect(self._populate_program_list)
 
@@ -1793,13 +1790,12 @@ class ProgramInstallerUI(QMainWindow):
         QTimer.singleShot(500, self._initial_status_check)
 
     def _setup_ui(self):
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        main_layout = QVBoxLayout(self.central_widget)
+        self.setFixedSize(991, 701)
+        main_layout = QVBoxLayout(self)
 
         # --- Toolbar ---
         self.toolbar = self._create_toolbar()
-        self.addToolBar(Qt.TopToolBarArea, self.toolbar)
+        main_layout.addWidget(self.toolbar)
 
         # --- Main Splitter ---
         splitter = QSplitter(Qt.Vertical)
@@ -1874,9 +1870,8 @@ class ProgramInstallerUI(QMainWindow):
         splitter.setSizes([int(self.height() * 0.7), int(self.height() * 0.3)])
 
         # --- Status Bar ---
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Готово. Встановіть шлях для початку сканування.")
+        self.status_label = QLabel("Готово. Встановіть шлях для початку сканування.")
+        main_layout.addWidget(self.status_label)
 
     def _get_icon(self, standard_icon: QStyle.StandardPixmap) -> QIcon:
         app_instance = QApplication.instance()
@@ -1926,7 +1921,7 @@ class ProgramInstallerUI(QMainWindow):
         if path:
             logger.info(f"The path selected by the user: {path}")
             if self.installer.set_search_path(path):
-                self.status_bar.showMessage(f"The scan path is set: {path}", 5000)
+                self.status_label.setText(f"The scan path is set: {path}")
                 settings.setValue("last_search_path", path)
                 self._clear_program_list_results()
                 self._update_ui_state()
@@ -1959,13 +1954,13 @@ class ProgramInstallerUI(QMainWindow):
             QMessageBox.warning(self, "Шлях сканування не встановлено", "Будь ласка, спочатку встановіть каталог для пошуку інсталяторів за допомогою пункту «Встановити шлях сканування».'.")
             return
         if self._is_task_running("scan"):
-            self.status_bar.showMessage("Сканування вже триває.", 3000)
+            self.status_label.setText("Сканування вже триває.")
             return
         self._run_task("scan")
 
     def _check_status(self):
         if self._is_task_running("check_status"):
-             self.status_bar.showMessage("Перевірка статусу вже триває.", 3000)
+             self.status_label.setText("Перевірка статусу вже триває.")
              return
         self._run_task("check_status", list(self.installer.program_status.keys()))
 
@@ -2113,6 +2108,7 @@ class ProgramInstallerUI(QMainWindow):
             installed_v_str = str(status.installed_version) if status.installed_version and not status.installed_version.is_zero() else "N/A"
             found_v_str = "N/A"
             version_display = installed_v_str
+            version_tooltip = f"Installed: {installed_v_str} / Found: N/A"
 
             if status.found_installer and status.found_installer.version and not status.found_installer.version.is_zero():
                 found_v_str = str(status.found_installer.version)
@@ -2341,14 +2337,14 @@ class ProgramInstallerUI(QMainWindow):
              self.install_button.setEnabled(False)
              self.uninstall_button.setEnabled(False)
 
-        # Update status bar message
+        # Update status label message
         if not is_idle:
             running_tasks = [t.task_name for t in self.active_threads if t.isRunning()]
-            self.status_bar.showMessage(f"Зайнято: {', '.join(running_tasks)}...")
+            self.status_label.setText(f"Зайнято: {', '.join(running_tasks)}...")
         elif not path_is_set:
-             self.status_bar.showMessage("Готово. Встановити шлях для початку сканування.")
+             self.status_label.setText("Готово. Встановіть шлях для початку сканування.")
         else:
-             self.status_bar.showMessage("Готовий.")
+             self.status_label.setText("Готовий.")
 
     def _is_task_running(self, task_name_prefix: str) -> bool:
         return any(t.isRunning() and t.task_name.startswith(task_name_prefix) for t in self.active_threads)
@@ -2404,7 +2400,7 @@ class ProgramInstallerUI(QMainWindow):
 
     # --- Signal Handlers / Slots ---
     def _on_progress_update(self, task_name: str, message: str):
-        self.status_bar.showMessage(f"[{task_name}] {message}", 5000)
+        self.status_label.setText(f"[{task_name}] {message}")
 
     def _on_task_complete(self, task_name: str, result: Any):
         logger.info(f"GUI received task_complete signal: Task='{task_name}', Result type='{type(result)}'")
@@ -2457,76 +2453,21 @@ class ProgramInstallerUI(QMainWindow):
         if not any(t.isRunning() for t in self.active_threads):
             logger.info("All worker threads have finished. Updating UI state to idle.")
             self._update_ui_state()
-            self.status_bar.showMessage("Ready.", 3000)
+            self.status_label.setText("Ready.")
         else:
             logger.debug(f"{len([t for t in self.active_threads if t.isRunning()])} threads still running. UI remains busy.")
             self._update_ui_state()
 
 
     # --- Settings Persistence ---
-    def _load_settings(self):
-        self.settings = QSettings()
-        logger.info(f"Loading UI settings from: {self.settings.fileName()}")
 
-        # Restore window geometry and state
-        geometry = self.settings.value("geometry")
-        state = self.settings.value("windowState")
-        if isinstance(geometry, QByteArray):
-            self.restoreGeometry(geometry)
-            logger.debug("Restored window geometry.")
-        if isinstance(state, QByteArray):
-            self.restoreState(state)
-            logger.debug("Restored window state.")
-
-        # Restore last search path
-        last_path = self.settings.value("last_search_path", "")
-        if last_path and isinstance(last_path, str):
-            logger.info(f"Attempting to set last used search path: {last_path}")
-            self.installer.set_search_path(last_path)
-
-    def _save_settings(self):
-        """Saves UI settings to QSettings."""
-        if not hasattr(self, 'settings'):
-            self.settings = QSettings()
-
-        logger.info(f"Saving UI settings to: {self.settings.fileName()}")
-        self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("windowState", self.saveState())
-        if self.installer.search_path:
-            self.settings.setValue("last_search_path", self.installer.search_path)
-            logger.debug(f"Saved last search path: {self.installer.search_path}")
-
-        self.settings.sync()
-        logger.info("UI settings saved.")
 
     # --- Window Closing ---
-    def closeEvent(self, event):
-        logger.info("Close event triggered. Saving settings and checking for running tasks.")
-        self._save_settings()
-
-        # Check for running background tasks
-        running_threads = [t for t in self.active_threads if t.isRunning()]
-        if running_threads:
-            task_names = [t.task_name for t in running_threads]
-            logger.warning(f"Attempting to close window, but background tasks are running: {task_names}")
-            reply = QMessageBox.question(self, "Tasks Running",
-                                         f"The following tasks are still running:\n - {', '.join(task_names)}\n\n"
-                                         "Closing the application now may interrupt them. Are you sure you want to quit?",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-
-            if reply == QMessageBox.No:
-                logger.info("User cancelled window close due to running tasks.")
-                event.ignore()
-                return
-            else:
-                logger.warning("User confirmed closing despite running tasks. Attempting to signal stop...")
-                for thread in running_threads:
-                    thread.stop()
-                QApplication.processEvents()
-                logger.warning("Continuing close process. Tasks may be forcefully terminated.")
-
-        logger.info("Proceeding with window close.")
-        super().closeEvent(event)
+def get_module_info():
+    return {
+        "name": "Program Installer",
+        "widget": ProgramInstallerUI
+    }
 
 # --- Main Execution ---
 if __name__ == "__main__":

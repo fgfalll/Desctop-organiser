@@ -9,9 +9,11 @@ from typing import List, Optional, Dict
 
 # --- Dependency Check & Imports ---
 try:
-    from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                                 QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView, QListWidget, QListWidgetItem,
-                                 QStatusBar, QToolBar, QAction, QStyle, QDialog, QDialogButtonBox, QLineEdit, QComboBox, QMessageBox)
+    from PyQt5.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+        QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView, QListWidget, QListWidgetItem,
+        QStatusBar, QToolBar, QAction, QStyle, QDialog, QDialogButtonBox, QLineEdit, QComboBox, QMessageBox, QLabel
+    )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal
     from PyQt5.QtGui import QIcon, QColor, QFont
     PYQT5_AVAILABLE = True
@@ -19,7 +21,7 @@ except ImportError:
     PYQT5_AVAILABLE = False
     class QMainWindow: pass
     class QDialog: pass
-    class QThread: 
+    class QThread:
         pyqtSignal = lambda *args, **kwargs: (lambda func: func)
     class QApplication:
         @staticmethod
@@ -67,6 +69,11 @@ class LicenseChecker:
             if progress_callback: progress_callback.emit(status)
 
     def _run_single_check(self, check: Dict) -> LicenseStatus:
+        try:
+            with open("modules/single_check_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"--- Running check: {check} ---\n")
+        except:
+            pass # Ignore if logging fails
         util_name = check.get('util', 'lmutil')
         arguments = check.get('args', '')
         util_path = os.path.join(self.lmtools_folder, f"{util_name}.exe")
@@ -92,8 +99,11 @@ class LicenseChecker:
 
     def _execute_command(self, util_path: str, arguments: str) -> Optional[str]:
         try:
-            result = subprocess.run(f'"{util_path}" {arguments}', shell=True, capture_output=True, text=True, timeout=60, encoding='utf-8', errors='ignore')
-            return result.stdout + "\n" + result.stderr
+            command_list = [util_path] + arguments.split()
+            result = subprocess.run(command_list, capture_output=True, timeout=60)
+            stdout = result.stdout.decode('cp1251', errors='ignore')
+            stderr = result.stderr.decode('cp1251', errors='ignore')
+            return stdout + "\n" + stderr
         except Exception: return None
 
     def parse_flexlm_output(self, output: str, server_info: str, check_name: str) -> LicenseStatus:
@@ -101,8 +111,10 @@ class LicenseChecker:
             port, name = server_info.split('@')
             status = LicenseStatus(check_name=check_name, server_name=name, server_port=int(port), server_up=False, server_version="Unknown", raw_output=output)
         except (ValueError, IndexError): status = LicenseStatus(check_name=check_name, server_name=server_info, server_port=0, server_up=False, server_version="Unknown", raw_output=output)
-        server_status_match = re.search(r": license server UP \(v(.*?)\)", output)
-        if server_status_match: status.server_up = True; status.server_version = server_status_match.group(1).strip()
+        server_status_match = re.search(r"license server UP.*(v[\d\.]+)", output)
+        if server_status_match:
+            status.server_up = True
+            status.server_version = server_status_match.group(1).strip()
         feature_blocks = re.finditer(r'Users of (.*?):\s*\(Total of (\d+) licenses issued;\s*Total of (\d+) licenses in use\)', output, re.IGNORECASE)
         for block in feature_blocks:
             feature = FeatureUsage(name=block.group(1).strip(), total=int(block.group(2)), used=int(block.group(3)))
@@ -114,18 +126,38 @@ class LicenseChecker:
 
     def parse_rlm_output(self, output: str, server_info: str, check_name: str) -> LicenseStatus:
         try:
+            with open("modules/rlm_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"--- RLM Check: {check_name} ---\n")
+                f.write(f"Server Info: {server_info}\n")
+                f.write("Output:\n")
+                f.write(output)
+                f.write("\n----------------------------------\n")
+        except Exception as e:
+            with open("modules/rlm_debug_error.log", "w") as f:
+                f.write(str(e))
+        sys.stderr.write(f"--- Raw output for RLM ({check_name}) passed to parser ---\n")
+        sys.stderr.write(output + "\n")
+        sys.stderr.write("-----------------------------------------------------\n")
+        try:
             port, name = server_info.split('@')
             status = LicenseStatus(check_name=check_name, server_name=name, server_port=int(port), server_up=False, server_version="Unknown", raw_output=output)
-        except (ValueError, IndexError): status = LicenseStatus(check_name=check_name, server_name=server_info, server_port=0, server_up=False, server_version="Unknown", raw_output=output)
-        server_status_match = re.search(r"is UP on .*? \(port \d+\), version (v.*?)\n", output)
-        if server_status_match: status.server_up = True; status.server_version = server_status_match.group(1).strip()
-        feature_blocks = re.finditer(r'\s+(.*?):\s*\((\d+)\s+of\s+(\d+).*?\)\s*\n', output)
+        except (ValueError, IndexError): sys.stderr.write("Error splitting server_info\n"); status = LicenseStatus(check_name=check_name, server_name=server_info, server_port=0, server_up=False, server_version="Unknown", raw_output=output)
+        server_status_match = re.search(r".*?ISV server status on .*? \(port \d+\), up", output, re.IGNORECASE)
+        if server_status_match:
+            status.server_up = True
+            version_match = re.search(r"software version (v.*?)\s", output)
+            if version_match:
+                status.server_version = version_match.group(1).strip()
+            else:
+                sys.stderr.write("Version match failed for RLM\n")
+        else:
+            sys.stderr.write("Server status match failed for RLM\n")
+        feature_blocks = re.finditer(r'\s*([\w_\-]+)\s+v[\d\.]+\s+count:\s+(\d+),.*inuse:\s+(\d+)', output)
         for block in feature_blocks:
-            feature = FeatureUsage(name=block.group(1).strip(), used=int(block.group(2)), total=int(block.group(3)))
-            content_after = output[block.end():]; next_feature_match = re.search(r'\n\s+[\w-]+\s*:', content_after)
-            user_block_content = content_after[:next_feature_match.start()] if next_feature_match else content_after
-            for user_match in re.finditer(r'\s+([\w\.-]+) on ([\w\.-]+) .*', user_block_content): feature.users.append(f"{user_match.group(1)} on {user_match.group(2)}")
+            feature = FeatureUsage(name=block.group(1).strip(), total=int(block.group(2)), used=int(block.group(3)))
             status.features.append(feature)
+        if not status.features:
+            sys.stderr.write("No RLM features found\n")
         return status
 
 # --- Worker Thread ---
@@ -206,15 +238,13 @@ class EditChecksDialog(QDialog):
     def save_and_accept(self): self.checks_updated.emit(self.checks_data); self.accept()
 
 # --- UI Class ---
-class LicenseCheckerUI(QMainWindow):
+class LicenseCheckerUI(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker = None
         self._get_paths()
         self.load_checks()
         self.checker = LicenseChecker(self.lmtools_folder, self.checks_to_run)
-        self.setWindowTitle("Перевірка стану ліцензії")
-        self.setMinimumSize(800, 600)
         self._setup_ui()
         self.refresh_licenses()
 
@@ -248,16 +278,30 @@ class LicenseCheckerUI(QMainWindow):
         except Exception as e: QMessageBox.warning(self, "Save Error", f"Could not save license checks to file:\n{e}")
 
     def _setup_ui(self):
-        self.central_widget = QWidget(); self.setCentralWidget(self.central_widget); layout = QVBoxLayout(self.central_widget)
-        toolbar = QToolBar("Main Toolbar"); toolbar.setMovable(False); self.addToolBar(toolbar)
+        self.setFixedSize(991, 701)
+        layout = QVBoxLayout(self)
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        layout.addWidget(toolbar)
+
         style = QApplication.instance().style() if QApplication.instance() else None
         refresh_icon = style.standardIcon(QStyle.SP_BrowserReload) if style else QIcon()
         edit_icon = style.standardIcon(QStyle.SP_FileDialogDetailedView) if style else QIcon()
-        self.refresh_action = QAction(refresh_icon, "Refresh", self); self.refresh_action.triggered.connect(self.refresh_licenses)
-        self.edit_action = QAction(edit_icon, "Edit Checks...", self); self.edit_action.triggered.connect(self.open_edit_checks_dialog)
-        toolbar.addAction(self.refresh_action); toolbar.addAction(self.edit_action)
-        self.tree = QTreeWidget(); self.tree.setHeaderLabels(["Property", "Value"]); self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents); self.tree.header().setStretchLastSection(True); layout.addWidget(self.tree)
-        self.status_bar = QStatusBar(); self.setStatusBar(self.status_bar)
+        self.refresh_action = QAction(refresh_icon, "Refresh", self)
+        self.refresh_action.triggered.connect(self.refresh_licenses)
+        self.edit_action = QAction(edit_icon, "Edit Checks...", self)
+        self.edit_action.triggered.connect(self.open_edit_checks_dialog)
+        toolbar.addAction(self.refresh_action)
+        toolbar.addAction(self.edit_action)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Property", "Value"])
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tree.header().setStretchLastSection(True)
+        layout.addWidget(self.tree)
+
+        self.status_label = QLabel("Ready")
+        layout.addWidget(self.status_label)
 
     def open_edit_checks_dialog(self):
         dialog = EditChecksDialog(self.checks_to_run, self)
@@ -272,16 +316,30 @@ class LicenseCheckerUI(QMainWindow):
 
     def refresh_licenses(self):
         if self.worker and self.worker.isRunning(): return
-        self.tree.clear(); self.refresh_action.setEnabled(False); self.edit_action.setEnabled(False)
-        self.status_bar.showMessage("Running license checks...")
-        self.worker = LicenseWorker(self.checker); self.worker.result_ready.connect(self.update_tree); self.worker.finished.connect(self.on_worker_finished); self.worker.start()
+        self.tree.clear()
+        self.refresh_action.setEnabled(False)
+        self.edit_action.setEnabled(False)
+        self.status_label.setText("Running license checks...")
+        self.worker = LicenseWorker(self.checker)
+        self.worker.result_ready.connect(self.update_tree)
+        self.worker.finished.connect(self.on_worker_finished)
+        self.worker.start()
 
-    def on_worker_finished(self): self.status_bar.showMessage("Checks complete.", 5000); self.refresh_action.setEnabled(True); self.edit_action.setEnabled(True)
+    def on_worker_finished(self):
+        self.status_label.setText("Checks complete.")
+        self.refresh_action.setEnabled(True)
+        self.edit_action.setEnabled(True)
+
     def update_tree(self, status: LicenseStatus):
-        root_item = QTreeWidgetItem(self.tree, [status.check_name]); root_item.setFont(0, QFont("Segoe UI", 10, QFont.Bold))
-        if status.error_message: QTreeWidgetItem(root_item, ["Error", status.error_message]).setForeground(1, QColor("red")); root_item.setExpanded(True); return
+        root_item = QTreeWidgetItem(self.tree, [status.check_name])
+        root_item.setFont(0, QFont("Segoe UI", 10, QFont.Bold))
+        if status.error_message:
+            QTreeWidgetItem(root_item, ["Error", status.error_message]).setForeground(1, QColor("red"))
+            root_item.setExpanded(True)
+            return
         QTreeWidgetItem(root_item, ["Server", f"{status.server_name}:{status.server_port}"])
-        status_item = QTreeWidgetItem(root_item, ["Status", f"{('UP' if status.server_up else 'DOWN')} (v{status.server_version})"]); status_item.setForeground(1, QColor("green") if status.server_up else QColor("red"))
+        status_item = QTreeWidgetItem(root_item, ["Status", f"{('UP' if status.server_up else 'DOWN')} (v{status.server_version})"])
+        status_item.setForeground(1, QColor("green") if status.server_up else QColor("red"))
         if status.features:
             features_root = QTreeWidgetItem(root_item, ["Features"])
             for feature in status.features:
@@ -289,13 +347,23 @@ class LicenseCheckerUI(QMainWindow):
                 feature_item = QTreeWidgetItem(features_root, [feature.name, f"{feature.used} of {total_str} in use"])
                 if feature.users: 
                     users_item = QTreeWidgetItem(feature_item, ["Users"])
-                    for user in feature.users: QTreeWidgetItem(users_item, [user])
+                    for user in feature.users:
+                        QTreeWidgetItem(users_item, [user])
         root_item.setExpanded(True)
+
+def get_module_info():
+    return {
+        "name": "License Checker",
+        "widget": LicenseCheckerUI
+    }
 
 # --- Main Execution (for standalone use) ---
 def main():
     if not PYQT5_AVAILABLE: print("CRITICAL: This UI requires 'PyQt5' (pip install PyQt5).", file=sys.stderr); sys.exit(1)
-    app = QApplication(sys.argv); main_window = LicenseCheckerUI(); main_window.show(); sys.exit(app.exec_())
+    app = QApplication(sys.argv)
+    main_window = LicenseCheckerUI()
+    main_window.show()
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()

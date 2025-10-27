@@ -171,7 +171,7 @@ class NGITHighlighter(QSyntaxHighlighter):
 
 
 # --- License Manager Main Window ---
-class LicenseManager(QMainWindow):
+class LicenseManager(QWidget):
     log_signal = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
@@ -185,14 +185,14 @@ class LicenseManager(QMainWindow):
         self.install_system_wide_cb = None
 
         self.setup_ui()
-        self.setWindowTitle("License Manager")
-        self.setMinimumSize(800, 600)
         self.update_ui_state()
 
     def setup_ui(self):
+        self.setFixedSize(991, 701)
+        layout = QVBoxLayout(self)
         toolbar = QToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(16, 16))
-        self.addToolBar(toolbar)
+        layout.addWidget(toolbar)
 
         self.action_open = QAction(QIcon.fromTheme("document-open", QIcon()), "&Відкрити...", self)
         self.action_open.setShortcut("Ctrl+O")
@@ -254,11 +254,6 @@ class LicenseManager(QMainWindow):
         self.action_clear_log.triggered.connect(self.clear_log)
         toolbar.addAction(self.action_clear_log)
 
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
         self.txt_content = CodeEditor()
         self.txt_content.setStyleSheet("QPlainTextEdit { background-color: #ffffff; font-family: Consolas, monospace; font-size: 10pt; }")
         self.highlighter = NGITHighlighter(self.txt_content.document())
@@ -272,10 +267,8 @@ class LicenseManager(QMainWindow):
         layout.addWidget(self.txt_content)
         layout.addWidget(self.txt_log)
 
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
         self.status_label = QLabel("Ready")
-        self.status_bar.addWidget(self.status_label, 1)
+        layout.addWidget(self.status_label)
 
         self.setup_icons()
 
@@ -304,13 +297,11 @@ class LicenseManager(QMainWindow):
 
         if not has_file:
             self.status_label.setText("Ready. Open an .ngit file or generate a template.")
-            self.setWindowTitle("License Manager")
         else:
             file_status = "Validated" if is_valid else ("Validation Failed" if self.highlighter.error_lines else "Not Validated")
             conflict_status = " Conflicts Detected!" if has_conflicts else ""
             dirty_status = " (Modified)" if self.is_dirty() else ""
             self.status_label.setText(f"File: {os.path.basename(self.file_path)}{dirty_status} [{file_status}{conflict_status}]")
-            self.setWindowTitle(f"License Manager - {os.path.basename(self.file_path)}{'*' if self.is_dirty() else ''}")
 
 
     def toggle_log(self):
@@ -617,14 +608,20 @@ class LicenseManager(QMainWindow):
         return msg.exec_() == QMessageBox.Yes
 
 
-    def closeEvent(self, event):
-         if self.is_dirty():
-              reply = QMessageBox.question(self, 'Незбережені зміни',
-                                           "У вас є незбережені зміни. Ви хочете відмінити їх і закрити?",
-                                           QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Cancel)
-              if reply == QMessageBox.Discard: event.accept()
-              else: event.ignore()
-         else: event.accept()
+def get_module_info():
+    return {
+        "name": "License Manager",
+        "widget": LicenseManager
+    }
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    app = QApplication(sys.argv)
+    window = LicenseManager()
+    window.show()
+    sys.exit(app.exec_())
 
 
 # --- File Validator Thread ---
