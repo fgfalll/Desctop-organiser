@@ -1,0 +1,20 @@
+# Core GUI Framework
+PyQt5>=5.15.0
+
+# Configuration Management
+PyYAML>=6.0
+
+# System Information
+psutil>=5.8.0
+
+# Module Development Support
+# Note: Modules can have their own additional dependencies
+# These are the core dependencies for the main application only
+
+# Optional: For enhanced module development
+# Uncomment if you want to enable these features:
+# cryptography>=3.4.8          # For security-related modules
+# requests>=2.25.1            # For network-related modules
+# pillow>=8.0.0               # For image processing modules
+# numpy>=1.21.0               # For data processing modules
+# matplotlib>=3.3.0           # For visualization modules
