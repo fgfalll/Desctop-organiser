@@ -17,26 +17,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
 import subprocess
 
-# Assuming license_manager.py contains the LicenseManager class
-try:
-    from license_manager import LicenseManager
-except ImportError:
-    # Provide a dummy class if the import fails, so the app can still run partially
-    # You might want to show a warning to the user as well
-    print("ПОПЕРЕДЖЕННЯ: Не вдалося імпортувати Менеджер Ліцензій. Функціонал ліцензій буде недоступний.")
-    class LicenseManager(QMainWindow): # Dummy class
-        log_signal = pyqtSignal(str, str)
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setWindowTitle("Менеджер Ліцензій (Недоступний)")
-            layout = QVBoxLayout()
-            label = QLabel("Помилка: Модуль Менеджера Ліцензій не знайдено.")
-            layout.addWidget(label)
-            widget = QWidget()
-            widget.setLayout(layout)
-            self.setCentralWidget(widget)
-            self.resize(400, 100)
-
 # --- Configuration File Path ---
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.yaml")
@@ -950,7 +930,7 @@ class MainWindow(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Авто-організатор робочого столу v4.2")
-        self.setGeometry(300, 300, 650, 500)
+        self.setGeometry(300, 300, 991, 701)
 
         menubar = self.menuBar()
 
@@ -968,64 +948,25 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
-        # --- Install Programs Menu ---
-        install_menu = menubar.addMenu('&Встановлення програм')
-        install_key = "program_install"
-        if install_key in EXPECTED_MODULES:
-            config = EXPECTED_MODULES[install_key]
-            install_program_action = QAction(config["menu_text"], self)
-            install_program_action.setObjectName(config["menu_object_name"])
-            # Connect to a generic opener function, passing the module key
-            install_program_action.triggered.connect(
-                lambda checked=False, key=install_key: self.open_module_window(key))
-            install_program_action.setEnabled(False)  # Initially disabled
-            install_menu.addAction(install_program_action)
-            self.module_actions[install_key] = install_program_action
-        else:
-            # Optional: Add a placeholder if the config is missing entirely
-            placeholder_action = QAction("Встановлення (Не налаштовано)", self)
-            placeholder_action.setEnabled(False)
-            install_menu.addAction(placeholder_action)
-
-        # --- License Menu ---
-        license_menu = menubar.addMenu('&Ліцензія')
-        license_key = "license_manager"
-        if license_key in EXPECTED_MODULES:
-            config = EXPECTED_MODULES[license_key]
-            manage_license_action = QAction(config["menu_text"], self)
-            manage_license_action.setObjectName(config["menu_object_name"])
-            # Connect to a generic opener function, passing the module key
-            manage_license_action.triggered.connect(
-                lambda checked=False, key=license_key: self.open_module_window(key))
-            manage_license_action.setEnabled(False)  # Initially disabled
-            license_menu.addAction(manage_license_action)
-            self.module_actions[license_key] = manage_license_action
-        else:
-            placeholder_action = QAction("Ліцензія (Не налаштовано)", self)
-            placeholder_action.setEnabled(False)
-            license_menu.addAction(placeholder_action)
-
-        # --- Tools Menu (for new modules) ---
-        tools_menu = menubar.addMenu('&Інструменти')
-        
-        # License Checker
-        checker_key = "license_checker"
-        if checker_key in EXPECTED_MODULES:
-            config = EXPECTED_MODULES[checker_key]
-            check_license_action = QAction(config["menu_text"], self)
-            check_license_action.setObjectName(config["menu_object_name"])
-            check_license_action.triggered.connect(
-                lambda checked=False, key=checker_key: self.open_module_window(key))
-            check_license_action.setEnabled(False)  # Initially disabled
-            tools_menu.addAction(check_license_action)
-            self.module_actions[checker_key] = check_license_action
+        # --- Modules Menu ---
+        modules_menu = menubar.addMenu('&Модулі')
+        self.modules_menu = modules_menu
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
+        self.tab_widget = QTabWidget()
+        self.tab_widget.currentChanged.connect(self.resize_to_current_tab)
+        main_layout.addWidget(self.tab_widget)
+
+        # --- Main Tab ---
+        main_tab = QWidget()
+        self.tab_widget.addTab(main_tab, "Головна")
+        main_tab_layout = QVBoxLayout(main_tab)
+
         self.timer_label = QLabel("Завантаження...")
-        main_layout.addWidget(self.timer_label)
+        main_tab_layout.addWidget(self.timer_label)
 
         control_layout = QHBoxLayout()
         self.time_combo = QComboBox()
@@ -1038,7 +979,7 @@ class MainWindow(QMainWindow):
         self.timer_control_btn = QPushButton("⏱️ Стоп таймер")
         self.timer_control_btn.clicked.connect(self.toggle_timer)
         control_layout.addWidget(self.timer_control_btn)
-        main_layout.addLayout(control_layout)
+        main_tab_layout.addLayout(control_layout)
 
         drive_group = QGroupBox("Вибір основного диска")
         drive_layout = QHBoxLayout(drive_group)
@@ -1050,11 +991,17 @@ class MainWindow(QMainWindow):
         drive_layout.addWidget(self.btn_drive_d)
         drive_layout.addWidget(self.btn_drive_e)
         self.btn_group.buttonClicked[int].connect(self.set_selected_drive)
-        main_layout.addWidget(drive_group)
+        main_tab_layout.addWidget(drive_group)
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        main_layout.addWidget(self.log)
+        main_tab_layout.addWidget(self.log)
+
+    def resize_to_current_tab(self, index=-1):
+        current_widget = self.tab_widget.currentWidget()
+        if current_widget:
+            self.centralWidget().adjustSize()
+            self.adjustSize()
 
     def import_modules_to_standard_dir(self):
         """Opens a dialog to select .py files and copies them to the standard module directory."""
@@ -1121,35 +1068,31 @@ class MainWindow(QMainWindow):
             self.reload_modules_and_update_ui()
 
     def update_ui_for_modules(self):
-        """Enables or disables menu actions based on successfully loaded modules."""
-        for key, action in self.module_actions.items():
+        self.modules_menu.clear()
+        for key, config in EXPECTED_MODULES.items():
             is_loaded = key in self.loaded_modules
+            action = QAction(config["menu_text"], self)
             action.setEnabled(is_loaded)
-            #self.log_message(f"ℹ️ UI Action for '{key}' {'Enabled' if is_loaded else 'Disabled'}.")
+            action.triggered.connect(lambda checked=False, key=key: self.open_module_window(key))
+            self.modules_menu.addAction(action)
+            self.module_actions[key] = action
 
     def open_module_window(self, module_key):
-        """Opens the window associated with the given module key, if loaded."""
         if module_key in self.loaded_modules:
             try:
                 ModuleClass = self.loaded_modules[module_key]
 
-                # Check if an instance already exists and is visible
-                if module_key in self.module_windows and self.module_windows[module_key].isVisible():
-                    self.module_windows[module_key].activateWindow()
-                    self.module_windows[module_key].raise_()
-                else:
-                    # --- Instantiation Point ---
-                    # Pass 'self' (the main window) as parent, useful if the module needs
-                    # to interact with the main app (e.g., logging, accessing settings).
-                    # Ensure the module's __init__ accepts a parent argument.
-                    module_window_instance = ModuleClass(parent=self)
-                    self.module_windows[module_key] = module_window_instance  # Store the instance
+                # Check if a tab for this module already exists
+                for i in range(self.tab_widget.count()):
+                    if self.tab_widget.widget(i).property("module_key") == module_key:
+                        self.tab_widget.setCurrentIndex(i)
+                        return
 
-                    # Optional: Connect signals from the module window back to the main window if needed
-                    # if hasattr(module_window_instance, 'log_signal'):
-                    #     module_window_instance.log_signal.connect(self.handle_module_log)
-
-                    module_window_instance.show()
+                module_widget = ModuleClass(parent=self)
+                module_widget.setProperty("module_key", module_key)
+                tab_name = EXPECTED_MODULES[module_key].get("menu_text", "Module").replace("&", "").replace("...", "")
+                self.tab_widget.addTab(module_widget, tab_name)
+                self.tab_widget.setCurrentWidget(module_widget)
 
             except Exception as e:
                 self.log_message(f"❌ Помилка створення екземпляра або відображення вікна для модуля '{module_key}': {e}")
@@ -1403,14 +1346,19 @@ class MainWindow(QMainWindow):
 
 
     def check_schedule(self):
+        app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
         schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
         schedule_type = schedule_cfg.get('type', 'disabled')
 
-        if schedule_type == 'disabled':
+        # Do not run if both the schedule and the autostart timer are disabled
+        if schedule_type == 'disabled' or not app_settings.get('autostart_timer_enabled', True):
             return
 
         now = datetime.now()
         today = now.date()
+        current_time = QTime.currentTime()
+        self.log_message(f"ℹ️ Перевірка розкладу: {today.strftime('%Y-%m-%d')} {current_time.toString('HH:mm:ss')}")
+
 
         # Reset last run date if it's a new day.
         if self.last_scheduled_run_date and self.last_scheduled_run_date < today:
@@ -1426,20 +1374,19 @@ class MainWindow(QMainWindow):
 
         start_time = QTime.fromString(schedule_cfg.get('time_start', '22:00'), "HH:mm")
         end_time = QTime.fromString(schedule_cfg.get('time_end', '23:00'), "HH:mm")
-        current_time = QTime.currentTime()
 
         # If we are within the execution window, check for idle
         if start_time <= current_time <= end_time:
             cpu_usage = psutil.cpu_percent(interval=1)
             self.log_message(f"ℹ️ У вікні розкладу. ЦП: {cpu_usage}%.")
             if cpu_usage < 15.0:
-                self.log_message("⏰ Низьке завантаження ЦП. Запуск запланованого завдання.")
-                self.start_process()
+                self.log_message("⏰ Низьке завантаження ЦП. Запуск таймера за розкладом.")
+                self.start_auto_timer()
                 self.last_scheduled_run_date = today
         # If we are past the window and haven't run, run now.
         elif current_time > end_time:
-            self.log_message("⚠️ Вікно розкладу пропущено. Запускаємо завдання зараз, оскільки воно не було запущено через високе завантаження ЦП.")
-            self.start_process()
+            self.log_message("⚠️ Вікно розкладу пропущено. Запускаємо таймер зараз, оскільки він не був запущений через високе завантаження ЦП.")
+            self.start_auto_timer()
             self.last_scheduled_run_date = today
 
 
