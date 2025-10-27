@@ -1,3 +1,24 @@
+"""MODULE_MANIFEST_START
+{
+  "name": "license_checker",
+  "version": "1.0.0",
+  "description": "Модуль для перевірки стану ліцензій та моніторингу системи",
+  "author": "Desktop Organizer Team",
+  "category": "Security",
+  "menu_text": "Перевірка стану ліцензії...",
+  "main_class": "LicenseCheckerUI",
+  "dependencies": [
+    "PyYAML>=6.0"
+  ],
+  "python_version": "3.8+",
+  "permissions": [
+    "file_system_read",
+    "registry_access",
+    "system_info"
+  ]
+}
+MODULE_MANIFEST_END"""
+
 # license_test.py
 import sys
 import subprocess

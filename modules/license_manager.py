@@ -1,3 +1,22 @@
+"""MODULE_MANIFEST_START
+{
+  "name": "license_manager",
+  "version": "1.0.0",
+  "description": "Модуль для керування ліцензіями програмного забезпечення з підтримкою синтаксису NGINX",
+  "author": "Desktop Organizer Team",
+  "category": "System",
+  "menu_text": "&Керування Ліцензіями...",
+  "main_class": "LicenseManager",
+  "dependencies": [],
+  "python_version": "3.8+",
+  "permissions": [
+    "file_system_read",
+    "file_system_write",
+    "registry_access"
+  ]
+}
+MODULE_MANIFEST_END"""
+
 import sys
 import os
 import re

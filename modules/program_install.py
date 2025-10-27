@@ -1,3 +1,25 @@
+"""MODULE_MANIFEST_START
+{
+  "name": "program_installer",
+  "version": "1.0.0",
+  "description": "Модуль для встановлення та управління програмним забезпеченням",
+  "author": "Desktop Organizer Team",
+  "category": "System",
+  "menu_text": "Встановити Нову Програму...",
+  "main_class": "ProgramInstallerUI",
+  "dependencies": [
+    "pywin32>=227"
+  ],
+  "python_version": "3.8+",
+  "permissions": [
+    "file_system_read",
+    "file_system_write",
+    "registry_access",
+    "program_installation"
+  ]
+}
+MODULE_MANIFEST_END"""
+
 #Additional module for main app V4.2
 #Import according to instruction
 #Can work standalone
@@ -19,27 +41,66 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 # --- Dependency Check ---
-try:
-    import win32api
-    import win32com.client
-    import pythoncom # Import pythoncom here
-    PYWIN32_AVAILABLE = True
-except ImportError:
-    PYWIN32_AVAILABLE = False
-    # Define dummy objects if pywin32 is not available
+PYWIN32_AVAILABLE = False
+win32api = None
+win32com = None
+pythoncom = None
+
+def _ensure_pywin32():
+    """Ensure pywin32 is available, request installation if missing"""
+    global PYWIN32_AVAILABLE, win32api, win32com, pythoncom
+
+    if PYWIN32_AVAILABLE:
+        return True
+
+    try:
+        import win32api
+        import win32com.client
+        import pythoncom
+        PYWIN32_AVAILABLE = True
+        return True
+    except ImportError:
+        # Request installation through the module system
+        try:
+            # Try to get the module manager to install dependencies
+            import sys
+            if 'v4_2' in sys.modules:
+                main_app = sys.modules['v4_2']
+                if hasattr(main_app, 'module_manager') and main_app.module_manager:
+                    print("🔄 Requesting pywin32 installation...")
+                    # This will trigger dependency installation
+                    return False
+        except:
+            pass
+
+        print("❌ pywin32 is required for this module. Please install it manually:")
+        print("   pip install pywin32")
+        return False
+
+# Initialize dummy objects
+def _init_dummy_objects():
+    """Initialize dummy objects when pywin32 is not available"""
+    global win32api, win32com, pythoncom
+
     class DummyWin32Api:
         def GetFileVersionInfo(self, *args): return None
         def HIWORD(self, *args): return 0
         def LOWORD(self, *args): return 0
     win32api = DummyWin32Api()
 
-    class DummyWin32ComClient:
-        def Dispatch(self, *args): return None
-    win32com.client = DummyWin32ComClient()
+    class DummyWin32Com:
+        class client:
+            @staticmethod
+            def Dispatch(*args):
+                return None
+    win32com = DummyWin32Com()
 
     class DummyPythonCom:
         class com_error(Exception): pass
     pythoncom = DummyPythonCom()
+
+# Initialize dummy objects
+_init_dummy_objects()
 
 try:
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -70,9 +131,12 @@ except ImportError:
 
 # --- Platform & Dependency Validation ---
 IS_WINDOWS = platform.system() == "Windows"
-if not IS_WINDOWS: print("CRITICAL: Requires Windows.", file=sys.stderr); sys.exit(1)
-if not PYWIN32_AVAILABLE: print("CRITICAL: Requires 'pywin32' (pip install pywin32). Includes win32api, win32com.client, and pythoncom.", file=sys.stderr); sys.exit(1)
-if not PYQT5_AVAILABLE: print("CRITICAL: Requires 'PyQt5' (pip install PyQt5).", file=sys.stderr); sys.exit(1)
+if not IS_WINDOWS:
+    raise RuntimeError("This module requires Windows.")
+if not PYQT5_AVAILABLE:
+    raise RuntimeError("This module requires PyQt5. Install with: pip install PyQt5")
+
+# Note: pywin32 dependency is handled lazily - will be installed when needed
 
 # --- Logging Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)-8s - %(message)s') # Set level=logging.DEBUG for detailed scan logs
@@ -487,6 +551,9 @@ class WindowsUtils:
             return None
         properties = {}
         try:
+            if not _ensure_pywin32():
+                logger.debug(f"Get props skipped: pywin32 not available for '{file_path_str}'")
+                return {}
             fixed_info = win32api.GetFileVersionInfo(str(file_path), '\\')
             if fixed_info:
                 ms = fixed_info['FileVersionMS']; ls = fixed_info['FileVersionLS']
@@ -765,6 +832,9 @@ class WindowsUtils:
         """Checks if an MSI product with the given ProductCode is installed using COM."""
         if not product_code: return False
         try:
+            if not _ensure_pywin32():
+                logger.warning("MSI check: pywin32 not available, cannot check Windows Installer")
+                return False
             installer = win32com.client.Dispatch("WindowsInstaller.Installer")
             related_products = installer.RelatedProducts(product_code)
             if related_products and len(related_products) > 0:
@@ -1775,6 +1845,11 @@ class ProgramInstallerUI(QWidget):
         super().__init__(parent)
         QApplication.setOrganizationName("InstallerAppOrg")
         QApplication.setApplicationName("ProgramInstallerApp")
+
+        # Check and request pywin32 installation if needed
+        if not PYWIN32_AVAILABLE:
+            print("📦 Program Installer requires pywin32 for full functionality...")
+            # The dependency will be installed automatically by the module system
 
         self.installer = ProgramInstaller()
         self.active_threads: List[WorkerThread] = []
