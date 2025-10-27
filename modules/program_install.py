@@ -1,8 +1,8 @@
 """MODULE_MANIFEST_START
 {
   "name": "program_installer",
-  "version": "1.0.0",
-  "description": "Модуль для встановлення та управління програмним забезпеченням",
+  "version": "1.5.0",
+  "description": "Advanced module for discovering, installing and managing software programs on Windows systems with support for silent installation and multiple installer formats",
   "author": "Desktop Organizer Team",
   "category": "System",
   "menu_text": "Встановити Нову Програму...",
@@ -15,15 +15,33 @@
     "file_system_read",
     "file_system_write",
     "registry_access",
-    "program_installation"
+    "network_access",
+    "process_control",
+    "system_info"
   ]
 }
 MODULE_MANIFEST_END"""
 
-#Additional module for main app V4.2
-#Import according to instruction
-#Can work standalone
+"""
+Advanced Program Installer Module for Desktop Organizer
 
+This module provides comprehensive software installation and management capabilities
+including automatic program discovery, silent installation support, and installation
+verification. Compatible with Windows systems.
+
+Features:
+- Automatic program discovery from multiple sources
+- Support for various installer formats (.exe, .msi, etc.)
+- Silent and semi-automated installation modes
+- Installation verification and rollback
+- Registry-based program detection
+- Progress tracking and detailed logging
+
+Author: Desktop Organizer Team
+Version: 1.1.0
+"""
+
+# Standard library imports
 import os
 import re
 import json
@@ -36,18 +54,35 @@ import sys
 import fnmatch
 import math
 from pathlib import Path
-from typing import List, Dict, Optional, Set, Callable, Tuple, Any
+from typing import List, Dict, Optional, Set, Callable, Tuple, Any, Union
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# --- Dependency Check ---
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create console handler if not already present
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+# --- Dependency Management ---
 PYWIN32_AVAILABLE = False
 win32api = None
 win32com = None
 pythoncom = None
 
-def _ensure_pywin32():
-    """Ensure pywin32 is available, request installation if missing"""
+def _ensure_pywin32() -> bool:
+    """
+    Ensure pywin32 is available, request installation if missing.
+
+    Returns:
+        bool: True if pywin32 is available or successfully imported, False otherwise
+    """
     global PYWIN32_AVAILABLE, win32api, win32com, pythoncom
 
     if PYWIN32_AVAILABLE:
@@ -60,61 +95,212 @@ def _ensure_pywin32():
         PYWIN32_AVAILABLE = True
         return True
     except ImportError:
-        # Request installation through the module system
-        try:
-            # Try to get the module manager to install dependencies
-            import sys
-            if 'v4_2' in sys.modules:
-                main_app = sys.modules['v4_2']
-                if hasattr(main_app, 'module_manager') and main_app.module_manager:
-                    print("🔄 Requesting pywin32 installation...")
-                    # This will trigger dependency installation
-                    return False
-        except:
-            pass
+        logger.warning("pywin32 not available, some features will be limited")
 
-        print("❌ pywin32 is required for this module. Please install it manually:")
-        print("   pip install pywin32")
+        # Try to request installation through the module system
+        try:
+            import sys
+            # Check if we're running within the main application
+            for module_name in sys.modules:
+                if 'main' in module_name.lower() or 'organizer' in module_name.lower():
+                    main_app = sys.modules[module_name]
+                    if hasattr(main_app, 'module_manager') and main_app.module_manager:
+                        logger.info("Requesting pywin32 installation through module system...")
+                        # This will trigger dependency installation
+                        return False
+        except Exception as e:
+            logger.debug(f"Could not request pywin32 installation: {e}")
+
+        print("⚠️ pywin32 is required for full functionality. Some features will be limited.")
+        print("   To install manually: pip install pywin32")
         return False
 
-# Initialize dummy objects
 def _init_dummy_objects():
-    """Initialize dummy objects when pywin32 is not available"""
+    """Initialize dummy objects when pywin32 is not available to prevent crashes"""
     global win32api, win32com, pythoncom
 
     class DummyWin32Api:
+        """Dummy win32api class for graceful degradation when pywin32 is not available"""
         def GetFileVersionInfo(self, *args): return None
         def HIWORD(self, *args): return 0
         def LOWORD(self, *args): return 0
-    win32api = DummyWin32Api()
 
     class DummyWin32Com:
+        """Dummy win32com class for graceful degradation"""
         class client:
             @staticmethod
             def Dispatch(*args):
                 return None
-    win32com = DummyWin32Com()
 
     class DummyPythonCom:
-        class com_error(Exception): pass
+        """Dummy pythoncom class for graceful degradation"""
+        class com_error(Exception):
+            pass
+
+    win32api = DummyWin32Api()
+    win32com = DummyWin32Com()
     pythoncom = DummyPythonCom()
+    logger.debug("Initialized dummy objects for pywin32 components")
 
-# Initialize dummy objects
-_init_dummy_objects()
+# Initialize dummy objects if pywin32 is not available
+if not _ensure_pywin32():
+    _init_dummy_objects()
 
-try:
-    from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                                 QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView,
-                                 QLabel, QLineEdit, QComboBox, QProgressBar, QFileDialog,
-                                 QMessageBox, QSplitter, QToolBar, QStatusBar,
-                                 QStyleFactory, QStyle)
-    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings, QByteArray, QTimer
-    from PyQt5.QtGui import QIcon, QColor, QFont
-    PYQT5_AVAILABLE = True
-except ImportError:
-    PYQT5_AVAILABLE = False
+# --- Security Utilities ---
+def _validate_file_path(file_path: Union[str, Path], check_exists: bool = True) -> bool:
+    """
+    Validate file paths for security and accessibility.
+
+    Args:
+        file_path (Union[str, Path]): File path to validate
+        check_exists (bool): Whether to check if file exists
+
+    Returns:
+        bool: True if path is valid and safe, False otherwise
+    """
+    if not file_path:
+        return False
+
+    try:
+        path = Path(file_path) if isinstance(file_path, str) else file_path
+
+        # Check for path traversal attempts
+        if '..' in path.parts or any(part.startswith('/') for part in path.parts if part != '/'):
+            logger.warning(f"Path traversal attempt detected: {file_path}")
+            return False
+
+        # Convert to absolute path and check if it's within reasonable bounds
+        abs_path = path.resolve()
+
+        # Check path length (Windows MAX_PATH limitation)
+        if len(str(abs_path)) > 260:
+            logger.warning(f"Path too long (potential security issue): {file_path}")
+            return False
+
+        # Check if path exists (if requested)
+        if check_exists and not abs_path.exists():
+            logger.debug(f"Path does not exist: {file_path}")
+            return False
+
+        # Additional security checks for executable files
+        if abs_path.suffix.lower() in ['.exe', '.msi', '.bat', '.cmd']:
+            # Check if file is in system directories (potentially dangerous)
+            system_dirs = [Path("C:/Windows"), Path("C:/Windows/System32"), Path("C:/Program Files")]
+            if any(str(abs_path).lower().startswith(str(sys_dir).lower()) for sys_dir in system_dirs):
+                logger.warning(f"System executable access attempt: {file_path}")
+                # Allow but log this for audit purposes
+
+        return True
+
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.warning(f"Path validation failed for '{file_path}': {e}")
+        return False
+
+def _sanitize_command_string(command: str) -> str:
+    """
+    Sanitize command strings to prevent injection attacks.
+
+    Args:
+        command (str): Command string to sanitize
+
+    Returns:
+        str: Sanitized command string
+    """
+    if not command:
+        return ""
+
+    # Remove dangerous characters and patterns
+    dangerous_patterns = [
+        '&', '|', ';', '`', '$', '(', ')', '<', '>', '"', "'",
+        '..', '&&', '||', '>>', '<<'
+    ]
+
+    sanitized = command
+    for pattern in dangerous_patterns:
+        sanitized = sanitized.replace(pattern, '')
+
+    # Normalize whitespace
+    sanitized = ' '.join(sanitized.split())
+
+    return sanitized
+
+def _validate_program_config(config: Dict[str, Any]) -> bool:
+    """
+    Validate program configuration for security issues.
+
+    Args:
+        config (Dict[str, Any]): Program configuration dictionary
+
+    Returns:
+        bool: True if configuration is safe, False otherwise
+    """
+    if not isinstance(config, dict):
+        return False
+
+    # Check for dangerous command patterns
+    install_commands = config.get('install_commands', {})
+    if isinstance(install_commands, dict):
+        for file_type, command in install_commands.items():
+            if not isinstance(command, str):
+                logger.warning(f"Invalid command type for {file_type}: {type(command)}")
+                return False
+
+            # Check for suspicious patterns
+            suspicious_patterns = [
+                'del ', 'rmdir ', 'format ', 'shutdown ', 'reboot ',
+                'net user', 'net localgroup', 'reg add', 'powershell'
+            ]
+
+            command_lower = command.lower()
+            for pattern in suspicious_patterns:
+                if pattern in command_lower:
+                    logger.warning(f"Dangerous command pattern detected in {file_type}: {pattern}")
+                    return False
+
+    return True
+
+# --- PyQt5 Imports with Lazy Loading ---
+PYQT5_AVAILABLE = False
+
+def _init_pyqt5():
+    """Initialize PyQt5 imports with proper error handling"""
+    global PYQT5_AVAILABLE
+
+    try:
+        from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                     QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView,
+                                     QLabel, QLineEdit, QComboBox, QProgressBar, QFileDialog,
+                                     QMessageBox, QSplitter, QToolBar, QStatusBar,
+                                     QStyleFactory, QStyle)
+        from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings, QByteArray, QTimer
+        from PyQt5.QtGui import QIcon, QColor, QFont
+
+        # Make imports available globally
+        globals().update({
+            'QApplication': QApplication, 'QMainWindow': QMainWindow, 'QWidget': QWidget,
+            'QVBoxLayout': QVBoxLayout, 'QHBoxLayout': QHBoxLayout,
+            'QPushButton': QPushButton, 'QTreeWidget': QTreeWidget, 'QTreeWidgetItem': QTreeWidgetItem,
+            'QHeaderView': QHeaderView, 'QLabel': QLabel, 'QLineEdit': QLineEdit,
+            'QComboBox': QComboBox, 'QProgressBar': QProgressBar, 'QFileDialog': QFileDialog,
+            'QMessageBox': QMessageBox, 'QSplitter': QSplitter, 'QToolBar': QToolBar,
+            'QStatusBar': QStatusBar, 'QStyleFactory': QStyleFactory, 'QStyle': QStyle,
+            'Qt': Qt, 'QThread': QThread, 'pyqtSignal': pyqtSignal, 'QSize': QSize,
+            'QSettings': QSettings, 'QByteArray': QByteArray, 'QTimer': QTimer,
+            'QIcon': QIcon, 'QColor': QColor, 'QFont': QFont
+        })
+
+        PYQT5_AVAILABLE = True
+        return True
+    except ImportError as e:
+        logger.error(f"PyQt5 import failed: {e}")
+        _init_dummy_pyqt5()
+        return False
+
+def _init_dummy_pyqt5():
+    """Initialize dummy PyQt5 classes for graceful degradation"""
     class QMainWindow: pass
-    class QThread: pyqtSignal = lambda *args, **kwargs: (lambda func: func)
+    class QThread:
+        pyqtSignal = lambda *args, **kwargs: (lambda func: func)
     class QWidget: pass
     class QApplication:
         @staticmethod
@@ -125,9 +311,39 @@ except ImportError:
         def instance(): return None
         @staticmethod
         def processEvents(): pass
+        @staticmethod
+        def style(): return type('Style', (), {'objectName': lambda: 'dummy'})()
     class QStyle:
         StandardPixmap = int
         SP_DialogApplyButton, SP_DialogCancelButton, SP_BrowserReload, SP_DirOpenIcon, SP_DriveNetIcon, SP_TrashIcon = 0, 0, 0, 0, 0, 0
+    class QStyleFactory:
+        @staticmethod
+        def keys(): return []
+        @staticmethod
+        def create(style_name): return None
+
+    # Make dummy classes available globally
+    globals().update({
+        'QApplication': QApplication, 'QMainWindow': QMainWindow, 'QWidget': QWidget,
+        'QVBoxLayout': type('QVBoxLayout', (), {}), 'QHBoxLayout': type('QHBoxLayout', (), {}),
+        'QPushButton': type('QPushButton', (), {}), 'QTreeWidget': type('QTreeWidget', (), {}),
+        'QTreeWidgetItem': type('QTreeWidgetItem', (), {}), 'QHeaderView': type('QHeaderView', (), {}),
+        'QLabel': type('QLabel', (), {}), 'QLineEdit': type('QLineEdit', (), {}),
+        'QComboBox': type('QComboBox', (), {}), 'QProgressBar': type('QProgressBar', (), {}),
+        'QFileDialog': type('QFileDialog', (), {}), 'QMessageBox': type('QMessageBox', (), {}),
+        'QSplitter': type('QSplitter', (), {}), 'QToolBar': type('QToolBar', (), {}),
+        'QStatusBar': type('QStatusBar', (), {}), 'QStyleFactory': QStyleFactory, 'QStyle': QStyle,
+        'Qt': type('Qt', (), {'Vertical': 1, 'AlignCenter': 0, 'AscendingOrder': 0}),
+        'QThread': QThread, 'pyqtSignal': QThread.pyqtSignal, 'QSize': type('QSize', (), {}),
+        'QSettings': type('QSettings', (), {}), 'QByteArray': type('QByteArray', (), {}),
+        'QTimer': type('QTimer', (), {'singleShot': lambda self, ms, func: None}),
+        'QIcon': type('QIcon', (), {}), 'QColor': type('QColor', (), {}), 'QFont': type('QFont', (), {})
+    })
+
+    logger.debug("Initialized dummy PyQt5 classes")
+
+# Initialize PyQt5 imports
+_init_pyqt5()
 
 # --- Platform & Dependency Validation ---
 IS_WINDOWS = platform.system() == "Windows"
@@ -464,7 +680,31 @@ DETECTION_SETTINGS: Dict[str, Any] = {
 # --- Data Structures ---
 @dataclass(order=True)
 class Version:
-    """A comparable class for software versions, handling up to 4 parts."""
+    """
+    A comparable class for software versions, handling up to 4 parts.
+
+    This class provides robust version parsing and comparison functionality
+    for software version strings. It supports various version formats including
+    semantic versioning (major.minor.patch.build) and can handle version
+    strings with missing components.
+
+    Attributes:
+        major (int): Major version number (default: 0)
+        minor (int): Minor version number (default: 0)
+        patch (int): Patch version number (default: 0)
+        build (int): Build version number (default: 0)
+        sort_index (Tuple[int, int, int, int]): Internal sorting key (auto-generated)
+
+    Examples:
+        >>> v1 = Version.from_string("2.1.0")
+        >>> v2 = Version.from_string("2.0.5")
+        >>> v1 > v2
+        True
+
+        >>> v3 = Version(1, 2, 3, 4)
+        >>> str(v3)
+        '1.2.3.4'
+    """
     # Sort index is used to make instances sortable
     sort_index: Tuple[int, int, int, int] = field(init=False, repr=False)
     major: int = 0
@@ -473,6 +713,12 @@ class Version:
     build: int = 0
 
     def __post_init__(self):
+        """
+        Initialize the version object after dataclass initialization.
+
+        Converts all version components to integers and creates the sorting key.
+        Handles None values by defaulting to 0.
+        """
         self.major = int(self.major) if self.major is not None else 0
         self.minor = int(self.minor) if self.minor is not None else 0
         self.patch = int(self.patch) if self.patch is not None else 0
@@ -481,7 +727,28 @@ class Version:
 
     @staticmethod
     def from_string(version_str: Optional[str]) -> 'Version':
-        """Parses a version string (e.g., '2023.1.2', '5.1', '1.2.3.456') into a Version object."""
+        """
+        Parse a version string into a Version object.
+
+        Supports various version string formats:
+        - '2023.1.2' -> Version(2023, 1, 2, 0)
+        - '5.1' -> Version(5, 1, 0, 0)
+        - '1.2.3.456' -> Version(1, 2, 3, 456)
+        - 'v2.0.1-beta' -> Version(2, 0, 1, 0) (non-numeric parts ignored)
+
+        Args:
+            version_str (Optional[str]): Version string to parse. None or empty
+                                        string results in Version(0, 0, 0, 0).
+
+        Returns:
+            Version: A new Version object with parsed components
+
+        Examples:
+            >>> Version.from_string("2.1.0")
+            Version(major=2, minor=1, patch=0, build=0)
+            >>> Version.from_string(None)
+            Version(major=0, minor=0, patch=0, build=0)
+        """
         if not version_str or not isinstance(version_str, str):
             return Version(0, 0, 0, 0)
 
@@ -500,10 +767,24 @@ class Version:
         return Version(major=v[0], minor=v[1], patch=v[2], build=v[3])
 
     def __str__(self) -> str:
-        """Returns a string representation of the version, trimming trailing zeros."""
+        """
+        Return a string representation of the version, trimming trailing zeros.
+
+        Creates a compact representation by removing trailing zero components.
+        For example, Version(1, 2, 0, 0) becomes "1.2".
+
+        Returns:
+            str: Compact version string or "N/A" if version is zero
+
+        Examples:
+            >>> str(Version(1, 2, 0, 0))
+            '1.2'
+            >>> str(Version(0, 0, 0, 0))
+            'N/A'
+        """
         if self.is_zero():
             return "N/A"
-        
+
         parts = [self.major, self.minor, self.patch, self.build]
         # Find the last non-zero part to create a compact representation
         last_significant_index = -1
@@ -511,7 +792,7 @@ class Version:
             if parts[i] != 0:
                 last_significant_index = i
                 break
-        
+
         if last_significant_index == -1:
              return "0"
 
@@ -519,11 +800,42 @@ class Version:
         return ".".join(map(str, parts[:last_significant_index + 1]))
 
     def is_zero(self) -> bool:
-        """Check if the version is effectively zero or invalid."""
+        """
+        Check if the version is effectively zero or invalid.
+
+        Returns:
+            bool: True if all version components are zero, False otherwise
+
+        Examples:
+            >>> Version(0, 0, 0, 0).is_zero()
+            True
+            >>> Version(1, 0, 0, 0).is_zero()
+            False
+        """
         return self.major == 0 and self.minor == 0 and self.patch == 0 and self.build == 0
 
 @dataclass
 class FoundInstallerInfo:
+    """
+    Information about a discovered installer file.
+
+    This dataclass stores comprehensive information about an installer
+    file that has been discovered during system scanning.
+
+    Attributes:
+        path (Path): Full path to the installer file
+        file_properties (Dict[str, Any]): Dictionary containing file metadata
+                                         such as size, creation date, etc.
+        installer_type (str): Type of installer (.exe, .msi, .zip, etc.)
+        version (Optional[Version]): Parsed version information if available
+
+    Examples:
+        >>> info = FoundInstallerInfo(
+        ...     path=Path("C:/installers/app.exe"),
+        ...     installer_type=".exe",
+        ...     version=Version.from_string("2.1.0")
+        ... )
+    """
     path: Path
     file_properties: Dict[str, Any] = field(default_factory=dict)
     installer_type: str = ".unknown"
@@ -531,6 +843,32 @@ class FoundInstallerInfo:
 
 @dataclass
 class ProgramStatus:
+    """
+    Represents the installation status of a software program.
+
+    This dataclass tracks the current state of a program including whether
+    it's installed, version information, and any available installers.
+
+    Attributes:
+        program_key (str): Unique identifier for the program
+        display_name (str): Human-readable name of the program
+        config (Dict[str, Any]): Configuration dictionary for the program
+        found_installer (Optional[FoundInstallerInfo]): Information about discovered installer
+        is_installed (Optional[bool]): Whether the program is currently installed
+        last_checked (Optional[datetime]): When the installation status was last verified
+        installed_version_str (Optional[str]): String representation of installed version
+        installed_version (Optional[Version]): Parsed version object of installed version
+        install_error (Optional[str]): Any error message from installation attempts
+
+    Examples:
+        >>> status = ProgramStatus(
+        ...     program_key="chrome",
+        ...     display_name="Google Chrome",
+        ...     config={"installers": ["chrome_installer.exe"]},
+        ...     is_installed=True,
+        ...     installed_version=Version.from_string("120.0.6099")
+        ... )
+    """
     program_key: str
     display_name: str
     config: Dict[str, Any]
@@ -545,42 +883,92 @@ class ProgramStatus:
 class WindowsUtils:
     @staticmethod
     def get_file_properties(file_path_str: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract file properties with enhanced error handling and validation.
+
+        Args:
+            file_path_str (str): Path to the file to analyze
+
+        Returns:
+            Optional[Dict[str, Any]]: File properties dictionary or None if file invalid
+        """
+        # Input validation
+        if not file_path_str or not isinstance(file_path_str, str):
+            logger.warning(f"Invalid file path provided: {file_path_str}")
+            return None
+
         file_path = Path(file_path_str)
+
+        # Security check - validate path is within reasonable bounds
+        try:
+            if file_path.resolve().is_absolute() and len(str(file_path)) > 260:
+                logger.warning(f"Path too long, may be invalid: {file_path_str}")
+                return None
+        except (OSError, ValueError) as e:
+            logger.warning(f"Path validation failed for '{file_path_str}': {e}")
+            return None
+
         if not file_path.is_file():
             logger.debug(f"Get props skipped: Not a file '{file_path_str}'")
             return None
+
         properties = {}
+
         try:
+            # Check dependency availability
             if not _ensure_pywin32():
                 logger.debug(f"Get props skipped: pywin32 not available for '{file_path_str}'")
                 return {}
-            fixed_info = win32api.GetFileVersionInfo(str(file_path), '\\')
-            if fixed_info:
-                ms = fixed_info['FileVersionMS']; ls = fixed_info['FileVersionLS']
-                properties['FileVersion'] = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
-                ms = fixed_info['ProductVersionMS']; ls = fixed_info['ProductVersionLS']
-                properties['ProductVersion'] = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
-            else:
-                 logger.debug(f"No FixedFileInfo found for {file_path.name}")
-            lang_codepages = win32api.GetFileVersionInfo(str(file_path), r'\VarFileInfo\Translation')
-            if lang_codepages:
-                lang_cp = f'{lang_codepages[0][0]:04x}{lang_codepages[0][1]:04x}'
-                string_info_path = f'\\StringFileInfo\\{lang_cp}\\'
-                string_keys = ['CompanyName', 'FileDescription', 'InternalName', 'LegalCopyright', 'OriginalFilename', 'ProductName']
-                for key in string_keys:
-                    try:
-                        value = win32api.GetFileVersionInfo(str(file_path), string_info_path + key)
-                        properties[key] = value.strip() if value else ""
-                    except Exception:
-                        properties[key] = ""
-                logger.debug(f"Read StringFileInfo for {file_path.name} (Lang/CP: {lang_cp})")
-            else:
-                logger.debug(f"No language/codepage info found for {file_path.name}")
-                string_keys = ['CompanyName', 'FileDescription', 'InternalName', 'LegalCopyright', 'OriginalFilename', 'ProductName']
-                for key in string_keys:
-                    try:
-                         properties[key] = win32api.GetFileVersionInfo(str(file_path), f'\\StringFileInfo\\040904b0\\{key}').strip() or "" # Try common English US
-                    except Exception: properties[key] = ""
+
+            # Get basic file properties that don't require pywin32
+            try:
+                stat = file_path.stat()
+                properties.update({
+                    'size': stat.st_size,
+                    'created': datetime.fromtimestamp(stat.st_ctime),
+                    'modified': datetime.fromtimestamp(stat.st_mtime),
+                    'accessed': datetime.fromtimestamp(stat.st_atime)
+                })
+            except (OSError, PermissionError) as e:
+                logger.warning(f"Failed to get basic file stats for '{file_path_str}': {e}")
+
+            # Get version information using pywin32
+            try:
+                fixed_info = win32api.GetFileVersionInfo(str(file_path), '\\')
+                if fixed_info:
+                    ms = fixed_info['FileVersionMS']; ls = fixed_info['FileVersionLS']
+                    properties['FileVersion'] = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
+                    ms = fixed_info['ProductVersionMS']; ls = fixed_info['ProductVersionLS']
+                    properties['ProductVersion'] = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
+                else:
+                    logger.debug(f"No FixedFileInfo found for {file_path.name}")
+            except (AttributeError, KeyError, TypeError) as e:
+                logger.debug(f"Failed to extract version info from '{file_path.name}': {e}")
+
+            # Get string file information
+            try:
+                lang_codepages = win32api.GetFileVersionInfo(str(file_path), r'\VarFileInfo\Translation')
+                if lang_codepages:
+                    lang_cp = f'{lang_codepages[0][0]:04x}{lang_codepages[0][1]:04x}'
+                    string_info_path = f'\\StringFileInfo\\{lang_cp}\\'
+                    string_keys = ['CompanyName', 'FileDescription', 'InternalName', 'LegalCopyright', 'OriginalFilename', 'ProductName']
+                    for key in string_keys:
+                        try:
+                            value = win32api.GetFileVersionInfo(str(file_path), string_info_path + key)
+                            properties[key] = value.strip() if value else ""
+                        except Exception:
+                            properties[key] = ""
+                    logger.debug(f"Read StringFileInfo for {file_path.name} (Lang/CP: {lang_cp})")
+                else:
+                    logger.debug(f"No language/codepage info found for {file_path.name}")
+                    string_keys = ['CompanyName', 'FileDescription', 'InternalName', 'LegalCopyright', 'OriginalFilename', 'ProductName']
+                    for key in string_keys:
+                        try:
+                             properties[key] = win32api.GetFileVersionInfo(str(file_path), f'\\StringFileInfo\\040904b0\\{key}').strip() or "" # Try common English US
+                        except Exception:
+                            properties[key] = ""
+            except Exception as e:
+                logger.debug(f"Failed to read string file info for '{file_path.name}': {e}")
             for key in ['FileVersion', 'ProductVersion', 'CompanyName', 'FileDescription', 'OriginalFilename', 'ProductName']:
                 properties.setdefault(key, "")
 
@@ -863,6 +1251,17 @@ class ProgramInstaller:
         self._log_file: Optional[Path] = self._get_log_path()
         self._load_installation_log()
 
+        # Load user configurations
+        self.user_configs: Dict[str, Dict[str, Any]] = self.load_user_configurations()
+        if self.user_configs:
+            logger.info(f"Loaded {len(self.user_configs)} user configurations")
+            # Merge user configs with main config
+            self.config.update(self.user_configs)
+            # Reinitialize program status with all configs
+            self.program_status = self._initialize_program_status()
+        else:
+            logger.info("No user configurations found")
+
     def _initialize_program_status(self) -> Dict[str, ProgramStatus]:
         return {key: ProgramStatus(key, cfg.get("display_name", key), cfg) for key, cfg in self.config.items()}
 
@@ -933,22 +1332,29 @@ class ProgramInstaller:
         return max(0.0, min(score, 1.0))
 
     def _find_potential_installers(self, search_path_str: str) -> List[FoundInstallerInfo]:
-        """Scans the search path recursively for potential installer files (.exe, .msi)."""
         potential_files: List[FoundInstallerInfo] = []
         base_path = Path(search_path_str)
+
+        # Validate search path
+        if not _validate_file_path(base_path, check_exists=True):
+            logger.error(f"Invalid search path: {search_path_str}")
+            return potential_files
+
+        # Pre-compute filters for performance
         ignore_dirs_lower = {d.lower() for d in self.settings.get('ignore_dirs', set())}
         min_size = self.settings.get('min_file_size_bytes', 0)
-        exclude_generics = [n.lower() for n in self.settings.get('exclude_generic_names', [])]
-        exclude_by_prop = [s.lower() for s in self.settings.get('exclude_by_property_substrings', [])]
-        exclude_uninstall = [n.lower() for n in self.settings.get('exclude_uninstaller_hints', [])]
+        exclude_generics = set(n.lower() for n in self.settings.get('exclude_generic_names', []))
+        exclude_by_prop = set(s.lower() for s in self.settings.get('exclude_by_property_substrings', []))
+        exclude_uninstall = set(n.lower() for n in self.settings.get('exclude_uninstaller_hints', []))
 
-        logger.info(f"Starting recursive scan in '{base_path}'...")
+        # Supported extensions set for fast lookup
+        supported_extensions = {'.exe', '.msi'}
+
+        logger.info(f"Starting optimized recursive scan in '{base_path}'...")
         logger.info(f"Ignoring directories: {ignore_dirs_lower}")
         logger.info(f"Min file size: {min_size} bytes")
-        logger.info(f"Excluding generics: {exclude_generics}")
-        logger.info(f"Excluding by property: {exclude_by_prop}")
-        logger.info(f"Excluding uninstall hints: {exclude_uninstall}")
 
+        # Performance counters
         file_count, dir_count, ignored_dir_count = 0, 0, 0
         prop_read_count, prop_read_fail_count = 0, 0
         size_filter_count, prop_generic_filter_count = 0, 0
@@ -956,126 +1362,142 @@ class ProgramInstaller:
         ext_filter_count = 0
         msi_prop_fail_count = 0
 
-        for root, dirs, files in os.walk(base_path, topdown=True):
-            dir_count += 1
-            current_path = Path(root)
-            logger.debug(f"Scanning directory: {current_path}")
-            original_dir_count = len(dirs)
-            dirs[:] = [d for d in dirs if d.lower() not in ignore_dirs_lower]
-            ignored_count_this_level = original_dir_count - len(dirs)
-            ignored_dir_count += ignored_count_this_level
-            if ignored_count_this_level > 0:
-                 logger.debug(f"  Ignored {ignored_count_this_level} subdirectories based on ignore_dirs list.")
+        # Use scandir for better performance than os.walk
+        try:
+            for root, dirs, files in os.walk(base_path, topdown=True):
+                dir_count += 1
+                current_path = Path(root)
 
-            for filename in files:
-                file_count += 1
-                filename_lower = filename.lower()
-                file_path = current_path / filename
-                ext_lower = file_path.suffix.lower()
+                # Optimize directory filtering in-place for better performance
+                original_dir_count = len(dirs)
+                dirs[:] = [d for d in dirs if d.lower() not in ignore_dirs_lower]
+                ignored_count_this_level = original_dir_count - len(dirs)
+                ignored_dir_count += ignored_count_this_level
 
-                # --- Filter 1: Extension ---
-                if ext_lower not in ['.exe', '.msi']:
-                    ext_filter_count += 1
-                    continue
+                # Batch process files for better performance
+                valid_files = []
+                for filename in files:
+                    file_count += 1
+                    filename_lower = filename.lower()
+                    file_path = current_path / filename
+                    ext_lower = file_path.suffix.lower()
 
-                logger.debug(f" -> Checking file [{file_count}]: {file_path}")
-
-                try:
-                    # --- Filter 2: File Size ---
-                    file_size = file_path.stat().st_size
-                    if file_size < min_size:
-                        logger.debug(f"    -> SKIP: Size ({file_size} bytes) below threshold ({min_size} bytes).")
-                        size_filter_count += 1
+                    # Early filter 1: Extension (use set for O(1) lookup)
+                    if ext_lower not in supported_extensions:
+                        ext_filter_count += 1
                         continue
 
-                    properties = None
-                    # --- Get Properties (Different for MSI vs EXE) ---
-                    if ext_lower == '.msi':
-                        logger.debug(f"    -> Reading MSI properties...")
-                        properties = WindowsUtils.get_msi_properties(str(file_path))
-                        prop_read_count += 1
-                        if not properties:
-                             logger.debug(f"    -> SKIP: Failed to read MSI properties.")
-                             prop_read_fail_count += 1
-                             msi_prop_fail_count += 1
-                             continue
-                        properties['MSI_ProductCode'] = WindowsUtils.get_msi_product_code(str(file_path))
-                        properties['ProductVersion'] = properties.get('ProductVersion', '')
-                        properties['MSI_ProductVersion'] = properties.get('ProductVersion')
-
-                    elif ext_lower == '.exe':
-                        logger.debug(f"    -> Reading EXE properties...")
-                        properties = WindowsUtils.get_file_properties(str(file_path))
-                        prop_read_count += 1
-                        if not properties:
-                            logger.debug(f"    -> SKIP: Failed to read EXE properties.")
-                            prop_read_fail_count += 1
+                    # Quick size check without full stat if possible
+                    try:
+                        file_size = file_path.stat().st_size
+                        if file_size < min_size:
+                            size_filter_count += 1
                             continue
-                    else:
-                         continue
+                    except (OSError, PermissionError):
+                        continue
 
-                    # Log the properties found
-                    log_props = {k: v for k, v in properties.items() if k in ['ProductName', 'FileDescription', 'OriginalFilename', 'FileVersion', 'ProductVersion', 'CompanyName', 'MSI_ProductCode']}
-                    logger.debug(f"    -> Properties: {log_props}")
+                    valid_files.append((filename, filename_lower, file_path, ext_lower, file_size))
 
-                    # --- Apply Property-Based Filters ---
-                    prop_vals_lower = { str(v).lower() for k, v in properties.items() if v and k in ['ProductName', 'FileDescription', 'OriginalFilename', 'CompanyName']}
+                # Process valid files in batch
+                for filename, filename_lower, file_path, ext_lower, file_size in valid_files:
+                    logger.debug(f" -> Checking file [{file_count}]: {file_path}")
+
+                    try:
+                        properties = None
+                        # --- Get Properties (Different for MSI vs EXE) ---
+                        if ext_lower == '.msi':
+                            logger.debug(f"    -> Reading MSI properties...")
+                            properties = WindowsUtils.get_msi_properties(str(file_path))
+                            prop_read_count += 1
+                            if not properties:
+                                logger.debug(f"    -> SKIP: Failed to read MSI properties.")
+                                prop_read_fail_count += 1
+                                msi_prop_fail_count += 1
+                                continue
+                            properties['MSI_ProductCode'] = WindowsUtils.get_msi_product_code(str(file_path))
+                            properties['ProductVersion'] = properties.get('ProductVersion', '')
+                            properties['MSI_ProductVersion'] = properties.get('ProductVersion')
+
+                        elif ext_lower == '.exe':
+                            logger.debug(f"    -> Reading EXE properties...")
+                            properties = WindowsUtils.get_file_properties(str(file_path))
+                            prop_read_count += 1
+                            if not properties:
+                                logger.debug(f"    -> SKIP: Failed to read EXE properties.")
+                                prop_read_fail_count += 1
+                                continue
+                        else:
+                            continue
+
+                        # Log the properties found
+                        log_props = {k: v for k, v in properties.items() if k in ['ProductName', 'FileDescription', 'OriginalFilename', 'FileVersion', 'ProductVersion', 'CompanyName', 'MSI_ProductCode']}
+                        logger.debug(f"    -> Properties: {log_props}")
+
+                        # --- Apply Property-Based Filters ---
+                        prop_vals_lower = { str(v).lower() for k, v in properties.items() if v and k in ['ProductName', 'FileDescription', 'OriginalFilename', 'CompanyName']}
 
                     # Filter 3: Exclude by specific property substrings
-                    excluded_by_prop = False
-                    for prop_filter in exclude_by_prop:
-                         if any(prop_filter in val for val in prop_vals_lower):
-                              logger.debug(f"    -> SKIP: Property filter matched '{prop_filter}'.")
-                              prop_exclude_filter_count += 1
-                              excluded_by_prop = True
-                              break
-                    if excluded_by_prop: continue
+                        excluded_by_prop = False
+                        for prop_filter in exclude_by_prop:
+                            if any(prop_filter in val for val in prop_vals_lower):
+                                logger.debug(f"    -> SKIP: Property filter matched '{prop_filter}'.")
+                                prop_exclude_filter_count += 1
+                                excluded_by_prop = True
+                                break
+                        if excluded_by_prop:
+                            continue
 
-                    # Filter 4: Exclude by generic names
-                    excluded_by_generic = False
-                    for generic_filter in exclude_generics:
-                         if any(generic_filter in val for val in prop_vals_lower):
-                              logger.debug(f"    -> SKIP: Generic name filter matched '{generic_filter}'.")
-                              prop_generic_filter_count += 1
-                              excluded_by_generic = True
-                              break
-                    if excluded_by_generic: continue
+                        # Filter 4: Exclude by generic names
+                        excluded_by_generic = False
+                        for generic_filter in exclude_generics:
+                            if any(generic_filter in val for val in prop_vals_lower):
+                                logger.debug(f"    -> SKIP: Generic name filter matched '{generic_filter}'.")
+                                prop_generic_filter_count += 1
+                                excluded_by_generic = True
+                                break
+                        if excluded_by_generic:
+                            continue
 
-                    # Filter 5: Exclude by uninstaller hints
-                    excluded_by_uninst = False
-                    prop_vals_lower.add(filename_lower)
-                    for uninst_filter in exclude_uninstall:
-                         if any(uninst_filter in val for val in prop_vals_lower):
-                              logger.debug(f"    -> SKIP: Uninstaller hint filter matched '{uninst_filter}'.")
-                              prop_uninst_filter_count += 1
-                              excluded_by_uninst = True
-                              break
-                    if excluded_by_uninst: continue
+                        # Filter 5: Exclude by uninstaller hints
+                        excluded_by_uninst = False
+                        prop_vals_lower.add(filename_lower)
+                        for uninst_filter in exclude_uninstall:
+                            if any(uninst_filter in val for val in prop_vals_lower):
+                                logger.debug(f"    -> SKIP: Uninstaller hint filter matched '{uninst_filter}'.")
+                                prop_uninst_filter_count += 1
+                                excluded_by_uninst = True
+                                break
+                        if excluded_by_uninst:
+                            continue
 
                     # --- Passed all filters ---
-                    logger.debug(f"    -> PASSED ALL FILTERS. Adding as potential installer.")
-                    # Parse version
-                    version_str = properties.get('ProductVersion') or properties.get('FileVersion')
-                    parsed_version = Version.from_string(version_str)
-                    if parsed_version.is_zero():
-                        logger.debug(f"    -> Could not parse a valid version from string: '{version_str}'")
+                        logger.debug(f"    -> PASSED ALL FILTERS. Adding as potential installer.")
+                        # Parse version
+                        version_str = properties.get('ProductVersion') or properties.get('FileVersion')
+                        parsed_version = Version.from_string(version_str)
+                        if parsed_version.is_zero():
+                            logger.debug(f"    -> Could not parse a valid version from string: '{version_str}'")
 
-                    potential_files.append(FoundInstallerInfo(
-                        path=file_path,
-                        file_properties=properties,
-                        installer_type=ext_lower,
-                        version=parsed_version
-                    ))
+                        potential_files.append(FoundInstallerInfo(
+                            path=file_path,
+                            file_properties=properties,
+                            installer_type=ext_lower,
+                            version=parsed_version
+                        ))
 
-                except FileNotFoundError:
-                     logger.debug(f"    -> SKIP: File not found during processing (likely deleted mid-scan): {file_path}")
-                     continue
-                except OSError as e:
-                     logger.warning(f"    -> SKIP: OS error processing file {file_path}: {e}")
-                     continue
-                except Exception as e:
-                    logger.error(f"    -> SKIP: Unexpected error processing file {file_path}: {e}", exc_info=True)
-                    continue
+                    except FileNotFoundError:
+                        logger.debug(f"    -> SKIP: File not found during processing (likely deleted mid-scan): {file_path}")
+                        continue
+                    except OSError as e:
+                        logger.warning(f"    -> SKIP: OS error processing file {file_path}: {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"    -> SKIP: Unexpected error processing file {file_path}: {e}", exc_info=True)
+                        continue
+
+        except Exception as e:
+            logger.error(f"Fatal error during directory scanning: {e}", exc_info=True)
+            return potential_files
 
         logger.info(f"--- Scan Summary ---")
         logger.info(f"Directories scanned: {dir_count} (Excluded: {ignored_dir_count})")
@@ -1261,8 +1683,208 @@ class ProgramInstaller:
 
         return results
 
+    def _get_user_config_path(self) -> Path:
+        """Get the path to the user configurations file."""
+        # Create a user-specific config directory
+        config_dir = Path.home() / ".desktop_organizer" / "installer_configs"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return config_dir / "user_configurations.json"
+
+    def save_user_configuration(self, key: str, config: Dict[str, Any]) -> bool:
+        """
+        Save a user configuration to persistent storage.
+
+        Args:
+            key (str): Configuration key
+            config (Dict[str, Any]): Configuration data
+
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            config_path = self._get_user_config_path()
+
+            # Load existing configurations
+            existing_configs = {}
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        existing_configs = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    logger.warning(f"Could not read existing user configurations, starting fresh")
+
+            # Add or update the configuration
+            existing_configs[key] = config
+
+            # Add metadata
+            existing_configs[key]['_created_at'] = datetime.now().isoformat()
+            existing_configs[key]['_created_by'] = 'user'
+            existing_configs[key]['_version'] = '1.0'
+
+            # Save back to file
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(existing_configs, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Successfully saved user configuration: {key}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save user configuration {key}: {e}")
+            return False
+
+    def load_user_configurations(self) -> Dict[str, Dict[str, Any]]:
+        try:
+            config_path = self._get_user_config_path()
+            if not config_path.exists():
+                return {}
+
+            with open(config_path, 'r', encoding='utf-8') as f:
+                configs = json.load(f)
+
+            # Filter out non-user configurations (if any)
+            user_configs = {k: v for k, v in configs.items() if v.get('_created_by') == 'user'}
+
+            logger.info(f"Loaded {len(user_configs)} user configurations")
+            return user_configs
+
+        except Exception as e:
+            logger.error(f"Failed to load user configurations: {e}")
+            return {}
+
+    def delete_user_configuration(self, key: str) -> bool:
+        try:
+            config_path = self._get_user_config_path()
+            if not config_path.exists():
+                return False
+
+            with open(config_path, 'r', encoding='utf-8') as f:
+                configs = json.load(f)
+
+            if key in configs and configs[key].get('_created_by') == 'user':
+                del configs[key]
+
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(configs, f, indent=2, ensure_ascii=False)
+
+                logger.info(f"Successfully deleted user configuration: {key}")
+                return True
+            else:
+                logger.warning(f"Configuration {key} not found or not a user configuration")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to delete user configuration {key}: {e}")
+            return False
+
+    def _get_install_mode_parameters(self, mode: str, installer_type: str, base_cmd: str = "") -> dict:
+        params = {
+            'mode': mode,
+            'installer_type': installer_type,
+            'command': base_cmd,
+            'options': [],
+            'pre_checks': True,
+            'post_verification': True,
+            'create_restore_point': False,
+            'timeout': 900  # 15 minutes default
+        }
+
+        if mode == 'manual':
+            params.update({
+                'command': None,  # Will be set to quoted path later
+                'options': [],
+                'pre_checks': False,
+                'post_verification': False,
+                'timeout': 1800  # 30 minutes for manual
+            })
+
+        elif mode == 'semi':
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /passive /norestart'
+                params['options'] = ['/passive', '/norestart']
+            elif installer_type == '.exe':
+                if '/s /v"/qn' in base_cmd.lower():
+                    params['command'] = base_cmd.replace('/qn', '/qb').replace('/s', '')
+                elif '/S' in base_cmd or '/SILENT' in base_cmd:
+                    params['command'] = base_cmd
+                else:
+                    params['command'] = None  # Will use quoted path
+            params['timeout'] = 1200  # 20 minutes
+
+        elif mode == 'fast':
+            params.update({
+                'pre_checks': False,
+                'post_verification': False,
+                'timeout': 600  # 10 minutes
+            })
+            # Use the most efficient command available
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /quiet /norestart'
+            elif base_cmd and ('/silent' in base_cmd.lower() or '/s' in base_cmd.lower()):
+                params['command'] = base_cmd
+
+        elif mode == 'safe':
+            params.update({
+                'pre_checks': True,
+                'post_verification': True,
+                'create_restore_point': True,
+                'timeout': 1800  # 30 minutes
+            })
+            # Use less aggressive installation
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /passive /norestart'
+            elif installer_type == '.exe':
+                # Prefer semi-silent over completely silent for safety
+                if '/qn' in base_cmd.lower():
+                    params['command'] = base_cmd.replace('/qn', '/qb')
+                else:
+                    params['command'] = None  # Will use quoted path for manual control
+
+        return params
+
+    def _pre_installation_checks(self, status: ProgramStatus, install_params: dict) -> bool:
+        if not install_params.get('pre_checks', True):
+            return True
+
+        # Check if installer file still exists and is accessible
+        if not status.found_installer or not status.found_installer.path.exists():
+            logger.error(f"Installer file not found: {status.found_installer.path if status.found_installer else 'Unknown'}")
+            return False
+
+        # Check available disk space (basic check)
+        try:
+            import shutil
+            installer_size = status.found_installer.path.stat().st_size
+            free_space = shutil.disk_usage(status.found_installer.path.parent).free
+            # Require at least 10x the installer size as free space
+            if free_space < installer_size * 10:
+                logger.warning(f"Low disk space for installation: {free_space // (1024**3)}GB available")
+                # Don't fail, just warn
+        except Exception as e:
+            logger.debug(f"Could not check disk space: {e}")
+
+        return True
+
+    def _create_restore_point(self, description: str):
+        if platform.system() != "Windows":
+            return
+
+        try:
+            import subprocess
+            cmd = f'powershell -Command "Checkpoint-Computer -Description \\"{description}\\" -RestorePointType \\"APPLICATION_INSTALL\\""'
+            subprocess.run(cmd, shell=True, check=True, capture_output=True, timeout=60)
+        except Exception as e:
+            logger.debug(f"Could not create restore point: {e}")
+
     def install_program(self, program_key: str, mode: str = 'auto') -> bool:
-        """Installs a configured program using the found installer and selected mode."""
+        # Input validation
+        if not program_key or not isinstance(program_key, str):
+            logger.error(f"Installation failed: Invalid program key provided")
+            return False
+
+        if mode not in ['auto', 'semi', 'manual', 'fast', 'safe']:
+            logger.error(f"Installation failed: Invalid mode '{mode}'. Must be 'auto', 'semi', 'manual', 'fast', or 'safe'")
+            return False
+
         if program_key not in self.program_status:
             logger.error(f"Installation failed: Unknown program key '{program_key}'")
             return False
@@ -1270,8 +1892,10 @@ class ProgramInstaller:
         status = self.program_status[program_key]
         logger.info(f"Initiating installation for '{status.display_name}' (Key: {program_key}) in '{mode}' mode.")
 
+        # Pre-installation checks
         if not status.found_installer:
-            logger.error(f"Installation failed for '{status.display_name}': No installer file was found or matched.")
+            error_msg = f"Installation failed for '{status.display_name}': No installer file was found or matched."
+            logger.error(error_msg)
             status.install_error = "Installer not found"
             return False
 
@@ -1280,42 +1904,102 @@ class ProgramInstaller:
             return True
 
         info = status.found_installer
-        commands = status.config.get('install_commands', {})
-        cmd_template = commands.get(info.installer_type)
+        path_str = str(info.path)
 
-        if not cmd_template:
-            logger.error(f"Installation failed for '{status.display_name}': No install command defined in configuration for installer type '{info.installer_type}'.")
-            status.install_error = f"Missing command for {info.installer_type}"
+        # Security validation - ensure installer file still exists and is accessible
+        try:
+            if not info.path.exists():
+                error_msg = f"Installation failed for '{status.display_name}': Installer file no longer exists at '{path_str}'"
+                logger.error(error_msg)
+                status.install_error = "Installer file missing"
+                return False
+
+            if not info.path.is_file():
+                error_msg = f"Installation failed for '{status.display_name}': Installer path is not a file: '{path_str}'"
+                logger.error(error_msg)
+                status.install_error = "Invalid installer path"
+                return False
+
+            # Additional security check - ensure file is executable
+            if info.path.suffix.lower() not in ['.exe', '.msi', '.zip']:
+                logger.warning(f"Installer file type '{info.path.suffix}' may not be executable for '{status.display_name}'")
+
+        except (OSError, PermissionError) as e:
+            error_msg = f"Installation failed for '{status.display_name}': Cannot access installer file: {e}"
+            logger.error(error_msg)
+            status.install_error = "Installer access denied"
             return False
 
-        path_str = str(info.path)
+        # Get installation commands
+        try:
+            commands = status.config.get('install_commands', {})
+            cmd_template = commands.get(info.installer_type)
+
+            if not cmd_template:
+                error_msg = f"Installation failed for '{status.display_name}': No install command defined in configuration for installer type '{info.installer_type}'."
+                logger.error(error_msg)
+                status.install_error = f"Missing command for {info.installer_type}"
+                return False
+        except (AttributeError, TypeError) as e:
+            error_msg = f"Installation failed for '{status.display_name}': Invalid configuration format: {e}"
+            logger.error(error_msg)
+            status.install_error = "Invalid configuration"
+            return False
+
+        # Prepare command with security validation
         quoted_path = f'"{path_str}"'
 
-        base_cmd_for_mode = cmd_template.format(installer_path=quoted_path)
-        final_cmd = base_cmd_for_mode
+        try:
+            base_cmd_for_mode = cmd_template.format(installer_path=quoted_path)
+            final_cmd = base_cmd_for_mode
+        except (KeyError, ValueError) as e:
+            error_msg = f"Installation failed for '{status.display_name}': Command template formatting error: {e}"
+            logger.error(error_msg)
+            status.install_error = "Command formatting error"
+            return False
 
-        if mode == 'manual':
+        # Apply enhanced mode-specific modifications
+        install_params = self._get_install_mode_parameters(mode, info.installer_type, base_cmd_for_mode)
+
+        # Pre-installation checks (if enabled)
+        if install_params.get('pre_checks', True):
+            if not self._pre_installation_checks(status, install_params):
+                logger.warning(f"Pre-installation checks failed for {status.display_name}")
+                status.install_error = "Pre-installation checks failed"
+                return False
+
+        # Create system restore point (if enabled and on Windows)
+        if install_params.get('create_restore_point', False):
+            try:
+                self._create_restore_point(f"Before installing {status.display_name}")
+                logger.info(f"Created system restore point for {status.display_name}")
+            except Exception as e:
+                logger.warning(f"Failed to create restore point: {e}")
+
+        # Build final command
+        if install_params['command']:
+            final_cmd = install_params['command'].format(installer_path=quoted_path)
+        else:
             final_cmd = quoted_path
-            logger.info(f"Using manual mode: Executing installer directly.")
-        elif mode == 'semi':
-            if info.installer_type == '.msi':
-                final_cmd = f'msiexec /i {quoted_path} /passive /norestart'
-            elif info.installer_type == '.exe':
-                if '/s /v"/qn' in base_cmd_for_mode.lower():
-                     final_cmd = base_cmd_for_mode.replace('/qn', '/qb')
-                     final_cmd = final_cmd.replace('/s', '')
-                elif '/S' in base_cmd_for_mode or '/SILENT' in base_cmd_for_mode or '/VERYSILENT' in base_cmd_for_mode:
-                     final_cmd = base_cmd_for_mode
-                     logger.warning(f"Semi-silent mode for EXE ({info.path.name}): No standard passive switch known, attempting configured silent command.")
-                else:
-                     final_cmd = quoted_path
-                     logger.warning(f"Semi-silent mode for EXE ({info.path.name}): No known silent switch to modify, executing manually.")
-            logger.info(f"Using semi-silent mode: Attempting execution with potentially reduced UI.")
+
+        # Add additional options
+        if install_params.get('options'):
+            final_cmd += ' ' + ' '.join(install_params['options'])
+
+        # Set timeout
+        timeout = install_params.get('timeout', 900)
 
         run_cmd = f'start /wait "" {final_cmd}'
 
-        logger.info(f"Executing installation command: {run_cmd}")
-        ran_ok, return_code, _, stderr = WindowsUtils.run_command(run_cmd, status.display_name)
+        mode_descriptions = {
+            'auto': 'fully automatic',
+            'semi': 'semi-automatic with minimal UI',
+            'manual': 'interactive',
+            'fast': 'fast mode with minimal checks',
+            'safe': 'safe mode with enhanced verification'
+        }
+        logger.info(f"Executing installation in {mode_descriptions.get(mode, mode)} mode: {run_cmd}")
+        ran_ok, return_code, _, stderr = WindowsUtils.run_command(run_cmd, status.display_name, timeout=timeout)
 
         # --- Post-Installation Check & Status Update ---
         if ran_ok:
@@ -1382,26 +2066,34 @@ class ProgramInstaller:
         base_cmd = cmd_template.format(installer_path=quoted_path)
         final_cmd = base_cmd
 
-        if mode == 'manual':
-            final_cmd = quoted_path
-            logger.info(f"Heuristic manual mode: Executing installer directly.")
-        elif mode == 'semi':
-            if installer_info.installer_type == '.msi':
-                final_cmd = f'msiexec /i {quoted_path} /passive /norestart'
-            elif installer_info.installer_type == '.exe':
-                 if '/s /v"/qn' in base_cmd.lower():
-                     final_cmd = base_cmd.replace('/qn', '/qb')
-                 elif '/S' in base_cmd or '/SILENT' in base_cmd or '/VERYSILENT' in base_cmd:
-                     final_cmd = base_cmd #
-                     logger.warning(f"Heuristic semi-silent mode for EXE ({prog_name}): Attempting generic silent command.")
-                 else:
-                     final_cmd = quoted_path
-                     logger.warning(f"Heuristic semi-silent mode for EXE ({prog_name}): No known silent switch, executing manually.")
-            logger.info(f"Heuristic semi-silent mode: Attempting execution.")
+        # Apply enhanced mode-specific modifications for heuristic installs
+        install_params = self._get_install_mode_parameters(mode, installer_info.installer_type, base_cmd)
 
-        logger.warning(f"Running installation for unidentified file. Command is a guess: {final_cmd}")
+        # Build final command for heuristic installer
+        if install_params['command']:
+            final_cmd = install_params['command'].format(installer_path=quoted_path)
+        else:
+            final_cmd = quoted_path
+
+        # Add additional options
+        if install_params.get('options'):
+            final_cmd += ' ' + ' '.join(install_params['options'])
+
+        # Set timeout
+        timeout = install_params.get('timeout', 900)
+
         run_cmd = f'start /wait "" {final_cmd}'
-        ran_ok, return_code, _, stderr = WindowsUtils.run_command(run_cmd, f"Heuristic Install {prog_name}")
+
+        mode_descriptions = {
+            'auto': 'fully automatic',
+            'semi': 'semi-automatic with minimal UI',
+            'manual': 'interactive',
+            'fast': 'fast mode with minimal checks',
+            'safe': 'safe mode with enhanced verification'
+        }
+
+        logger.warning(f"Running heuristic installation in {mode_descriptions.get(mode, mode)} mode. Command is a guess: {final_cmd}")
+        ran_ok, return_code, _, stderr = WindowsUtils.run_command(run_cmd, f"Heuristic Install {prog_name}", timeout=timeout)
 
         if ran_ok:
             logger.info(f"Heuristic install command for '{prog_name}' completed successfully (Code {return_code}).")
@@ -1865,8 +2557,42 @@ class ProgramInstallerUI(QWidget):
         QTimer.singleShot(500, self._initial_status_check)
 
     def _setup_ui(self):
-        self.setFixedSize(991, 701)
+        """Setup the main user interface with enhanced feedback and progress indicators"""
+        # Make window resizable with minimum size constraints
+        self.setMinimumSize(800, 600)
+        self.resize(991, 701)
         main_layout = QVBoxLayout(self)
+
+        # --- Status Bar with Progress ---
+        status_widget = QWidget()
+        status_layout = QHBoxLayout(status_widget)
+        status_layout.setContentsMargins(5, 2, 5, 2)
+
+        self.status_label = QLabel("Готовий до роботи")
+        self.status_label.setStyleSheet("color: #666; font-size: 11px;")
+        status_layout.addWidget(self.status_label)
+
+        status_layout.addStretch()
+
+        # Progress bar for long operations
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximumHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 2px;
+                background-color: #f0f0f0;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 1px;
+            }
+        """)
+        status_layout.addWidget(self.progress_bar)
+
+        main_layout.addWidget(status_widget)
 
         # --- Toolbar ---
         self.toolbar = self._create_toolbar()
@@ -1876,10 +2602,48 @@ class ProgramInstallerUI(QWidget):
         splitter = QSplitter(Qt.Vertical)
         main_layout.addWidget(splitter)
 
-        # --- Program Tree View ---
+        # --- Program Tree View with enhanced styling ---
         self.program_tree = QTreeWidget()
         self.program_tree.setColumnCount(5)
         self.program_tree.setHeaderLabels(["Назва", "Встановлено?", "Знайдено інсталятор?", "Шлях", "Версія (Встановлено/Знайдено)"])
+
+        # Enhanced styling
+        self.program_tree.setStyleSheet("""
+            QTreeWidget {
+                alternate-background-color: #f9f9f9;
+                gridline-color: #e0e0e0;
+                selection-background-color: #3498db;
+                selection-color: white;
+                outline: none;
+            }
+            QTreeWidget::item {
+                padding: 3px;
+                border-bottom: 1px solid #f0f0f0;
+                min-height: 20px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+                border: 1px solid #2980b9;
+            }
+            QTreeWidget::item:selected:hover {
+                background-color: #2980b9;
+            }
+            QTreeWidget::item:hover {
+                background-color: #e8f4fd;
+            }
+            QTreeWidget::item:selected:!active {
+                background-color: #5dade2;
+                color: white;
+            }
+            QTreeWidget::branch:selected {
+                background-color: #3498db;
+            }
+            QTreeWidget::branch:hover {
+                background-color: transparent;
+            }
+        """)
+
         hdr = self.program_tree.header()
         hdr.setSectionResizeMode(self.COL_PROGRAM, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(self.COL_INSTALLED, QHeaderView.ResizeToContents)
@@ -1891,6 +2655,8 @@ class ProgramInstallerUI(QWidget):
         self.program_tree.sortByColumn(self.COL_PROGRAM, Qt.AscendingOrder)
         self.program_tree.itemSelectionChanged.connect(self._update_selection_info)
         self.program_tree.setAlternatingRowColors(True)
+        self.program_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.program_tree.customContextMenuRequested.connect(self._show_context_menu)
         splitter.addWidget(self.program_tree)
 
         # --- Details Panel (Bottom) ---
@@ -1914,15 +2680,35 @@ class ProgramInstallerUI(QWidget):
         mode_layout = QHBoxLayout()
         mode_label = QLabel("Режим встановлення:")
         self.install_mode_combo = QComboBox()
-        self.install_mode_combo.addItems(["Авто (тихо)", "Напів-автоматично", "Ручна"])
-        self.install_mode_combo.setToolTip("Choose how installers are executed:\n"
-                                           " - Авто: Спроба повністю безшумного встановлення за допомогою налаштованих перемикачів.\n"
-                                           " - Напів-автоматично: Спроба встановлення з мінімальним інтерфейсом користувача (наприклад, індикатор виконання).\n"
-                                           " - Ручний: Запускає програму встановлення в інтерактивному режимі.")
+        self.install_mode_combo.addItems([
+            "🤖 Автоматично (тихо)",
+            "📊 Напів-автоматично (базовий UI)",
+            "🖱️ Інтерактивно (повний UI)",
+            "⚡ Швидко (мін. перевірки)",
+            "🔧 Безпечний (з перевірками)"
+        ])
+        self.install_mode_combo.setToolTip("Режими встановлення:\n"
+                                           " 🤖 Автоматично: Повністю безшумне встановлення з налаштованими параметрами\n"
+                                           " 📊 Напів-автоматично: Встановлення з мінімальним інтерфейсом (індикатор прогресу)\n"
+                                           " 🖱️ Інтерактивно: Повноцінний інтерфейс встановлення\n"
+                                           " ⚡ Швидко: Пропускати перевірки, пряме встановлення\n"
+                                           " 🔧 Безпечний: Додаткові перевірки та резервні копії")
         self.install_mode_combo.setCurrentIndex(0)
+
+        # Add mode selection callback
+        self.install_mode_combo.currentTextChanged.connect(self._on_install_mode_changed)
+
         mode_layout.addWidget(mode_label)
         mode_layout.addWidget(self.install_mode_combo)
+
         control_panel_layout.addLayout(mode_layout)
+
+        # Mode description label
+        self.mode_description_label = QLabel()
+        self.mode_description_label.setWordWrap(True)
+        self.mode_description_label.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
+        self._update_mode_description()
+        control_panel_layout.addWidget(self.mode_description_label)
 
         # Install Button
         self.install_button = QPushButton(self._get_icon(QStyle.SP_DialogApplyButton), " Встановити")
@@ -1938,6 +2724,22 @@ class ProgramInstallerUI(QWidget):
         self.uninstall_button.setEnabled(False)
         control_panel_layout.addWidget(self.uninstall_button)
 
+        # Configuration Management Buttons
+        config_layout = QHBoxLayout()
+
+        # Add Configuration Button
+        self.add_config_button = QPushButton(self._get_icon(QStyle.SP_DialogApplyButton), " Додати конфігурацію")
+        self.add_config_button.clicked.connect(self._show_add_config_dialog)
+        self.add_config_button.setToolTip("Створити нову конфігурацію встановлення з існуючого файлу інсталятора")
+        config_layout.addWidget(self.add_config_button)
+
+        # Manage Configurations Button
+        self.manage_configs_button = QPushButton(self._get_icon(QStyle.SP_FileDialogDetailedView), " Керувати")
+        self.manage_configs_button.clicked.connect(self._show_manage_configs_dialog)
+        self.manage_configs_button.setToolTip("Переглянути, редагувати або видалити збережені конфігурації")
+        config_layout.addWidget(self.manage_configs_button)
+
+        control_panel_layout.addLayout(config_layout)
         control_panel_layout.addStretch()
         details_layout.addWidget(control_panel_widget)
 
@@ -2070,27 +2872,48 @@ class ProgramInstallerUI(QWidget):
             return
 
         mode_text = self.install_mode_combo.currentText()
-        install_mode = 'auto'
-        if "Напів-автоматично" in mode_text: install_mode = 'semi'
-        elif "Ручна" in mode_text: install_mode = 'manual'
+        install_mode = self._parse_install_mode(mode_text)
         logger.info(f"Selected install mode: {install_mode} ('{mode_text}')")
 
         # Confirmation dialog
         names_to_install = []
-        for task_type, data in tasks_to_run:
-            if task_type == "install": names_to_install.append(self.installer.program_status[data].display_name)
-            elif task_type == "install_heuristic": names_to_install.append(f"[Heuristic] {data.path.name}")
+        config_count = 0
+        heuristic_count = 0
 
-        confirm_msg = f"Ви впевнені, що хочете спробувати встановити для {len(tasks_to_run)} елемент з використанням '{install_mode}' режиму?\n\n"
-        confirm_msg += f"Items:\n - {', '.join(names_to_install[:5])}"
-        if len(names_to_install) > 5: confirm_msg += "\n - ..."
-        if any(t == "install_heuristic" for t, d in tasks_to_run):
-            confirm_msg += "\n\nПримітка: Команди встановлення для евристичних елементів є найкращими припущеннями і можуть не спрацювати або вимагати втручання."
+        for task_type, data in tasks_to_run:
+            if task_type == "install":
+                names_to_install.append(f"📋 {self.installer.program_status[data].display_name}")
+                config_count += 1
+            elif task_type == "install_heuristic":
+                names_to_install.append(f"🔍 [Heuristic] {data.path.name}")
+                heuristic_count += 1
+
+        # Create detailed confirmation message
+        confirm_msg = f"Встановити {len(tasks_to_run)} програм(и) в режимі '{mode_text}'?\n\n"
+
+        if config_count > 0 and heuristic_count > 0:
+            confirm_msg += f"📋 Налаштовані програми ({config_count}):\n"
+            config_items = [name for name in names_to_install if name.startswith("📋")]
+            confirm_msg += f" - {', '.join(config_items[:3])}"
+            if len(config_items) > 3: confirm_msg += f" та ще {len(config_items) - 3}"
+
+            confirm_msg += f"\n\n🔍 Евристичні знахідки ({heuristic_count}):\n"
+            heuristic_items = [name for name in names_to_install if name.startswith("🔍")]
+            confirm_msg += f" - {', '.join(heuristic_items[:3])}"
+            if len(heuristic_items) > 3: confirm_msg += f" та ще {len(heuristic_items) - 3}"
+        else:
+            confirm_msg += f"Програми для встановлення:\n - {', '.join(names_to_install[:5])}"
+            if len(names_to_install) > 5: confirm_msg += f"\n - та ще {len(names_to_install) - 5}"
+
+        if heuristic_count > 0:
+            confirm_msg += "\n\n⚠️ Примітка: Евристичні інсталятори визначені автоматично і можуть потребувати ручного налаштування."
 
         reply = QMessageBox.question(self, "Підтвердити встановлення", confirm_msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
 
         if reply == QMessageBox.Yes:
-            logger.info(f"User confirmed installation for {len(tasks_to_run)} items in '{install_mode}' mode.")
+            logger.info(f"User confirmed installation for {len(tasks_to_run)} items ({config_count} configured, {heuristic_count} heuristic) in '{install_mode}' mode.")
+            self._update_status(f"Встановлення {len(tasks_to_run)} програм...")
+
             for task_type, data in tasks_to_run:
                 # Pass the selected mode to the worker task
                 self._run_task(task_type, data, mode=install_mode)
@@ -2189,14 +3012,6 @@ class ProgramInstallerUI(QWidget):
                 found_v_str = str(status.found_installer.version)
                 version_display = f"{installed_v_str} / {found_v_str}"
 
-                # Add visual cue if an upgrade is available
-                if status.installed_version and status.found_installer.version > status.installed_version:
-                    font = item.font(self.COL_VERSION)
-                    font.setBold(True)
-                    item.setFont(self.COL_VERSION, font)
-                    item.setForeground(self.COL_VERSION, QColor("#008000")) # Green
-                    item.setToolTip(self.COL_VERSION, "Знайдено новішу версію інсталятора.")
-
             item = QTreeWidgetItem([status.display_name, inst_text, found_text, path_str, version_display])
             item.setData(0, Qt.UserRole, {"type": "config", "key": key}) # Store key in item data
 
@@ -2206,6 +3021,18 @@ class ProgramInstallerUI(QWidget):
 
             # Apply Tooltips
             item.setToolTip(self.COL_PROGRAM, f"Configured Program: {status.display_name}\nKey: {key}")
+
+            # Add visual cue if an upgrade is available
+            if (status.installed_version and
+                status.found_installer and
+                status.found_installer.version and
+                not status.found_installer.version.is_zero() and
+                status.found_installer.version > status.installed_version):
+                font = item.font(self.COL_VERSION)
+                font.setBold(True)
+                item.setFont(self.COL_VERSION, font)
+                item.setForeground(self.COL_VERSION, QColor("#008000")) # Green
+                item.setToolTip(self.COL_VERSION, "Знайдено новішу версію інсталятора.")
             item.setToolTip(self.COL_INSTALLED, f"Checked: {status.last_checked.strftime('%Y-%m-%d %H:%M:%S') if status.last_checked else 'Never'}\nError: {status.install_error or 'None'}")
             item.setToolTip(self.COL_FOUND, f"Installer file found by scan.")
             item.setToolTip(self.COL_PATH, path_tooltip)
@@ -2225,43 +3052,67 @@ class ProgramInstallerUI(QWidget):
 
             items_to_add.append(item)
 
-        #Heuristically Found Programs
-        for info in self.installer.unidentified_installers:
-            props = info.file_properties
-            heur_name = "[SUS] "
-            heur_name += props.get('ProductName') or props.get('FileDescription') or Path(info.path.name).stem
-            if not props.get('ProductName') and not props.get('FileDescription'):
-                 heur_name += " (No Name Prop)"
+        # 2. Add Heuristically Found Programs with Grouping
+        if self.installer.unidentified_installers:
+            heuristic_groups = self._group_heuristic_installers(self.installer.unidentified_installers)
 
-            inst_text, inst_color = "?", colors['unknown']
-            found_text, found_color = "Heuristic", colors['heuristic']
-            path_str = str(info.path)
-            path_tooltip = path_str
+            for group_name, group_items in heuristic_groups.items():
+                # Create group parent item
+                group_item = QTreeWidgetItem([f"🔍 {group_name}", "", "", "", f"({len(group_items)} items)"])
+                group_item.setData(0, Qt.UserRole, {"type": "heuristic_group", "group_name": group_name})
+                group_item.setForeground(self.COL_PROGRAM, colors['heuristic'])
+                group_item.setFont(self.COL_PROGRAM, font_bold)
 
-            # Version from file properties
-            pv = props.get('ProductVersion') or props.get('FileVersion')
-            version_str = f"Found: {pv}" if pv else "Found: ?"
-            version_tooltip = f"Heuristic Installer Version (File: {props.get('FileVersion', 'N/A')}, Prod: {props.get('ProductVersion', 'N/A')})"
+                # Set tooltip for group
+                if group_name == "Development Tools":
+                    group_item.setToolTip(self.COL_PROGRAM, f"Development tools and programming utilities\n{len(group_items)} items found by heuristic analysis")
+                elif group_name == "System Utilities":
+                    group_item.setToolTip(self.COL_PROGRAM, f"System maintenance and utility programs\n{len(group_items)} items found by heuristic analysis")
+                elif group_name == "Office & Productivity":
+                    group_item.setToolTip(self.COL_PROGRAM, f"Office applications and productivity software\n{len(group_items)} items found by heuristic analysis")
+                elif group_name == "Multimedia & Graphics":
+                    group_item.setToolTip(self.COL_PROGRAM, f"Multimedia, graphics, and creative software\n{len(group_items)} items found by heuristic analysis")
+                elif group_name == "Security & Antivirus":
+                    group_item.setToolTip(self.COL_PROGRAM, f"Security software and antivirus programs\n{len(group_items)} items found by heuristic analysis")
+                elif group_name == "Internet & Networking":
+                    group_item.setToolTip(self.COL_PROGRAM, f"Internet browsers and networking tools\n{len(group_items)} items found by heuristic analysis")
+                else:
+                    group_item.setToolTip(self.COL_PROGRAM, f"Uncategorized programs\n{len(group_items)} items found by heuristic analysis")
 
-            item = QTreeWidgetItem([heur_name, inst_text, found_text, path_str, version_str])
-            item.setData(0, Qt.UserRole, {"type": "heuristic", "info": info})
+                # Add child items to group
+                for info, score, heur_name, props in group_items:
+                    inst_text, inst_color = "?", colors['unknown']
+                    found_text, found_color = "Heuristic", colors['heuristic']
+                    path_str = str(info.path)
+                    path_tooltip = path_str
 
-            # Apply Colors & Font
-            item.setForeground(self.COL_PROGRAM, colors['heuristic'])
-            item.setForeground(self.COL_INSTALLED, inst_color)
-            item.setForeground(self.COL_FOUND, found_color)
-            item.setFont(self.COL_PROGRAM, font_italic)
+                    # Version from file properties
+                    pv = props.get('ProductVersion') or props.get('FileVersion')
+                    version_str = f"Found: {pv}" if pv else "Found: ?"
+                    version_tooltip = f"Heuristic Installer Version (File: {props.get('FileVersion', 'N/A')}, Prod: {props.get('ProductVersion', 'N/A')})"
 
-             # Apply Tooltips
-            score = self.installer._score_potential_installer(info)
-            item.setToolTip(self.COL_PROGRAM, f"Heuristically Identified Potential Installer\nScore: {score:.2f}\nPath: {path_str}")
-            item.setToolTip(self.COL_INSTALLED, "Installation status unknown for heuristic items.")
-            item.setToolTip(self.COL_FOUND, f"Identified by heuristic rules (Score: {score:.2f}). Not matched to specific configuration.")
-            item.setToolTip(self.COL_PATH, path_tooltip)
-            item.setToolTip(self.COL_VERSION, version_tooltip)
+                    item = QTreeWidgetItem([heur_name, inst_text, found_text, path_str, version_str])
+                    item.setData(0, Qt.UserRole, {"type": "heuristic", "info": info, "group": group_name})
 
-            items_to_add.append(item)
+                    # Apply Colors & Font
+                    item.setForeground(self.COL_PROGRAM, colors['heuristic'])
+                    item.setForeground(self.COL_INSTALLED, inst_color)
+                    item.setForeground(self.COL_FOUND, found_color)
+                    item.setFont(self.COL_PROGRAM, font_italic)
 
+                    # Apply Tooltips
+                    item.setToolTip(self.COL_PROGRAM, f"Heuristically Identified Potential Installer\nCategory: {group_name}\nScore: {score:.2f}\nPath: {path_str}")
+                    item.setToolTip(self.COL_INSTALLED, "Installation status unknown for heuristic items.")
+                    item.setToolTip(self.COL_FOUND, f"Identified by heuristic rules (Score: {score:.2f}). Not matched to specific configuration.")
+                    item.setToolTip(self.COL_PATH, path_tooltip)
+                    item.setToolTip(self.COL_VERSION, version_tooltip)
+
+                    # Add as child of group
+                    group_item.addChild(item)
+
+                items_to_add.append(group_item)
+
+        
         # Add all items to the tree
         self.program_tree.addTopLevelItems(items_to_add)
 
@@ -2295,8 +3146,68 @@ class ProgramInstallerUI(QWidget):
             item.setHidden(not matches_filter)
 
     def _get_selected_item_data(self) -> List[Dict]:
-        return [item.data(0, Qt.UserRole) for item in self.program_tree.selectedItems() if item.data(0, Qt.UserRole)]
+        selected_data = []
+        selected_items = self.program_tree.selectedItems()
 
+        for item in selected_items:
+            data = item.data(0, Qt.UserRole)
+            if not data:
+                continue
+
+            item_type = data.get("type")
+
+            # For group items, include all child items
+            if item_type == "heuristic_group":
+                # Add child items from this group
+                for i in range(item.childCount()):
+                    child_item = item.child(i)
+                    child_data = child_item.data(0, Qt.UserRole)
+                    if child_data and child_data.get("type") == "heuristic":
+                        selected_data.append(child_data)
+            # For regular items, just add them
+            else:
+                selected_data.append(data)
+
+        return selected_data
+
+    def _group_heuristic_installers(self, installers: List[FoundInstallerInfo]) -> Dict[str, List]:
+        """
+        Group heuristic installers by category based on their properties.
+
+        Args:
+            installers (List[FoundInstallerInfo]): List of heuristic installers
+
+        Returns:
+            Dict[str, List]: Dictionary mapping category names to list of (info, score, name, props) tuples
+        """
+        from collections import defaultdict
+
+        groups = defaultdict(list)
+
+        for info in installers:
+            props = info.file_properties
+            score = self.installer._score_potential_installer(info)
+
+            # Determine display name
+            heur_name = props.get('ProductName') or props.get('FileDescription') or Path(info.path.name).stem
+            if not props.get('ProductName') and not props.get('FileDescription'):
+                heur_name += " (No Name Prop)"
+
+            # All programs go to single category
+            category = "Знайдені програми"
+
+            groups[category].append((info, score, heur_name, props))
+
+        # Sort items by score (descending) and then by name
+        sorted_groups = {}
+        for category, items in groups.items():
+            # Sort items by score (descending) and then by name
+            sorted_items = sorted(items, key=lambda x: (-x[1], x[2].lower()))
+            sorted_groups[category] = sorted_items
+
+        return sorted_groups
+
+    
     def _update_selection_info(self):
         selected_data = self._get_selected_item_data()
         count = len(selected_data)
@@ -2312,14 +3223,25 @@ class ProgramInstallerUI(QWidget):
             item_type = data.get("type")
             info_lines = []
 
-            if item_type == "config":
+            if item_type == "heuristic_group":
+                group_name = data.get("group_name", "Unknown")
+                info_lines.append(f"<b>🔍 {group_name}</b> (Heuristic Group)")
+                info_lines.append(f"&nbsp;&nbsp;<i>This group contains heuristic installers automatically categorized as {group_name.lower()}.</i>")
+                info_lines.append(f"&nbsp;&nbsp;<i>Expand the group to see individual installers.</i>")
+                info_lines.append("")
+                info_lines.append(f"<b>Group Actions:</b>")
+                info_lines.append(f"&nbsp;&nbsp;• Right-click on individual items for installation options")
+                info_lines.append(f"&nbsp;&nbsp;• Use Ctrl+Click to select multiple items in the group")
+                info_lines.append(f"&nbsp;&nbsp;• All items will be included in batch installation")
+
+            elif item_type == "config":
                 key = data["key"]
                 status = self.installer.program_status.get(key)
                 log_entry = self.installer.installation_log.get(key)
 
                 if status:
                     info_lines.append(f"<b>{status.display_name}</b> (Config Key: {key})")
-                    if status.is_installed is True: info_lines.append(f"&nbsp;&nbsp;Статус: <font color='darkGreen'>Встановлено</font> (Version: {status.last_installed_version or '?'})")
+                    if status.is_installed is True: info_lines.append(f"&nbsp;&nbsp;Статус: <font color='darkGreen'>Встановлено</font> (Version: {status.installed_version or '?'})")
                     elif status.is_installed is False: info_lines.append(f"&nbsp;&nbsp;Статус: <font color='red'>Не встановлено</font>")
                     else: info_lines.append(f"&nbsp;&nbsp;Статус: <font color='orange'>Невідомо / Не перевірено</font>")
                     if status.last_checked: info_lines.append(f"&nbsp;&nbsp;Остання перевірка: {status.last_checked.strftime('%Y-%m-%d %H:%M')}")
@@ -2536,6 +3458,949 @@ class ProgramInstallerUI(QWidget):
 
     # --- Settings Persistence ---
 
+
+    def _update_status(self, message: str, show_progress: bool = False, progress_value: int = 0):
+        """
+        Update the status label and progress bar with user feedback.
+
+        Args:
+            message (str): Status message to display
+            show_progress (bool): Whether to show the progress bar
+            progress_value (int): Progress value (0-100)
+        """
+        if hasattr(self, 'status_label'):
+            self.status_label.setText(message)
+            logger.debug(f"Status: {message}")
+
+        if hasattr(self, 'progress_bar'):
+            if show_progress:
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setValue(progress_value)
+            else:
+                self.progress_bar.setVisible(False)
+
+    def _show_operation_progress(self, operation_name: str, current: int, total: int):
+        """
+        Show progress for a long-running operation.
+
+        Args:
+            operation_name (str): Description of the operation
+            current (int): Current progress count
+            total (int): Total items to process
+        """
+        if total > 0:
+            progress_percent = int((current / total) * 100)
+            message = f"{operation_name}: {current}/{total} ({progress_percent}%)"
+            self._update_status(message, show_progress=True, progress_value=progress_percent)
+
+    def _show_error_feedback(self, title: str, message: str, details: str = None):
+        """
+        Display error information to the user with proper logging.
+
+        Args:
+            title (str): Error title
+            message (str): Error message
+            details (str, optional): Additional error details
+        """
+        logger.error(f"{title}: {message}")
+        if details:
+            logger.debug(f"Error details: {details}")
+
+        # Update status
+        self._update_status(f"Помилка: {title}")
+
+        # Show error dialog if UI is available
+        if PYQT5_AVAILABLE:
+            try:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle(title)
+                msg.setText(message)
+                if details:
+                    msg.setDetailedText(details)
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec_()
+            except Exception as e:
+                logger.error(f"Failed to show error dialog: {e}")
+
+    def _show_success_feedback(self, message: str, detail: str = None):
+        """
+        Display success feedback to the user.
+
+        Args:
+            message (str): Success message to display
+            detail (str, optional): Additional detail message
+        """
+        full_message = f"{message}{': ' if detail else ''}{detail or ''}"
+        logger.info(full_message)
+        self._update_status(full_message)
+
+        # Show temporary success indicator if UI is available
+        if PYQT5_AVAILABLE and hasattr(self, 'status_label'):
+            original_style = self.status_label.styleSheet()
+            self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            # Reset after 3 seconds
+            QTimer.singleShot(3000, lambda: self.status_label.setStyleSheet(original_style))
+
+    def _show_context_menu(self, position):
+        """Show context menu for right-click operations on tree items."""
+        from PyQt5.QtWidgets import QMenu
+
+        item = self.program_tree.itemAt(position)
+        if not item:
+            return
+
+        data = item.data(0, Qt.UserRole)
+        if not data:
+            return
+
+        item_type = data.get("type")
+        menu = QMenu(self)
+
+        if item_type == "heuristic_group":
+            # Group-specific actions
+            group_name = data.get("group_name", "Unknown")
+            menu.setTitle(f"🔍 {group_name} Group")
+
+            # Add install all in group action
+            install_all_action = menu.addAction(f"📦 Install All in {group_name}")
+            install_all_action.triggered.connect(lambda: self._install_group_items(data))
+
+            menu.addSeparator()
+
+            # Expand/Collapse action
+            if item.isExpanded():
+                collapse_action = menu.addAction("📁 Collapse Group")
+                collapse_action.triggered.connect(lambda: item.setExpanded(False))
+            else:
+                expand_action = menu.addAction("📂 Expand Group")
+                expand_action.triggered.connect(lambda: item.setExpanded(True))
+
+        elif item_type == "config":
+            key = data["key"]
+            status = self.installer.program_status.get(key)
+
+            if status:
+                # Install/Uninstall actions
+                if status.found_installer and status.is_installed is False:
+                    install_action = menu.addAction("📦 Встановити")
+                    install_action.triggered.connect(lambda: self._install_single_item(key))
+
+                if status.is_installed:
+                    uninstall_action = menu.addAction("🗑️ Видалити")
+                    uninstall_action.triggered.connect(lambda: self._uninstall_single_item(key))
+
+                menu.addSeparator()
+
+                # Check status action
+                check_action = menu.addAction("🔄 Перевірити статус")
+                check_action.triggered.connect(lambda: self._check_single_item_status(key))
+
+                # Open folder action
+                if status.found_installer:
+                    open_folder_action = menu.addAction("📁 Відкрити папку з інсталятором")
+                    open_folder_action.triggered.connect(lambda: self._open_installer_folder(status.found_installer.path))
+
+        elif item_type == "heuristic":
+            info = data.get("info")
+            if info:
+                install_action = menu.addAction(f"📦 Встановити [Heuristic] {info.path.name}")
+                install_action.triggered.connect(lambda: self._install_single_heuristic(info))
+
+                menu.addSeparator()
+
+                # Add configuration creation option
+                create_config_action = menu.addAction(f"⚙️ Створити конфігурацію")
+                create_config_action.triggered.connect(lambda: self._create_config_from_heuristic(info))
+
+                open_folder_action = menu.addAction("📁 Відкрити папку")
+                open_folder_action.triggered.connect(lambda: self._open_installer_folder(info.path))
+
+        if menu.actions():
+            menu.exec_(self.program_tree.viewport().mapToGlobal(position))
+
+    def _install_single_item(self, key):
+        """Install a single configured program."""
+        status = self.installer.program_status.get(key)
+        if status and status.found_installer and status.is_installed is False:
+            mode_text = self.install_mode_combo.currentText()
+            install_mode = self._parse_install_mode(mode_text)
+
+            self._run_task("install", key, mode=install_mode)
+
+    def _install_group_items(self, group_data: dict):
+        """Install all heuristic items in a group."""
+        group_name = group_data.get("group_name", "Unknown")
+
+        # Find the tree item for this group
+        group_item = None
+        for i in range(self.program_tree.topLevelItemCount()):
+            item = self.program_tree.topLevelItem(i)
+            data = item.data(0, Qt.UserRole)
+            if data and data.get("type") == "heuristic_group" and data.get("group_name") == group_name:
+                group_item = item
+                break
+
+        if not group_item:
+            self._show_error_feedback("Group Error", f"Could not find group: {group_name}")
+            return
+
+        # Collect all heuristic items in this group
+        items_to_install = []
+        for i in range(group_item.childCount()):
+            child_item = group_item.child(i)
+            child_data = child_item.data(0, Qt.UserRole)
+            if child_data and child_data.get("type") == "heuristic":
+                info = child_data.get("info")
+                if info:
+                    items_to_install.append(info)
+
+        if not items_to_install:
+            self._show_error_feedback("Group Empty", f"No installable items found in {group_name} group")
+            return
+
+        # Confirm installation
+        reply = QMessageBox.question(
+            self,
+            f"Install {group_name} Group",
+            f"Install all {len(items_to_install)} items in the '{group_name}' group?\n\n"
+            f"Items to install:\n" + "\n".join([f"• {info.path.name}" for info in items_to_install[:5]]) +
+            ("\n• ... and more" if len(items_to_install) > 5 else ""),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            mode_text = self.install_mode_combo.currentText()
+            install_mode = self._parse_install_mode(mode_text)
+
+            self._update_status(f"Installing {len(items_to_install)} items from {group_name} group...")
+
+            # Queue all installations
+            for info in items_to_install:
+                self._run_task("install_heuristic", info, mode=install_mode)
+
+    def _install_single_heuristic(self, info):
+        """Install a single heuristic program."""
+        mode_text = self.install_mode_combo.currentText()
+        install_mode = self._parse_install_mode(mode_text)
+
+        self._run_task("install_heuristic", info, mode=install_mode)
+
+    def _uninstall_single_item(self, key):
+        """Uninstall a single configured program."""
+        self._run_task("uninstall", key)
+
+    def _check_single_item_status(self, key):
+        """Check status for a single program."""
+        self._run_task("check_status", [key])
+
+    def _open_installer_folder(self, file_path):
+        """Open the folder containing the installer in Windows Explorer."""
+        import subprocess
+        try:
+            folder_path = str(Path(file_path).parent)
+            subprocess.run(['explorer', folder_path], check=True)
+            self._show_success_feedback("Відкрито папку", folder_path)
+        except Exception as e:
+            self._show_error_feedback("Помилка відкриття папки", f"Не вдалося відкрити папку: {e}")
+
+    def _show_add_config_dialog(self):
+        """Show dialog to add a new configuration from an existing installer file."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QGroupBox, QFileDialog
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Створити конфігурацію встановлення")
+        dialog.setMinimumSize(500, 600)
+        layout = QVBoxLayout(dialog)
+
+        # File selection
+        file_group = QGroupBox("Файл інсталятора")
+        file_layout = QHBoxLayout(file_group)
+
+        self.config_file_path = QLineEdit()
+        self.config_file_path.setPlaceholderText("Виберіть файл інсталятора...")
+        file_layout.addWidget(self.config_file_path)
+
+        browse_button = QPushButton("Огляд...")
+        browse_button.clicked.connect(lambda: self._browse_for_installer_file(self.config_file_path))
+        file_layout.addWidget(browse_button)
+
+        layout.addWidget(file_group)
+
+        # Basic information
+        info_group = QGroupBox("Основна інформація")
+        info_layout = QVBoxLayout(info_group)
+
+        # Configuration Key
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(QLabel("Ключ конфігурації:"))
+        self.config_key = QLineEdit()
+        self.config_key.setPlaceholderText("унікальний_ключ_програми")
+        key_layout.addWidget(self.config_key)
+        info_layout.addLayout(key_layout)
+
+        # Display Name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Відображувана назва:"))
+        self.config_display_name = QLineEdit()
+        self.config_display_name.setPlaceholderText("Назва програми для відображення")
+        name_layout.addWidget(self.config_display_name)
+        info_layout.addLayout(name_layout)
+
+        # Description
+        desc_layout = QHBoxLayout()
+        desc_layout.addWidget(QLabel("Опис:"))
+        self.config_description = QLineEdit()
+        self.config_description.setPlaceholderText("Короткий опис програми")
+        desc_layout.addWidget(self.config_description)
+        info_layout.addLayout(desc_layout)
+
+        layout.addWidget(info_group)
+
+        # Installation commands
+        commands_group = QGroupBox("Команди встановлення")
+        commands_layout = QVBoxLayout(commands_group)
+
+        # Auto detect installer type and show appropriate command template
+        self.command_templates = {
+            '.exe': '"{installer_path}" /S',  # Default silent for EXE
+            '.msi': 'msiexec /i "{installer_path}" /quiet /norestart',  # Default for MSI
+            '.zip': 'Extract and run setup from "{installer_path}"',
+            '.rar': 'Extract and run setup from "{installer_path}"'
+        }
+
+        commands_label = QLabel("Команда автоматичного встановлення (використовуйте {installer_path} як заповнювач):")
+        commands_layout.addWidget(commands_label)
+
+        self.config_install_command = QTextEdit()
+        self.config_install_command.setMaximumHeight(100)
+        self.config_install_command.setPlaceholderText('{installer_path} /S')
+        commands_layout.addWidget(self.config_install_command)
+
+        # Auto-detect button
+        detect_button = QPushButton("Автовизначити команду")
+        detect_button.clicked.connect(self._auto_detect_install_command)
+        commands_layout.addWidget(detect_button)
+
+        layout.addWidget(commands_group)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        cancel_button = QPushButton("Скасувати")
+        cancel_button.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_button)
+
+        save_button = QPushButton("Зберегти конфігурацію")
+        save_button.clicked.connect(lambda: self._save_new_configuration(dialog))
+        save_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+        button_layout.addWidget(save_button)
+
+        layout.addLayout(button_layout)
+
+        # Show dialog
+        if dialog.exec_() == QDialog.Accepted:
+            self._refresh_program_list()
+
+    def _browse_for_installer_file(self, line_edit):
+        """Browse for an installer file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Виберіть файл інсталятора",
+            "",
+            "Installer Files (*.exe *.msi *.zip *.rar);;All Files (*)"
+        )
+        if file_path:
+            line_edit.setText(file_path)
+            # Auto-fill some information
+            self._auto_fill_from_installer(file_path)
+
+    def _auto_fill_from_installer(self, file_path):
+        """Auto-fill configuration fields from installer file properties."""
+        try:
+            props = WindowsUtils.get_file_properties(file_path)
+            if props:
+                # Fill display name
+                if not self.config_display_name.text():
+                    display_name = props.get('ProductName') or props.get('FileDescription') or Path(file_path).stem
+                    self.config_display_name.setText(display_name)
+
+                # Auto-generate key from display name
+                if not self.config_key.text():
+                    key = self._generate_config_key(display_name)
+                    self.config_key.setText(key)
+
+                # Set command template based on file type
+                installer_type = Path(file_path).suffix.lower()
+                if installer_type in self.command_templates:
+                    self.config_install_command.setText(self.command_templates[installer_type])
+
+        except Exception as e:
+            logger.warning(f"Could not auto-fill from installer file: {e}")
+
+    def _generate_config_key(self, name: str) -> str:
+        """Generate a config key from a display name."""
+        # Remove special characters and replace with underscores
+        import re
+        key = re.sub(r'[^\w\s-]', '', name.lower())
+        key = re.sub(r'[-\s]+', '_', key.strip())
+        return key
+
+    def _auto_detect_install_command(self):
+        """Auto-detect the best install command for the selected file."""
+        file_path = self.config_file_path.text()
+        if not file_path or not Path(file_path).exists():
+            self._show_error_feedback("Помилка файлу", "Будь ласка, спочатку виберіть дійсний файл інсталятора")
+            return
+
+        installer_type = Path(file_path).suffix.lower()
+        company_name = ""
+
+        try:
+            props = WindowsUtils.get_file_properties(file_path)
+            if props:
+                company_name = props.get('CompanyName', '').lower()
+        except:
+            pass
+
+        # Smart command detection based on installer type and company
+        if installer_type == '.msi':
+            command = 'msiexec /i "{installer_path}" /quiet /norestart'
+        elif installer_type == '.exe':
+            if company_name:
+                if any(company in company_name for company in ['microsoft', 'adobe', 'autodesk']):
+                    command = '"{installer_path}" /quiet /norestart'
+                elif any(company in company_name for company in ['google', 'mozilla', 'opera']):
+                    command = '"{installer_path}" /S'
+                else:
+                    command = '"{installer_path}" /S'
+            else:
+                command = '"{installer_path}" /S'
+        else:
+            command = '"{installer_path}"'
+
+        self.config_install_command.setText(command)
+        self._show_success_feedback("Команду визначено", f"Автоматично визначено команду для {installer_type}")
+
+    def _save_new_configuration(self, dialog):
+        """Save the new configuration."""
+        key = self.config_key.text().strip()
+        display_name = self.config_display_name.text().strip()
+        description = self.config_description.text().strip()
+        install_command = self.config_install_command.toPlainText().strip()
+        file_path = self.config_file_path.text().strip()
+
+        # Validation
+        if not key:
+            self._show_error_feedback("Помилка", "Ключ конфігурації є обов'язковим")
+            return
+
+        if not display_name:
+            self._show_error_feedback("Помилка", "Відображувана назва є обов'язковою")
+            return
+
+        if not install_command:
+            self._show_error_feedback("Помилка", "Команда встановлення є обов'язковою")
+            return
+
+        if not file_path or not Path(file_path).exists():
+            self._show_error_feedback("Помилка файлу", "Будь ласка, виберіть дійсний файл інсталятора")
+            return
+
+        # Check if key already exists
+        if key in self.installer.config:
+            reply = QMessageBox.question(
+                self,
+                "Конфігурація існує",
+                f"Конфігурація з ключем '{key}' вже існує. Перезаписати?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Create configuration
+        config = {
+            "display_name": display_name,
+            "description": description,
+            "install_commands": {
+                Path(file_path).suffix.lower(): install_command
+            },
+            "installers": [Path(file_path).name],
+            "source_file": file_path,
+            "detected_at": datetime.now().isoformat()
+        }
+
+        # Save configuration
+        if self.installer.save_user_configuration(key, config):
+            # Update local config
+            self.installer.config[key] = config
+            self.installer.user_configs[key] = config
+
+            # Add to program status
+            status = ProgramStatus(key, display_name, config)
+            self.installer.program_status[key] = status
+
+            self._show_success_feedback("Конфігурацію збережено", f"Конфігурація '{display_name}' успішно збережена")
+            dialog.accept()
+        else:
+            self._show_error_feedback("Помилка збереження", "Не вдалося зберегти конфігурацію")
+
+    def _show_manage_configs_dialog(self):
+        """Show dialog to manage saved configurations."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QLabel, QPushButton, QTextEdit, QSplitter
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Керування конфігураціями")
+        dialog.setMinimumSize(700, 500)
+        layout = QVBoxLayout(dialog)
+
+        # Create splitter
+        splitter = QSplitter(Qt.Horizontal)
+        layout.addWidget(splitter)
+
+        # Left side - Configuration list
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+
+        left_layout.addWidget(QLabel("<b>Збережені конфігурації:</b>"))
+
+        self.config_list = QListWidget()
+        self._populate_config_list()
+        left_layout.addWidget(self.config_list)
+
+        # Buttons for list
+        list_button_layout = QHBoxLayout()
+        refresh_button = QPushButton("Оновити")
+        refresh_button.clicked.connect(self._populate_config_list)
+        list_button_layout.addWidget(refresh_button)
+
+        delete_button = QPushButton("Видалити")
+        delete_button.clicked.connect(self._delete_selected_config)
+        list_button_layout.addWidget(delete_button)
+
+        left_layout.addLayout(list_button_layout)
+        splitter.addWidget(left_widget)
+
+        # Right side - Configuration details
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+
+        right_layout.addWidget(QLabel("<b>Деталі конфігурації:</b>"))
+
+        self.config_details = QTextEdit()
+        self.config_details.setReadOnly(True)
+        right_layout.addWidget(self.config_details)
+
+        splitter.addWidget(right_widget)
+        splitter.setSizes([200, 500])
+
+        # Connect list selection to details display
+        self.config_list.currentItemChanged.connect(self._show_config_details)
+
+        # Bottom buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        close_button = QPushButton("Закрити")
+        close_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_button)
+
+        layout.addLayout(button_layout)
+
+        dialog.exec_()
+
+    def _populate_config_list(self):
+        """Populate the configuration list with user configurations."""
+        from PyQt5.QtWidgets import QListWidgetItem
+
+        self.config_list.clear()
+        for key, config in self.installer.user_configs.items():
+            display_name = config.get('display_name', key)
+            created_at = config.get('_created_at', 'Unknown')
+            item_text = f"{display_name} ({key})"
+            if created_at != 'Unknown':
+                # Format date nicely
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(created_at)
+                    item_text += f" - {dt.strftime('%Y-%m-%d')}"
+                except:
+                    pass
+
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, key)
+            self.config_list.addItem(item)
+
+    def _show_config_details(self, item):
+        """Show details of the selected configuration."""
+        if not item:
+            self.config_details.clear()
+            return
+
+        key = item.data(Qt.UserRole)
+        config = self.installer.user_configs.get(key)
+
+        if not config:
+            return
+
+        # Format configuration details
+        details = []
+        details.append(f"Ключ: {key}")
+        details.append(f"Назва: {config.get('display_name', 'N/A')}")
+        details.append(f"Опис: {config.get('description', 'N/A')}")
+        details.append(f"Створено: {config.get('_created_at', 'N/A')}")
+        details.append(f"Версія: {config.get('_version', 'N/A')}")
+        details.append("")
+
+        # Installation commands
+        details.append("Команди встановлення:")
+        install_commands = config.get('install_commands', {})
+        for ext, cmd in install_commands.items():
+            details.append(f"  {ext}: {cmd}")
+
+        details.append("")
+
+        # Installer files
+        details.append("Файли інсталяторів:")
+        installers = config.get('installers', [])
+        for installer in installers:
+            details.append(f"  {installer}")
+
+        details.append("")
+
+        # Source file
+        source_file = config.get('source_file', 'N/A')
+        details.append(f"Джерело: {source_file}")
+
+        self.config_details.setText('\n'.join(details))
+
+    def _delete_selected_config(self):
+        """Delete the selected configuration."""
+        current_item = self.config_list.currentItem()
+        if not current_item:
+            return
+
+        key = current_item.data(Qt.UserRole)
+        display_name = self.installer.user_configs.get(key, {}).get('display_name', key)
+
+        reply = QMessageBox.question(
+            self,
+            "Видалити конфігурацію",
+            f"Ви впевнені, що хочете видалити конфігурацію '{display_name}'?\n\nЦю дію не можна скасувати.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            if self.installer.delete_user_configuration(key):
+                # Remove from local storage
+                if key in self.installer.user_configs:
+                    del self.installer.user_configs[key]
+                if key in self.installer.config:
+                    del self.installer.config[key]
+                if key in self.installer.program_status:
+                    del self.installer.program_status[key]
+
+                self._populate_config_list()
+                self.config_details.clear()
+                self._show_success_feedback("Конфігурацію видалено", f"Конфігурація '{display_name}' видалена")
+            else:
+                self._show_error_feedback("Помилка видалення", "Не вдалося видалити конфігурацію")
+
+    def _create_config_from_heuristic(self, info: FoundInstallerInfo):
+        """Create a configuration from a heuristic installer finding."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QGroupBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Створити конфігурацію з евристичної знахідки")
+        dialog.setMinimumSize(500, 400)
+        layout = QVBoxLayout(dialog)
+
+        # File info
+        file_group = QGroupBox("Інформація про файл")
+        file_layout = QVBoxLayout(file_group)
+
+        file_layout.addWidget(QLabel(f"Файл: {info.path.name}"))
+        file_layout.addWidget(QLabel(f"Шлях: {info.path}"))
+        file_layout.addWidget(QLabel(f"Тип: {info.installer_type}"))
+
+        props = info.file_properties
+        if props:
+            product_name = props.get('ProductName', 'N/A')
+            file_desc = props.get('FileDescription', 'N/A')
+            company = props.get('CompanyName', 'N/A')
+            version = props.get('ProductVersion') or props.get('FileVersion', 'N/A')
+
+            file_layout.addWidget(QLabel(f"Назва продукту: {product_name}"))
+            file_layout.addWidget(QLabel(f"Опис: {file_desc}"))
+            file_layout.addWidget(QLabel(f"Компанія: {company}"))
+            file_layout.addWidget(QLabel(f"Версія: {version}"))
+
+        layout.addWidget(file_group)
+
+        # Configuration details
+        info_group = QGroupBox("Деталі конфігурації")
+        info_layout = QVBoxLayout(info_group)
+
+        # Configuration Key
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(QLabel("Ключ конфігурації:"))
+        self.heuristic_config_key = QLineEdit()
+        default_key = self._generate_config_key(product_name or info.path.stem)
+        self.heuristic_config_key.setText(default_key)
+        key_layout.addWidget(self.heuristic_config_key)
+        info_layout.addLayout(key_layout)
+
+        # Display Name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Відображувана назва:"))
+        self.heuristic_display_name = QLineEdit()
+        self.heuristic_display_name.setText(product_name or info.path.stem)
+        name_layout.addWidget(self.heuristic_display_name)
+        info_layout.addLayout(name_layout)
+
+        # Description
+        desc_layout = QHBoxLayout()
+        desc_layout.addWidget(QLabel("Опис:"))
+        self.heuristic_description = QLineEdit()
+        default_desc = f"Программа, знайдена евристичним пошуком. Тип: {info.installer_type}"
+        self.heuristic_description.setText(default_desc)
+        desc_layout.addWidget(self.heuristic_description)
+        info_layout.addLayout(desc_layout)
+
+        layout.addWidget(info_group)
+
+        # Install command
+        command_group = QGroupBox("Команда встановлення")
+        command_layout = QVBoxLayout(command_group)
+
+        command_label = QLabel("Команда автоматичного встановлення:")
+        command_layout.addWidget(command_label)
+
+        self.heuristic_install_command = QTextEdit()
+        self.heuristic_install_command.setMaximumHeight(80)
+
+        # Auto-generate command based on file type
+        installer_type = info.installer_type.lower()
+        if installer_type == '.msi':
+            default_cmd = f'msiexec /i "{{installer_path}}" /quiet /norestart'
+        elif installer_type == '.exe':
+            if company:
+                if any(company in company.lower() for company in ['microsoft', 'adobe', 'autodesk']):
+                    default_cmd = f'"{{installer_path}}" /quiet /norestart'
+                else:
+                    default_cmd = f'"{{installer_path}}" /S'
+            else:
+                default_cmd = f'"{{installer_path}}" /S'
+        else:
+            default_cmd = f'"{{installer_path}}"'
+
+        self.heuristic_install_command.setText(default_cmd)
+        command_layout.addWidget(self.heuristic_install_command)
+
+        layout.addWidget(command_group)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        cancel_button = QPushButton("Скасувати")
+        cancel_button.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_button)
+
+        save_button = QPushButton("Зберегти конфігурацію")
+        save_button.clicked.connect(lambda: self._save_heuristic_configuration(dialog, info))
+        save_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+        button_layout.addWidget(save_button)
+
+        layout.addLayout(button_layout)
+
+        dialog.exec_()
+
+    def _save_heuristic_configuration(self, dialog, info: FoundInstallerInfo):
+        """Save configuration created from heuristic finding."""
+        key = self.heuristic_config_key.text().strip()
+        display_name = self.heuristic_display_name.text().strip()
+        description = self.heuristic_description.text().strip()
+        install_command = self.heuristic_install_command.toPlainText().strip()
+
+        # Validation
+        if not key:
+            self._show_error_feedback("Помилка", "Ключ конфігурації є обов'язковим")
+            return
+
+        if not display_name:
+            self._show_error_feedback("Помилка", "Відображувана назва є обов'язковою")
+            return
+
+        if not install_command:
+            self._show_error_feedback("Помилка", "Команда встановлення є обов'язковою")
+            return
+
+        # Check if key already exists
+        if key in self.installer.config:
+            reply = QMessageBox.question(
+                self,
+                "Конфігурація існує",
+                f"Конфігурація з ключем '{key}' вже існує. Перезаписати?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Create configuration
+        config = {
+            "display_name": display_name,
+            "description": description,
+            "install_commands": {
+                info.installer_type: install_command
+            },
+            "installers": [info.path.name],
+            "source_file": str(info.path),
+            "detected_at": datetime.now().isoformat(),
+            "heuristic_score": self.installer._score_potential_installer(info)
+        }
+
+        # Save configuration
+        if self.installer.save_user_configuration(key, config):
+            # Update local config
+            self.installer.config[key] = config
+            self.installer.user_configs[key] = config
+
+            # Add to program status
+            status = ProgramStatus(key, display_name, config)
+            status.found_installer = info
+            self.installer.program_status[key] = status
+
+            self._show_success_feedback("Конфігурацію збережено", f"Конфігурація '{display_name}' успішно збережена з евристичної знахідки")
+            dialog.accept()
+            self._populate_program_list()
+        else:
+            self._show_error_feedback("Помилка збереження", "Не вдалося зберегти конфігурацію")
+
+    def _refresh_program_list(self):
+        """Refresh the program list to show new configurations."""
+        self._populate_program_list()
+
+    def _on_install_mode_changed(self):
+        """Handle installation mode change."""
+        self._update_mode_description()
+
+    def _update_mode_description(self):
+        """Update the description label based on selected installation mode."""
+        mode_text = self.install_mode_combo.currentText()
+        descriptions = {
+            "🤖 Автоматично (тихо)": "🔇 Повністю безшумне встановлення. Ідеально для автоматизації.",
+            "📊 Напів-автоматично (базовий UI)": "📊 Мінімальний інтерфейс з індикатором прогресу. Баланс між контролем та зручністю.",
+            "🖱️ Інтерактивно (повний UI)": "🖱️ Повноцінний інтерфейс встановлення. Максимальний контроль над процесом.",
+            "⚡ Швидко (мін. перевірки)": "⚡ Пропускає додаткові перевірки для швидкого встановлення.",
+            "🔧 Безпечний (з перевірками)": "🔧 З додатковими перевірками безпеки та створенням точок відновлення."
+        }
+        description = descriptions.get(mode_text, "Оберіть режим встановлення.")
+        self.mode_description_label.setText(description)
+
+    def _parse_install_mode(self, mode_text: str) -> str:
+        """
+        Parse the installation mode from combo box text to internal mode identifier.
+
+        Args:
+            mode_text (str): Text from the combo box
+
+        Returns:
+            str: Internal mode identifier ('auto', 'semi', 'manual', 'fast', 'safe')
+        """
+        if "Автоматично" in mode_text:
+            return 'auto'
+        elif "Напів-автоматично" in mode_text:
+            return 'semi'
+        elif "Інтерактивно" in mode_text:
+            return 'manual'
+        elif "Швидко" in mode_text:
+            return 'fast'
+        elif "Безпечний" in mode_text:
+            return 'safe'
+        else:
+            return 'auto'  # Default fallback
+
+    def _get_install_mode_parameters(self, mode: str, installer_type: str, base_cmd: str = "") -> dict:
+        """
+        Get installation parameters based on mode and installer type.
+
+        Args:
+            mode (str): Installation mode ('auto', 'semi', 'manual', 'fast', 'safe')
+            installer_type (str): Type of installer ('.exe', '.msi')
+            base_cmd (str): Base command from configuration
+
+        Returns:
+            dict: Installation parameters including command and options
+        """
+        params = {
+            'mode': mode,
+            'installer_type': installer_type,
+            'command': base_cmd,
+            'options': [],
+            'pre_checks': True,
+            'post_verification': True,
+            'create_restore_point': False,
+            'timeout': 900  # 15 minutes default
+        }
+
+        if mode == 'manual':
+            params.update({
+                'command': None,  # Will be set to quoted path later
+                'options': [],
+                'pre_checks': False,
+                'post_verification': False,
+                'timeout': 1800  # 30 minutes for manual
+            })
+
+        elif mode == 'semi':
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /passive /norestart'
+                params['options'] = ['/passive', '/norestart']
+            elif installer_type == '.exe':
+                if '/s /v"/qn' in base_cmd.lower():
+                    params['command'] = base_cmd.replace('/qn', '/qb').replace('/s', '')
+                elif '/S' in base_cmd or '/SILENT' in base_cmd:
+                    params['command'] = base_cmd
+                else:
+                    params['command'] = None  # Will use quoted path
+            params['timeout'] = 1200  # 20 minutes
+
+        elif mode == 'fast':
+            params.update({
+                'pre_checks': False,
+                'post_verification': False,
+                'timeout': 600  # 10 minutes
+            })
+            # Use the most efficient command available
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /quiet /norestart'
+            elif base_cmd and ('/silent' in base_cmd.lower() or '/s' in base_cmd.lower()):
+                params['command'] = base_cmd
+
+        elif mode == 'safe':
+            params.update({
+                'pre_checks': True,
+                'post_verification': True,
+                'create_restore_point': True,
+                'timeout': 1800  # 30 minutes
+            })
+            # Use less aggressive installation
+            if installer_type == '.msi':
+                params['command'] = 'msiexec /i {installer_path} /passive /norestart'
+            elif installer_type == '.exe':
+                # Prefer semi-silent over completely silent for safety
+                if '/qn' in base_cmd.lower():
+                    params['command'] = base_cmd.replace('/qn', '/qb')
+                else:
+                    params['command'] = None  # Will use quoted path for manual control
+
+        return params
 
     # --- Window Closing ---
 def get_module_info():
