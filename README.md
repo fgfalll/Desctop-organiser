@@ -1,189 +1,198 @@
-# Програмний комплекс "Організатор робочого столу"
+# Desktop Organizer
 
-![Архітектура системи](architecture.png) <!-- Додайте сюди посилання на діаграму архітектури, якщо вона є -->
+A desktop organization application with modular architecture for automatic file management, license monitoring, and program installation.
 
-**Високоінтегроване програмне рішення, розроблене для оптимізації та автоматизації процесів керування робочим середовищем користувача. Комплекс надає інструменти для систематизації файлів, централізованого моніторингу ліцензій ПЗ та спрощеного розгортання додатків.**
+## Overview
 
----
+Desktop Organizer provides automated file organization with support for scheduled operations, custom filtering rules, and module-based extensibility. The application uses a single-file architecture with dynamic module loading and shared virtual environment management.
 
-## Зміст
+## Features
 
-- [Вступ](#вступ)
-- [Ключові можливості](#ключові-можливості)
-- [Технологічний стек](#технологічний-стек)
-- [Вимоги та встановлення](#вимоги-та-встановлення)
-  - [Системні вимоги](#системні-вимоги)
-  - [Необхідні бібліотеки](#необхідні-бібліотеки)
-  - [Процес встановлення](#процес-встановлення)
-- [Експлуатація та використання](#експлуатація-та-використання)
-  - [Запуск основного модуля](#запуск-основного-модуля)
-  - [Використання додаткових модулів](#використання-додаткових-модулів)
-- [Конфігурація системи](#конфігурація-системи)
-- [Внесок у розробку (Contributing)](#внесок-у-розробку-contributing)
-- [Ліцензування](#ліцензування)
-- [Журнал змін (Changelog)](#журнал-змін-changelog)
-- [Технічна підтримка та вирішення проблем](#технічна-підтримка-та-вирішення-проблем)
+- **Automated File Organization**: Schedule and automate file cleanup with customizable rules
+- **Flexible Configuration**: Configure target drives, file filters, size limits, and scheduling
+- **Module System**: Extensible architecture with dynamic module loading
+- **Virtual Environment Management**: Shared environment for module dependencies with automatic cleanup
+- **License Management**: Track and validate software licenses
+- **Program Installation**: Automated software deployment tools
 
----
+## Architecture
 
-## Вступ
+### Core Application (`v4.2.py`)
+- Single-file application containing all core functionality
+- Main window with tabbed interface for modules
+- Configuration management with YAML files
+- Scheduled task execution with idle detection
 
-Програмний комплекс "Організатор робочого столу" створений для вирішення поширених проблем, пов'язаних із хаосом файлів на робочому столі, складністю відстеження ліцензій та рутинними процесами інсталяції програмного забезпечення. Це рішення об'єднує три функціональні блоки в єдину систему:
+### Module System
+- **Embedded Manifests**: Module metadata embedded in Python files
+- **Dynamic Loading**: Modules discovered and loaded automatically
+- **Shared Virtual Environment**: Isolated dependency management
+- **Automatic Cleanup**: Package removal when modules are unloaded
 
-1.  **Основний модуль "Організатор робочого столу":**
-    *   **Призначення:** Автоматизація процесу організації файлів у визначених користувачем локаціях (наприклад, робочий стіл).
-    *   **Функціонал:** Дозволяє налаштовувати правила сортування, періодичність очищення (за таймером), вибирати цільові директорії для переміщення файлів та зберігати конфігурації користувача.
-    *   **Детальніше:** [Документація основного модуля (v4.2)](Main_update_v4.2.md)
+### Available Modules
+- `license_manager.py`: License validation and management
+- `license_test.py`: License status monitoring
+- `program_install.py`: Software installation automation
+- `example_module.py`: Reference implementation
 
-2.  **Модуль керування ліцензіями:**
-    *   **Призначення:** Надання інструментів для централізованого обліку та валідації ліцензій програмного забезпечення.
-    *   **Функціонал:** Здійснює перевірку конфігурацій ліцензій, допомагає виявляти потенційні конфлікти або невідповідності.
-    *   **Детальніше:** [Документація модуля ліцензій (Update 2)](License_Manager_Update_2.md)
+## Installation
 
-3.  **Модуль інсталяції програм:**
-    *   **Призначення:** Спрощення та автоматизація процесу встановлення програм.
-    *   **Функціонал:** Включає можливості сканування директорій на наявність інсталяційних пакетів, підтримку параметрів для тихої (автоматичної) інсталяції та базове відстеження змін у системі (наприклад, у реєстрі Windows, якщо підтримується інсталятором).
-    *   **Детальніше:** [Документація модуля інсталяції](program_install_readme.md)
+### System Requirements
+- Python 3.8 or higher
+- Windows (recommended for full functionality)
+- Administrative privileges for some operations
 
-## Ключові можливості
+### Dependencies
 
-*   **Автоматизована організація файлів:** Налаштування правил сортування та автоматичне очищення за розкладом.
-*   **Гнучке налаштування:** Вибір дисків, директорій, параметрів таймера. Збереження та завантаження профілів налаштувань.
-*   **Централізоване керування ліцензіями:** Інструменти для валідації та моніторингу стану ліцензій.
-*   **Автоматизація інсталяції ПЗ:** Підтримка тихої інсталяції для сумісних інсталяторів.
-*   **Модульна архітектура:** Можливість використання тільки необхідних компонентів.
-*   **Графічний інтерфейс користувача:** Інтуїтивно зрозумілий інтерфейс, побудований на PyQt5.
-
-## Технологічний стек
-
-*   **Мова програмування:** Python 3.8+
-*   **Графічний інтерфейс:** PyQt5
-*   **Робота з конфігураціями:** PyYAML
-*   **Системна інформація:** psutil
-*   **Взаємодія з ОС Windows:** pywin32 (для специфічних функцій Windows, наприклад, роботи з реєстром)
-
-## Вимоги та встановлення
-
-### Системні вимоги
-
-*   **Операційна система:**
-    *   Windows (рекомендовано, повна функціональність завдяки `pywin32`)
-*   **Python:** Версія 3.8 або новіша.
-
-### Необхідні бібліотеки
-
-Перелічені бібліотеки є обов'язковими для роботи комплексу:
-
-*   `PyQt5`: Для графічного інтерфейсу.
-*   `PyYAML`: Для роботи з файлами конфігурації (`.yaml`).
-*   `psutil`: Для отримання системної інформації (наприклад, списку дисків).
-*   `pywin32`: *Тільки для Windows*. Необхідна для специфічних функцій ОС, таких як взаємодія з реєстром у модулі інсталяції.
-
-### Процес встановлення
-
-1.  **Клонування репозиторію:**
-    ```bash
-    git clone /fgfalll/Desctop-organiser
-    cd Desctop-organiser
-    ```
-    Або завантажте архів проекту та розпакуйте його.
-
-2.  **Встановлення залежностей:**
-    Рекомендується створити та активувати віртуальне середовище:
-    ```bash
-    python -m venv venv
-    # Windows
-    .\venv\Scripts\activate
-    ```
-    Встановіть залежності (переконайтесь, що у вас є файл `requirements.txt`, або встановіть вручну):
-    ```bash
-    # Рекомендований спосіб
-    pip install -r requirements.txt
-
-    # Або встановлення вручну:
-    pip install pyqt5 pyyaml psutil
-    # Тільки для Windows:
-    pip install pywin32
-    ```
-3.  **Розміщення опціональних модулів:**
-    Щоб активувати функціонал керування ліцензіями та інсталяції програм, скопіюйте файли `license_manager.py` та `program_install.py` у піддиректорію `modules`, розташовану в кореневій папці проекту. Якщо директорія `modules` відсутня, створіть її.
-
-## Експлуатація та використання
-
-### Запуск основного модуля
-
-Для запуску головного вікна програми та доступу до функціоналу організації робочого столу виконайте команду в терміналі з кореневої директорії проекту:
+Install core dependencies:
 ```bash
-python v4.2.py
+pip install -r requirements.txt
 ```
-Це відкриє графічний інтерфейс, де можна налаштувати параметри автоматичного очищення, запустити процес вручну або активувати таймер. Детальний опис інтерфейсу та можливостей дивіться у [посібнику користувача основного модуля](Main_update_v4.2.md#usage).
 
-### Використання додаткових модулів
+### Setup
 
-Якщо файли `license_manager.py` та `program_install.py` були коректно розміщені у директорії `modules`:
+1. Download or clone the repository
+2. Install dependencies from `requirements.txt`
+3. Run the application:
+   ```bash
+   python v4.2.py
+   ```
 
-*   **Модуль керування ліцензіями:** Доступний через пункт меню "Ліцензія" в головному вікні програми. Дозволяє додавати, перевіряти та керувати конфігураціями ліцензій. [Детальніше](License_Manager_Update_2.md#usage).
-*   **Модуль інсталяції програм:** Доступний через пункт меню "Інсталяція програм". Надає інтерфейс для вибору інсталяторів та запуску процесу встановлення (включаючи опцію тихої інсталяції). [Детальніше](program_install_readme.md#usage).
+## Usage
 
-## Конфігурація системи
+### Main Application
+1. **File Organization**:
+   - Select target drive (D:, E:, or auto-detect)
+   - Configure timer duration
+   - Set file filters (extensions, names, size limits)
+   - Start automatic or manual cleanup
 
-Основні параметри роботи програмного комплексу зберігаються у файлі `config.yaml` в кореневій директорії. Цей файл дозволяє налаштувати:
+2. **Settings**:
+   - Configure application behavior
+   - Set up scheduled operations
+   - Manage file filtering rules
+   - Control virtual environment settings
 
-*   Шляхи за замовчуванням для сортування файлів.
-*   Параметри таймера автоматичного очищення.
-*   Інші налаштування основного модуля.
+3. **Modules**:
+   - Access additional functionality through Modules menu
+   - Modules load automatically with embedded manifests
 
-Додаткові модулі можуть використовувати власні конфігураційні файли або зберігати налаштування іншим чином, як описано в їх документації.
+### Configuration
 
-Для отримання детальної інформації про доступні параметри конфігурації зверніться до розділу [Налаштування та конфігурація](Main_update_v4.2.md#settings-configuration) документації основного модуля.
+Configuration stored in:
+- `~/.DesktopOrganizer/config.yaml`: Application settings
+- `~/.DesktopOrganizer/last_run.txt`: Schedule tracking
+- `modules/module_packages.json`: Package usage tracking
 
-## Внесок у розробку (Contributing)
+### Virtual Environment Management
 
-Ми вітаємо внесок спільноти у розвиток проекту! Якщо ви бажаєте долучитися до розробки, будь ласка, дотримуйтесь стандартного процесу:
+Access through Settings → "Віртуальне Середовище":
+- View installed packages
+- Monitor package usage by modules
+- Clean/reset virtual environment
+- Automatic dependency installation/uninstallation
 
-1.  **Форкніть репозиторій** на GitHub/GitLab.
-2.  **Створіть нову гілку** для вашої функціональності або виправлення (`git checkout -b feature/my-new-feature` або `git checkout -b fix/bug-fix`).
-3.  **Зробіть необхідні зміни** у коді та задокументуйте їх.
-4.  **Закомітьте зміни** (`git commit -am 'Add some feature'`).
-5.  **Надішліть зміни** до вашого форку (`git push origin feature/my-new-feature`).
-6.  **Створіть Pull Request** до основного репозиторію проекту.
+## Module Development
 
-Будь ласка, ознайомтесь з детальними рекомендаціями та правилами для контрибуторів у файлі [CONTRIBUTING.md](CONTRIBUTING.md) (якщо він існує, створіть його за потреби).
+### Creating Modules
 
-## Ліцензування
+1. Create Python file in `modules/` directory
+2. Add embedded manifest at top of file:
+   ```python
+   """MODULE_MANIFEST_START
+   {
+     "name": "module_name",
+     "version": "1.0.0",
+     "description": "Module description",
+     "menu_text": "&Menu Text...",
+     "main_class": "MainClassName",
+     "dependencies": ["package>=version"],
+     "dependency_packages": {
+       "import_name": "pip_package>=version"
+     },
+     "python_version": "3.8+"
+   }
+   MODULE_MANIFEST_END"""
+   ```
 
-Дане програмне забезпечення є власністю розробника та розповсюджується на умовах, визначених у ліцензійному файлі.
+3. Implement main class:
+   ```python
+   class MainClassName(QWidget):
+       def __init__(self, parent=None):
+           super().__init__(parent)
+           self.setFixedSize(991, 701)
+           self.initUI()
+   ```
 
-**Copyright © 2024, Тарас**
+### Module Guidelines
 
-Повна інформація про умови використання та розповсюдження міститься у файлі [LICENSE.md](LICENSE.md).
+- Window size must be 991x701 pixels
+- Include proper error handling
+- Use embedded manifests (no separate JSON files)
+- List all dependencies in manifest
+- Follow PyQt5 best practices
 
-## Журнал змін (Changelog)
+## File Structure
 
-Детальна історія змін, внесених у кожну версію програмного комплексу, доступна у таких джерелах:
+```
+Desktop Organizer/
+├── v4.2.py                           # Main application
+├── requirements.txt                  # Core dependencies
+├── MODULE_DEVELOPMENT.md            # Module development guide
+├── modules/                         # Module directory
+│   ├── license_manager.py           # License management
+│   ├── license_test.py              # License checking
+│   ├── program_install.py           # Program installation
+│   ├── example_module.py            # Example module
+│   ├── modules_venv/                # Shared virtual environment
+│   └── module_packages.json         # Package tracking
+├── .DesktopOrganizer/               # Configuration directory
+│   ├── config.yaml                  # Application settings
+│   └── last_run.txt                 # Schedule tracking
+└── docs/                           # Documentation
+    ├── MODULE_DEVELOPMENT.md
+    └── MODULES_UPDATE_SUMMARY.md
+```
 
-*   Загальний огляд основних змін: [CHANGELOG.md](CHANGELOG.md)
-*   Деталі оновлень для конкретних версій та модулів:
-    *   [Основний модуль v4.2](Main_update_v4.2.md#documentation-information)
-    *   [Модуль керування ліцензіями Update 2](License_Manager_Update_2.md#documentation-information)
+## Troubleshooting
 
-Рекомендуємо ознайомлюватися з журналом змін при оновленні версії.
+### Module Issues
+- Verify embedded manifest format
+- Check that Python files are in `modules/` directory
+- Ensure main class matches manifest
+- Review application log for detailed errors
 
-## Технічна підтримка та вирішення проблем
+### Virtual Environment Issues
+- Check Python venv module availability
+- Verify write permissions in modules directory
+- Use Settings → Virtual Environment to diagnose
+- Reset environment if package conflicts occur
 
-Якщо у вас виникли труднощі під час встановлення, налаштування чи використання програми:
+### Dependency Issues
+- Modules auto-install dependencies in shared environment
+- Check Settings → Virtual Environment for package status
+- Network connectivity required for automatic installation
+- Manual installation possible in modules_venv/
 
-1.  **Зверніться до документації:** Перегляньте відповідні розділи документації для кожного модуля, особливо розділи "Troubleshooting" (Вирішення проблем) або "Limitations" (Обмеження):
-    *   [Основний модуль: Troubleshooting](Main_update_v4.2.md#troubleshooting)
-    *   [Менеджер ліцензій: Troubleshooting](License_Manager_Update_2.md#troubleshooting)
-    *   [Інсталятор програм: Limitations & Considerations](program_install_readme.md#limitations--considerations)
-2.  **Перевірте лог-файли:** Програма може генерувати лог-файли (зазвичай у тій самій директорії або у піддиректорії `logs`), які містять детальну інформацію про помилки та процес виконання.
-3.  **Створіть Issue (якщо використовується система трекінгу):** Якщо ви знайшли баг або маєте пропозицію, створіть відповідний запит у системі трекінгу проекту (наприклад, GitHub Issues).
-4.  **Зв'яжіться з розробником:** Для отримання прямої підтримки, напишіть на електронну адресу: **[email protected]**
+## Technical Specifications
 
-При зверненні, будь ласка, надайте якомога більше деталей:
-*   Версія програмного комплексу.
-*   Ваша операційна система та версія Python.
-*   Детальний опис проблеми.
-*   Кроки, які призводять до виникнення проблеми.
-*   Повідомлення про помилки (текст або скріншоти) та вміст лог-файлів (якщо є).
+- **Language**: Python 3.8+
+- **GUI Framework**: PyQt5
+- **Configuration**: YAML
+- **System Information**: psutil
+- **Module Loading**: Dynamic importlib-based system
+- **Package Management**: pip in shared virtual environment
+
+## License
+
+Copyright © 2024
+
+See LICENSE.md for license information.
+
+## Support
+
+For technical support:
+- Review troubleshooting section
+- Check module development documentation
+- Examine application logs for error details
+- Report issues with system specifications and error messages
