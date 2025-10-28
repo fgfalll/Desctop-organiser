@@ -12,13 +12,13 @@ from typing import Optional
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QButtonGroup, QComboBox,
-    QMenuBar, QAction, QDialog, QTabWidget, QFormLayout,
+    QMenuBar, QAction, QDialog, QTabWidget, QTabBar, QFormLayout,
     QSpinBox, QCheckBox, QLineEdit, QListWidget, QListWidgetItem,
     QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit, QSplashScreen,
     QScrollArea, QProgressDialog, QSystemTrayIcon, QMenu
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect, QDateTime, QCoreApplication
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush, QKeySequence
 from PyQt5.QtWidgets import QStyle
 import subprocess
 import json
@@ -6196,6 +6196,7 @@ class MainWindow(QMainWindow):
             loaded_modules = self.module_manager.get_loaded_modules()
             discovered_modules = self.module_manager.module_info
 
+            # Add module actions
             for module_name in discovered_modules:
                 module_info = discovered_modules[module_name]
                 is_loaded = module_name in loaded_modules
@@ -6207,7 +6208,144 @@ class MainWindow(QMainWindow):
                 self.modules_menu.addAction(action)
                 self.module_actions[module_name] = action
 
+            # Add separator
+            if discovered_modules:
+                self.modules_menu.addSeparator()
 
+            # Add module management actions
+            close_current_action = QAction('Закрити поточний модуль', self)
+            close_current_action.triggered.connect(self.close_current_module)
+            close_current_action.setEnabled(len(loaded_modules) > 0)
+            close_current_action.setShortcut(QKeySequence('Ctrl+W'))
+            self.modules_menu.addAction(close_current_action)
+
+            close_all_action = QAction('Закрити всі модулі', self)
+            close_all_action.triggered.connect(self.close_all_module_tabs)
+            close_all_action.setEnabled(len(loaded_modules) > 0)
+            close_all_action.setShortcut(QKeySequence('Ctrl+Shift+W'))
+            self.modules_menu.addAction(close_all_action)
+
+    def reload_modules(self):
+        """Reload all modules - clear existing modules and reload them"""
+        try:
+            from PyQt5.QtWidgets import QMessageBox, QProgressDialog
+            from PyQt5.QtCore import Qt
+
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                'Перезавантаження модулів',
+                'Ви впевнені, що хочете перезавантажити всі модулі?\n\n'
+                'Це закриє всі відкриті вікна модулів та перезавантажить їх.',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                return
+
+            # Clear console and log the reload action
+            self.clear_log()
+            self.log_message("🔄 Починаю перезавантаження модулів...")
+
+            # Close all open module tabs
+            tabs_to_close = []
+            for i in range(self.tab_widget.count()):
+                if i != 0:  # Don't close main tab
+                    widget = self.tab_widget.widget(i)
+                    if widget and widget.property("module_name"):
+                        tabs_to_close.append(i)
+
+            # Close tabs in reverse order to maintain indices
+            for i in reversed(tabs_to_close):
+                widget = self.tab_widget.widget(i)
+                module_name = widget.property("module_name") if widget else "Unknown"
+                self.tab_widget.removeTab(i)
+                self.log_message(f"✅ Closed module tab: {module_name}")
+
+            # Clear loaded modules
+            self.module_manager.loaded_modules.clear()
+            self.module_manager.module_info.clear()
+
+            # Clear module menu
+            if hasattr(self, 'modules_menu'):
+                self.modules_menu.clear()
+
+            # Clear module actions
+            if hasattr(self, 'module_actions'):
+                self.module_actions.clear()
+
+            # Show progress dialog
+            progress = QProgressDialog("Перезавантаження модулів...", "Скасувати", 0, 3, self)
+            progress.setWindowTitle("Перезавантаження модулів")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+
+            try:
+                # Step 1: Discover modules
+                progress.setValue(0)
+                progress.setLabelText("Пошук модулів...")
+                QApplication.processEvents()
+
+                discovered_modules = self.module_manager.discover_modules()
+
+                if not discovered_modules:
+                    progress.setValue(3)
+                    self.log_message("ℹ️ Модулі не знайдено")
+                    return
+
+                # Step 2: Validate dependencies
+                progress.setValue(1)
+                progress.setLabelText("Перевірка залежностей...")
+                QApplication.processEvents()
+
+                self.module_manager.validate_and_repair_dependencies()
+
+                # Step 3: Load modules
+                progress.setValue(2)
+                progress.setLabelText("Завантаження модулів...")
+                QApplication.processEvents()
+
+                # Reload modules using the same process as initial loading
+                self.module_manager.load_all_modules()
+
+                progress.setValue(3)
+
+                # Update menu
+                self.update_modules_menu()
+
+                # Log success
+                self.log_message(f"✅ Модулі успішно перезавантажено ({len(discovered_modules)} модулів)")
+
+                # Show success message
+                QMessageBox.information(
+                    self,
+                    'Перезавантаження завершено',
+                    f'Успішно перезавантажено {len(discovered_modules)} модулів.'
+                )
+
+            except Exception as e:
+                # Log error
+                self.log_message(f"❌ Помилка перезавантаження модулів: {e}")
+
+                # Show error message
+                QMessageBox.critical(
+                    self,
+                    'Помилка перезавантаження',
+                    f'Не вдалося перезавантажити модулі:\n{e}'
+                )
+
+            finally:
+                progress.close()
+
+        except Exception as e:
+            # Show error if something goes wrong with the dialog itself
+            self.log_message(f"❌ Помилка ініціалізації перезавантаження модулів: {e}")
+            QMessageBox.critical(
+                self,
+                'Помилка',
+                f'Не вдалося ініціалізувати перезавантаження модулів:\n{e}'
+            )
 
     def save_settings(self):
         try:
@@ -6313,6 +6451,10 @@ class MainWindow(QMainWindow):
         import_module_action = QAction('&Імпортувати додатковий модуль', self)
         import_module_action.triggered.connect(self.import_modules_to_standard_dir)
         file_menu.addAction(import_module_action)
+        # --- Add Reload Modules Action ---
+        reload_modules_action = QAction('&Перезавантажити модулі', self)
+        reload_modules_action.triggered.connect(self.reload_modules)
+        file_menu.addAction(reload_modules_action)
         file_menu.addSeparator()
         exit_action = QAction('&Вихід', self)
         exit_action.triggered.connect(self.close)
@@ -6328,11 +6470,18 @@ class MainWindow(QMainWindow):
 
         self.tab_widget = QTabWidget()
         self.tab_widget.currentChanged.connect(self.resize_to_current_tab)
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.tabCloseRequested.connect(self.close_module_tab)
+        self.tab_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tab_widget.customContextMenuRequested.connect(self.show_tab_context_menu)
         main_layout.addWidget(self.tab_widget)
 
         # --- Main Tab ---
         main_tab = QWidget()
         self.tab_widget.addTab(main_tab, "Головна")
+
+        # Hide close button on main tab (index 0)
+        self.tab_widget.tabBar().setTabButton(0, QTabBar.RightSide, None)
         main_tab_layout = QVBoxLayout(main_tab)
 
         self.timer_label = QLabel("Завантаження...")
@@ -6468,6 +6617,7 @@ class MainWindow(QMainWindow):
 
     def reload_modules_and_update_ui(self):
         """Reload all modules and update the UI accordingly."""
+        self.clear_log()
         self.log_message("🔄 Reloading modules...")
 
         # Close existing module tabs
@@ -6487,6 +6637,154 @@ class MainWindow(QMainWindow):
 
         self.log_message("✅ Module reload completed")
 
+    def close_module_tab(self, index):
+        """Close a module tab"""
+        # Don't close the main tab (index 0)
+        if index == 0:
+            return
+
+        widget = self.tab_widget.widget(index)
+        if widget:
+            # Check if this is a module tab
+            module_name = widget.property("module_name")
+            if module_name:
+                # Optional: Ask for confirmation
+                reply = QMessageBox.question(
+                    self,
+                    'Закрити модуль',
+                    f'Ви впевнені, що хочете закрити модуль "{module_name}"?',
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+
+                if reply == QMessageBox.Yes:
+                    self.tab_widget.removeTab(index)
+                    self.log_message(f"✅ Module tab closed: {module_name}")
+            else:
+                # Not a module tab, close directly
+                self.tab_widget.removeTab(index)
+
+    def show_tab_context_menu(self, position):
+        """Show context menu for tabs"""
+        tab_index = self.tab_widget.tabBar().tabAt(position)
+
+        if tab_index == -1:
+            return
+
+        # Don't show context menu for main tab
+        if tab_index == 0:
+            return
+
+        widget = self.tab_widget.widget(tab_index)
+        module_name = widget.property("module_name") if widget else None
+
+        if not module_name:
+            return
+
+        menu = QMenu(self)
+
+        close_action = QAction("Закрити модуль", self)
+        close_action.triggered.connect(lambda: self.close_module_tab(tab_index))
+        menu.addAction(close_action)
+
+        close_others_action = QAction("Закрити інші модулі", self)
+        close_others_action.triggered.connect(lambda: self.close_other_module_tabs(tab_index))
+        menu.addAction(close_others_action)
+
+        close_all_action = QAction("Закрити всі модулі", self)
+        close_all_action.triggered.connect(self.close_all_module_tabs)
+        menu.addAction(close_all_action)
+
+        menu.addSeparator()
+
+        reload_action = QAction("Перезавантажити модуль", self)
+        reload_action.triggered.connect(lambda: self.reload_single_module(module_name))
+        menu.addAction(reload_action)
+
+        menu.exec_(self.tab_widget.tabBar().mapToGlobal(position))
+
+    def close_other_module_tabs(self, keep_index):
+        """Close all module tabs except the specified one"""
+        tabs_to_close = []
+
+        for i in range(self.tab_widget.count()):
+            if i != keep_index and i != 0:  # Keep specified tab and main tab
+                widget = self.tab_widget.widget(i)
+                if widget and widget.property("module_name"):
+                    tabs_to_close.append(i)
+
+        # Close tabs in reverse order to maintain indices
+        for i in reversed(tabs_to_close):
+            widget = self.tab_widget.widget(i)
+            module_name = widget.property("module_name") if widget else "Unknown"
+            self.tab_widget.removeTab(i)
+            self.log_message(f"✅ Module tab closed: {module_name}")
+
+    def close_all_module_tabs(self):
+        """Close all module tabs"""
+        reply = QMessageBox.question(
+            self,
+            'Закрити всі модулі',
+            'Ви впевнені, що хочете закрити всі відкриті модулі?',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            tabs_to_close = []
+
+            for i in range(self.tab_widget.count()):
+                if i != 0:  # Don't close main tab
+                    widget = self.tab_widget.widget(i)
+                    if widget and widget.property("module_name"):
+                        tabs_to_close.append(i)
+
+            # Close tabs in reverse order to maintain indices
+            for i in reversed(tabs_to_close):
+                widget = self.tab_widget.widget(i)
+                module_name = widget.property("module_name") if widget else "Unknown"
+                self.tab_widget.removeTab(i)
+                self.log_message(f"✅ Module tab closed: {module_name}")
+
+    def reload_single_module(self, module_name):
+        """Reload a single module"""
+        try:
+            # Close the module tab if it exists
+            tab_to_close = None
+            for i in range(self.tab_widget.count()):
+                widget = self.tab_widget.widget(i)
+                if widget and widget.property("module_name") == module_name:
+                    tab_to_close = i
+                    break
+
+            if tab_to_close is not None:
+                self.tab_widget.removeTab(tab_to_close)
+
+            # Unload the module
+            self.module_manager.unload_module(module_name)
+
+            # Reload the module
+            if self.module_manager.load_module(module_name):
+                self.log_message(f"✅ Module reloaded: {module_name}")
+                # Reopen the module window
+                self.open_module_window(module_name)
+            else:
+                self.log_message(f"❌ Failed to reload module: {module_name}")
+
+        except Exception as e:
+            self.log_message(f"❌ Error reloading module {module_name}: {e}")
+            QMessageBox.critical(self, "Помилка", f"Не вдалося перезавантажити модуль: {e}")
+
+    def close_current_module(self):
+        """Close the currently active module tab"""
+        current_index = self.tab_widget.currentIndex()
+
+        # Don't close if on main tab
+        if current_index == 0:
+            QMessageBox.information(self, "Інформація", "Головну вкладку не можна закрити.")
+            return
+
+        self.close_module_tab(current_index)
 
     def _log_current_schedule_settings(self, schedule_cfg):
         schedule_type_en = schedule_cfg.get('type', 'disabled')
@@ -6759,6 +7057,11 @@ class MainWindow(QMainWindow):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log.append(f"[{timestamp}] {message}")
         QApplication.processEvents()
+
+    def clear_log(self):
+        """Clear the log widget"""
+        self.log.clear()
+        self.log_message("📋 Консоль очищена")
 
 
     def process_finished(self, success, errors, path):
