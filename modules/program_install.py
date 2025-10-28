@@ -1,7 +1,7 @@
 """MODULE_MANIFEST_START
 {
   "name": "program_installer",
-  "version": "1.5.0",
+  "version": "2.7.4",
   "description": "Advanced module for discovering, installing and managing software programs on Windows systems with support for silent installation and multiple installer formats",
   "author": "Desktop Organizer Team",
   "category": "System",

@@ -1,7 +1,7 @@
 """MODULE_MANIFEST_START
 {
   "name": "license_checker",
-  "version": "1.0.0",
+  "version": "1.3.2",
   "description": "Модуль для перевірки стану ліцензій та моніторингу системи",
   "author": "Desktop Organizer Team",
   "category": "Security",
