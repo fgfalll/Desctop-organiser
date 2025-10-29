@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QMenuBar, QAction, QDialog, QTabWidget, QTabBar, QFormLayout,
     QSpinBox, QCheckBox, QLineEdit, QListWidget, QListWidgetItem,
     QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit, QSplashScreen,
-    QScrollArea, QProgressDialog, QSystemTrayIcon, QMenu
+    QScrollArea, QProgressDialog, QSystemTrayIcon, QMenu, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect, QDateTime, QCoreApplication
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush, QKeySequence
@@ -23,6 +23,79 @@ from PyQt5.QtWidgets import QStyle
 import subprocess
 import json
 from pathlib import Path
+import pywin32
+
+# --- Administrator Privilege Functions ---
+def is_running_as_admin() -> bool:
+    """Check if the current process is running with administrator privileges"""
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+def request_admin_privileges() -> bool:
+    """Request administrator privileges by restarting the application with elevated rights"""
+    if is_running_as_admin():
+        return True
+
+    try:
+        import ctypes
+        # Get the path to the current executable
+        executable = sys.executable
+        # Get command line arguments
+        args = ' '.join(sys.argv[1:])
+
+        # ShellExecute with "runas" verb to request elevation
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None,           # Parent window
+            "runas",        # Verb to request elevation
+            executable,     # Application to run
+            args,           # Command line arguments
+            None,           # Current directory
+            1               # Show command (1 = normal)
+        )
+
+        # ShellExecute returns values > 32 on success
+        return result > 32
+    except Exception as e:
+        print(f"Failed to request administrator privileges: {e}")
+        return False
+
+def run_with_admin_privileges(command: list, **kwargs) -> subprocess.CompletedProcess:
+    """Run a command with administrator privileges"""
+    if is_running_as_admin():
+        # Already running as admin, execute directly
+        return subprocess.run(command, **kwargs)
+
+    try:
+        # Create a temporary batch script for elevated execution
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.bat', delete=False) as f:
+            batch_file = f.name
+            # Escape command properly for batch file
+            cmd_str = ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in command)
+            f.write(f"@echo off\n{cmd_str}\nexit /b %ERRORLEVEL%\n")
+
+        try:
+            # Run the batch file with elevation
+            result = subprocess.run(
+                ['powershell', '-Command', f'Start-Process -FilePath "{batch_file}" -Verb RunAs -Wait'],
+                capture_output=True,
+                text=True,
+                **kwargs
+            )
+            return result
+        finally:
+            # Clean up temporary batch file
+            try:
+                os.unlink(batch_file)
+            except:
+                pass
+    except Exception as e:
+        print(f"Failed to run with admin privileges: {e}")
+        # Fallback to normal execution
+        return subprocess.run(command, **kwargs)
 
 # --- Configuration File Path ---
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer")
@@ -32,27 +105,27 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 # --- Setup Virtual Environment Python Path ---
 def setup_venv_python_path():
-    """Add virtual environment site-packages to Python path"""
+    """Add virtual environment site-packages to Python path (Windows)"""
     try:
         venv_dir = os.path.join(CONFIG_DIR, 'modules_venv')
         if os.path.exists(venv_dir):
-            # Get the Python version
-            python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+            # Windows site-packages path
+            site_packages_path = os.path.join(venv_dir, 'Lib', 'site-packages')
 
-            # Possible site-packages paths
-            site_packages_paths = [
-                os.path.join(venv_dir, 'lib', f'python{python_version}', 'site-packages'),
-                os.path.join(venv_dir, 'Lib', 'site-packages'),  # Windows
-                os.path.join(venv_dir, 'lib', 'site-packages'),   # Some systems
-            ]
+            if os.path.exists(site_packages_path):
+                if site_packages_path not in sys.path:
+                    sys.path.insert(0, site_packages_path)
+                    print(f"✅ Added virtual environment path: {site_packages_path}")
+                else:
+                    print(f"✅ Virtual environment path already in sys.path: {site_packages_path}")
+            else:
+                print(f"❌ Virtual environment site-packages not found: {site_packages_path}")
+        else:
+            print(f"❌ Virtual environment not found: {venv_dir}")
 
-            for site_packages in site_packages_paths:
-                if os.path.exists(site_packages) and site_packages not in sys.path:
-                    sys.path.insert(0, site_packages)
-                    break
-
-    except Exception:
-        # If path setup fails, continue without it
+    except Exception as e:
+        # If path setup fails, continue without it but log the error
+        print(f"❌ Failed to setup virtual environment path: {e}")
         pass
 
 # Setup Python path early
@@ -312,7 +385,7 @@ class SharedVirtualEnvironmentManager:
             else:
                 cmd = [pip_path, 'list', '--format=json']
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
             if result.returncode == 0:
                 import json
@@ -359,7 +432,7 @@ class SharedVirtualEnvironmentManager:
             else:
                 cmd = [pip_path, 'show', package_name]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             return result.returncode == 0
         except Exception:
             return False
@@ -377,7 +450,7 @@ class SharedVirtualEnvironmentManager:
             else:
                 cmd = [pip_path, 'show', package_name]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if line.startswith('Version:'):
@@ -487,9 +560,32 @@ class SharedVirtualEnvironmentManager:
 
         try:
             import venv
-            venv.create(self.venv_dir, with_pip=True)
-            return True
-        except Exception:
+            # Try to create with current privileges first
+            try:
+                venv.create(self.venv_dir, with_pip=True)
+                print(f"✅ Created virtual environment: {self.venv_dir}")
+                return True
+            except PermissionError as e:
+                print(f"⚠️ Permission denied creating venv: {e}")
+
+                # Try with administrator privileges
+                print("🔐 Requesting administrator privileges for virtual environment creation...")
+                try:
+                    # Create venv using python with admin privileges
+                    cmd = [sys.executable, '-m', 'venv', self.venv_dir, '--with-pip']
+                    result = run_with_admin_privileges(cmd, capture_output=True, text=True, timeout=120)
+
+                    if result.returncode == 0:
+                        print(f"✅ Created virtual environment with admin privileges: {self.venv_dir}")
+                        return True
+                    else:
+                        print(f"❌ Failed to create venv with admin privileges: {result.stderr}")
+                        return False
+                except Exception as admin_error:
+                    print(f"❌ Failed to create venv with admin privileges: {admin_error}")
+                    return False
+        except Exception as e:
+            print(f"❌ Failed to create virtual environment: {e}")
             return False
 
     def _validate_venv(self) -> bool:
@@ -500,13 +596,13 @@ class SharedVirtualEnvironmentManager:
                 return False
 
             # Try to run pip to ensure it's working
-            result = subprocess.run([pip_path, '--version'],
+            result = subprocess.run([pip_path, '--version'], encoding='utf-8', errors='replace',
                                   capture_output=True, text=True, timeout=10)
             if result.returncode != 0:
                 return False
 
             # Also check that we can list packages (this tests the venv more thoroughly)
-            result = subprocess.run([pip_path, 'list', '--format=json'],
+            result = subprocess.run([pip_path, 'list', '--format=json'], encoding='utf-8', errors='replace',
                                   capture_output=True, text=True, timeout=15)
             if result.returncode != 0:
                 return False
@@ -522,14 +618,10 @@ class SharedVirtualEnvironmentManager:
             if not self.create_shared_venv():
                 return None
 
-        # Try venv pip first
+        # Try venv pip first (Windows)
         if os.path.exists(self.venv_dir):
-            if sys.platform == "win32":
-                venv_pip = os.path.join(self.venv_dir, 'Scripts', 'pip.exe')
-                venv_python = os.path.join(self.venv_dir, 'Scripts', 'python.exe')
-            else:
-                venv_pip = os.path.join(self.venv_dir, 'bin', 'pip')
-                venv_python = os.path.join(self.venv_dir, 'bin', 'python')
+            venv_pip = os.path.join(self.venv_dir, 'Scripts', 'pip.exe')
+            venv_python = os.path.join(self.venv_dir, 'Scripts', 'python.exe')
 
             # Use virtual environment's python with -m pip for better compatibility
             if os.path.exists(venv_python):
@@ -546,7 +638,7 @@ class SharedVirtualEnvironmentManager:
 
         return None
 
-    def install_dependencies(self, module_name: str, dependencies: list, dependency_packages: dict = None) -> bool:
+    def install_dependencies(self, module_name: str, dependencies: list, dependency_packages: dict = None, parent_widget=None) -> bool:
         """Install dependencies in shared virtual environment"""
         # Check if there are any dependencies at all - do this first!
         if not dependencies and not dependency_packages:
@@ -603,13 +695,32 @@ class SharedVirtualEnvironmentManager:
             if not packages_to_process:
                 return True
 
+            # Create progress dialog if parent widget is provided
+            progress_dialog = None
+            if parent_widget and len(packages_to_process) > 0:
+                progress_dialog = PackageInstallProgressDialog(f"Встановлення залежностей для {module_name}", parent_widget)
+                progress_dialog.show()
+                QApplication.processEvents()
+
             # Process packages that need installation or upgrade
+            total_packages = len(packages_to_process)
+            current_package = 0
+
             for import_name, package_info in packages_to_process.items():
                 package_spec = package_info['spec']
                 action = package_info['action']
                 reason = package_info['reason']
 
-                
+                # Update progress dialog
+                current_package += 1
+                if progress_dialog:
+                    action_text = "Оновлення" if action == 'upgrade' else "Встановлення"
+                    progress_dialog.update_progress(
+                        f"{action_text} пакета {import_name} ({current_package}/{total_packages})",
+                        f"Специфікація: {package_spec}"
+                    )
+                    progress_dialog.set_determinate_progress(current_package, total_packages)
+
                 # Use pip install with --upgrade flag for upgrades
                 if ' -m pip' in pip_path:
                     # Handle python -m pip format
@@ -620,12 +731,8 @@ class SharedVirtualEnvironmentManager:
 
                 # Add target directory for system pip installations
                 if sys.executable in pip_path or pip_path == 'pip':
-                    # Using system pip, target our virtual environment
-                    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-                    if sys.platform == "win32":
-                        site_packages = os.path.join(self.venv_dir, 'Lib', 'site-packages')
-                    else:
-                        site_packages = os.path.join(self.venv_dir, 'lib', f'python{python_version}', 'site-packages')
+                    # Using system pip, target our virtual environment (Windows)
+                    site_packages = os.path.join(self.venv_dir, 'Lib', 'site-packages')
 
                     if os.path.exists(site_packages):
                         cmd.extend(['--target', site_packages])
@@ -634,7 +741,14 @@ class SharedVirtualEnvironmentManager:
                     cmd.append('--upgrade')
                 cmd.append(package_spec)
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                # Try to install with current privileges first
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=900)
+                except subprocess.TimeoutExpired:
+                    error_msg = "Package installation timed out"
+                    print(f"DEBUG: Installation timed out for {package_spec}")
+                    return False
+
                 if result.returncode != 0:
                     error_msg = result.stderr.strip() if result.stderr else "Unknown error"
 
@@ -643,16 +757,49 @@ class SharedVirtualEnvironmentManager:
                     print(f"DEBUG: Error: {error_msg}")
                     print(f"DEBUG: Return code: {result.returncode}")
 
-                    # Try to provide helpful suggestions
-                    if "could not find" in error_msg.lower() or "404" in error_msg:
-                        pass
-                    elif "permission denied" in error_msg.lower():
-                        pass
-                    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-                        pass
-                    elif "already satisfied" in error_msg.lower():
-                        continue  # Continue with next package
-                    return False
+                    # Check if it's a permission issue and try with admin privileges
+                    if any(keyword in error_msg.lower() for keyword in ["permission denied", "access denied", "failed to create", "error: could not create"]):
+                        print(f"🔐 Permission denied for {package_spec}, trying with administrator privileges...")
+
+                        try:
+                            # Run with administrator privileges
+                            result = run_with_admin_privileges(
+                                cmd,
+                                capture_output=True,
+                                text=True,
+                                encoding='utf-8',
+                                errors='replace',
+                                timeout=900
+                            )
+
+                            if result.returncode == 0:
+                                print(f"✅ Successfully installed {package_spec} with administrator privileges")
+                            else:
+                                admin_error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                                print(f"DEBUG: Admin command failed: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+                                print(f"DEBUG: Admin Error: {admin_error_msg}")
+                                print(f"DEBUG: Admin Return code: {result.returncode}")
+
+                                # Try to provide helpful suggestions
+                                if "could not find" in admin_error_msg.lower() or "404" in admin_error_msg:
+                                    pass
+                                elif "network" in admin_error_msg.lower() or "connection" in admin_error_msg.lower():
+                                    pass
+                                elif "already satisfied" in admin_error_msg.lower():
+                                    continue  # Continue with next package
+                                return False
+                        except Exception as admin_error:
+                            print(f"❌ Failed to install with admin privileges: {admin_error}")
+                            return False
+                    else:
+                        # Try to provide helpful suggestions for non-permission errors
+                        if "could not find" in error_msg.lower() or "404" in error_msg:
+                            pass
+                        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+                            pass
+                        elif "already satisfied" in error_msg.lower():
+                            continue  # Continue with next package
+                        return False
                 else:
                     
                     # Update our tracking
@@ -666,11 +813,20 @@ class SharedVirtualEnvironmentManager:
                     if module_name not in self.package_modules[installed_package_name]:
                         self.package_modules[installed_package_name].append(module_name)
                         
+            # Close progress dialog
+            if progress_dialog:
+                progress_dialog.close()
+                progress_dialog.deleteLater()
+
             self._save_package_info()
             return True
 
         except Exception as e:
             print(f"❌ Помилка встановлення залежностей: {e}")
+            # Close progress dialog on error
+            if progress_dialog:
+                progress_dialog.close()
+                progress_dialog.deleteLater()
             return False
 
     def uninstall_dependencies(self, module_name: str, dependencies: list) -> bool:
@@ -701,8 +857,8 @@ class SharedVirtualEnvironmentManager:
 
             for package in packages_to_uninstall:
                 print(f"🗑️ Uninstalling {package} (no longer needed)...")
-                result = subprocess.run([pip_path, 'uninstall', package, '-y'],
-                                      capture_output=True, text=True, timeout=300)
+                result = subprocess.run([pip_path, 'uninstall', package, '-y'], encoding='utf-8', errors='replace',
+                                      capture_output=True, text=True, timeout=900)
                 if result.returncode != 0:
                     print(f"⚠️ Failed to uninstall {package}: {result.stderr}")
                 else:
@@ -746,17 +902,48 @@ class SharedVirtualEnvironmentManager:
 
             print(f"📦 Installing user package: {package_spec}")
 
-            # Run the installation
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            # Try to install with current privileges first
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=900)
+            except subprocess.TimeoutExpired:
+                print(f"❌ Installation of {package_spec} timed out")
+                return False
 
             if result.returncode != 0:
-                print(f"❌ Failed to install {package_spec}: {result.stderr}")
-                # Check for common errors and provide helpful tips
-                if "No matching distribution" in result.stderr:
-                    print(f"💡 Tip: Package '{package_name}' may not exist. Check the package name.")
-                elif "Could not find a version" in result.stderr:
-                    print(f"💡 Tip: Version specification may be invalid. Try without version.")
-                return False
+                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                print(f"❌ Failed to install {package_spec}: {error_msg}")
+
+                # Check if it's a permission issue and try with admin privileges
+                if any(keyword in error_msg.lower() for keyword in ["permission denied", "access denied", "failed to create", "error: could not create"]):
+                    print(f"🔐 Permission denied for {package_spec}, trying with administrator privileges...")
+
+                    try:
+                        # Run with administrator privileges
+                        result = run_with_admin_privileges(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace',
+                            timeout=900
+                        )
+
+                        if result.returncode == 0:
+                            print(f"✅ Successfully installed {package_spec} with administrator privileges")
+                        else:
+                            admin_error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                            print(f"❌ Failed to install {package_spec} with admin privileges: {admin_error_msg}")
+                            return False
+                    except Exception as admin_error:
+                        print(f"❌ Failed to install with admin privileges: {admin_error}")
+                        return False
+                else:
+                    # Check for common errors and provide helpful tips
+                    if "No matching distribution" in result.stderr:
+                        print(f"💡 Tip: Package '{package_name}' may not exist. Check the package name.")
+                    elif "Could not find a version" in result.stderr:
+                        print(f"💡 Tip: Version specification may be invalid. Try without version.")
+                    return False
 
             print(f"✅ Успішно встановлено {package_spec}")
 
@@ -795,8 +982,8 @@ class SharedVirtualEnvironmentManager:
             print(f"🗑️ Uninstalling package: {package_name}")
 
             # Run the uninstallation
-            result = subprocess.run([pip_path, 'uninstall', package_name, '-y'],
-                                  capture_output=True, text=True, timeout=300)
+            result = subprocess.run([pip_path, 'uninstall', package_name, '-y'], encoding='utf-8', errors='replace',
+                                  capture_output=True, text=True, timeout=900)
 
             if result.returncode != 0:
                 print(f"❌ Failed to uninstall {package_name}: {result.stderr}")
@@ -829,11 +1016,12 @@ class ModuleManager(QObject):
     module_error = pyqtSignal(str, str)  # module_name, error_message
     module_discovered = pyqtSignal(str, dict)  # module_name, module_info
 
-    def __init__(self, modules_dir: str):
+    def __init__(self, modules_dir: str, parent_widget=None):
         super().__init__()
         self.modules_dir = modules_dir
         self.loaded_modules = {}
         self.module_info = {}
+        self.parent_widget = parent_widget
         self.venv_manager = SharedVirtualEnvironmentManager(modules_dir)
 
     def discover_modules(self) -> dict:
@@ -875,6 +1063,24 @@ class ModuleManager(QObject):
             return True
 
         print("🔧 Validating module dependencies...")
+        # Force refresh of package cache and sync with actual venv packages
+        self.venv_manager._sync_installed_packages()
+        # Clear package cache to force fresh checks
+        if hasattr(self.venv_manager, '_package_cache'):
+            self.venv_manager._package_cache.clear()
+
+        # Debug: Check if pywin32 is installed
+        pywin32_installed = self.venv_manager._is_package_installed('pywin32')
+        print(f"🔍 pywin32 installed in venv: {pywin32_installed}")
+
+        # Debug: Check what packages are actually installed
+        installed_packages = self.venv_manager.get_installed_packages()
+        pywin32_packages = [pkg for pkg in installed_packages if 'pywin32' in pkg.lower()]
+        if pywin32_packages:
+            print(f"🔍 Found pywin32-related packages: {pywin32_packages}")
+        else:
+            print("🔍 No pywin32 packages found in venv")
+
         repaired_modules = []
 
         for module_name, module_info in self.module_info.items():
@@ -946,13 +1152,31 @@ class ModuleManager(QObject):
         if dependencies or dependency_packages:
             add_splash_message(f"📦 Installing dependencies for {module_name}...")
             print(f"📦 Installing dependencies for {module_name}: {list(dependency_packages.keys()) if dependency_packages else dependencies}")
-            success = self.venv_manager.install_dependencies(module_name, dependencies, dependency_packages)
+            success = self.venv_manager.install_dependencies(module_name, dependencies, dependency_packages, self.parent_widget)
 
             if success:
                 # Track which module installed which packages (already handled in install_dependencies)
                 self.venv_manager._save_package_info()
 
             return success
+
+    def get_modules_venv_python(self) -> Optional[str]:
+        """Get the Python executable from the modules virtual environment (Windows)"""
+        if not self.venv_manager or not hasattr(self.venv_manager, 'venv_dir'):
+            return None
+
+        venv_dir = self.venv_manager.venv_dir
+
+        if not os.path.exists(venv_dir):
+            return None
+
+        # Windows Python path
+        python_path = os.path.join(venv_dir, 'Scripts', 'python.exe')
+
+        if os.path.exists(python_path):
+            return python_path
+
+        return None
 
     def load_module(self, module_name: str) -> bool:
         """Load a specific module"""
@@ -963,6 +1187,13 @@ class ModuleManager(QObject):
         if module_name not in self.module_info:
             print(f"❌ Модуль не знайдено: {module_name}")
             return False
+
+        # Force refresh of package cache and sync with actual venv packages
+        print(f"🔄 Refreshing package cache for {module_name}...")
+        self.venv_manager._sync_installed_packages()
+        # Clear package cache to force fresh checks
+        if hasattr(self.venv_manager, '_package_cache'):
+            self.venv_manager._package_cache.clear()
 
         module_info = self.module_info[module_name]
 
@@ -999,6 +1230,17 @@ class ModuleManager(QObject):
                         return False
                 else:
                     print(f"✅ Dependencies already satisfied for {module_name}")
+
+            # Ensure virtual environment paths are available for module import
+            setup_venv_python_path()
+
+            # Debug: Check sys.path before loading module
+            print(f"🔍 sys.path before loading {module_name}: {len(sys.path)} entries")
+            site_packages_paths = [p for p in sys.path if 'site-packages' in p]
+            if site_packages_paths:
+                print(f"🔍 Found site-packages in sys.path: {site_packages_paths}")
+            else:
+                print("🔍 No site-packages found in sys.path")
 
             # Load the module
             spec = importlib.util.spec_from_file_location(f"module_{module_name}", module_info.module_path)
@@ -1228,10 +1470,10 @@ class SplashScreen(QSplashScreen):
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(1, 1, self.splash_width - 2, self.splash_height - 2, 11, 11)
 
-        # Add top accent bar using application accent color (#d13438)
+        # Add top accent bar using application gray color
         accent_width = int(self.splash_width * 0.8)
         accent_x = (self.splash_width - accent_width) // 2
-        accent_color = QColor(209, 52, 56)  # Application red accent
+        accent_color = QColor(128, 128, 128)  # Application gray accent
         painter.fillRect(accent_x, 5, accent_width, 3, accent_color)
 
     def fade_out_and_close(self, duration=1000):
@@ -1351,21 +1593,25 @@ class SettingsDialog(QDialog):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
-                background-color: #f5f5f5;
+                border: 1px solid #d0d0d0;
+                background-color: #ffffff;
             }
             QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
+                background-color: #f8f8f8;
+                width: 14px;
+                border: 1px solid #e0e0e0;
             }
             QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
+                background-color: #b0b0b0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
+                background-color: #909090;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
             }
         """)
 
@@ -1420,16 +1666,17 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #0078d4;
-                border-radius: 6px;
+                border: 2px solid black;
+                border-radius: 2px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: #fafafa;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #0078d4;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -1449,10 +1696,15 @@ class SettingsDialog(QDialog):
                 height: 16px;
                 border-radius: 3px;
                 border: 2px solid #ccc;
+                background-color: white;
             }
             QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
+                background-color: white;
+                border-color: #ccc;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iOCIgdmlld0JveD0iMCAwIDEwIDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUwzLjUgN0w5IDEiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border-color: black;
             }
         """)
         startup_layout.addWidget(self.chk_enable_autostart)
@@ -1472,10 +1724,15 @@ class SettingsDialog(QDialog):
                 height: 16px;
                 border-radius: 3px;
                 border: 2px solid #ccc;
+                background-color: white;
             }
             QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
+                background-color: white;
+                border-color: #ccc;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iOCIgdmlld0JveD0iMCAwIDEwIDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUwzLjUgN0w5IDEiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border-color: black;
             }
         """)
         notification_layout.addWidget(self.chk_enable_notifications)
@@ -1495,10 +1752,15 @@ class SettingsDialog(QDialog):
                 height: 16px;
                 border-radius: 3px;
                 border: 2px solid #ccc;
+                background-color: white;
             }
             QCheckBox::indicator:checked {
-                background-color: #0078d4;
-                border-color: #0078d4;
+                background-color: white;
+                border-color: #ccc;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iOCIgdmlld0JveD0iMCAwIDEwIDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUwzLjUgN0w5IDEiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border-color: black;
             }
         """)
         tray_layout.addWidget(self.chk_minimize_to_tray)
@@ -1514,16 +1776,17 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #107c10;
-                border-radius: 6px;
+                border: 2px solid black;
+                border-radius: 2px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: #fafafa;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #107c10;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -1544,10 +1807,15 @@ class SettingsDialog(QDialog):
                 height: 18px;
                 border-radius: 3px;
                 border: 2px solid #ccc;
+                background-color: white;
             }
             QCheckBox::indicator:checked {
-                background-color: #107c10;
-                border-color: #107c10;
+                background-color: white;
+                border-color: #ccc;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTEiIGhlaWdodD0iOSIgdmlld0JveD0iMCAwIDExIDkiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xLjUgNUw0LjUgOC41TDEwLjUgMSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+);
+            }
+            QCheckBox::indicator:hover {
+                border-color: black;
             }
         """)
         override_layout.addWidget(self.chk_override_timer)
@@ -1567,7 +1835,7 @@ class SettingsDialog(QDialog):
                 min-width: 80px;
             }
             QSpinBox:focus {
-                border: 2px solid #107c10;
+                border: 2px solid #808080;
             }
         """)
         self.chk_override_timer.toggled.connect(self.spin_default_timer.setEnabled)
@@ -1584,72 +1852,16 @@ class SettingsDialog(QDialog):
 
         self.btn_timer_5min = QPushButton("5 хв")
         self.btn_timer_5min.clicked.connect(lambda: self._set_timer_preset(5))
-        self.btn_timer_5min.setStyleSheet("""
-            QPushButton {
-                background-color: #e1f5fe;
-                color: #01579b;
-                border: 1px solid #01579b;
-                border-radius: 4px;
-                font-weight: bold;
-                padding: 4px 8px;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #b3e5fc;
-            }
-        """)
-
+        
         self.btn_timer_15min = QPushButton("15 хв")
         self.btn_timer_15min.clicked.connect(lambda: self._set_timer_preset(15))
-        self.btn_timer_15min.setStyleSheet("""
-            QPushButton {
-                background-color: #e1f5fe;
-                color: #01579b;
-                border: 1px solid #01579b;
-                border-radius: 4px;
-                font-weight: bold;
-                padding: 4px 8px;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #b3e5fc;
-            }
-        """)
-
+        
         self.btn_timer_30min = QPushButton("30 хв")
         self.btn_timer_30min.clicked.connect(lambda: self._set_timer_preset(30))
-        self.btn_timer_30min.setStyleSheet("""
-            QPushButton {
-                background-color: #e1f5fe;
-                color: #01579b;
-                border: 1px solid #01579b;
-                border-radius: 4px;
-                font-weight: bold;
-                padding: 4px 8px;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #b3e5fc;
-            }
-        """)
-
+        
         self.btn_timer_60min = QPushButton("1 год")
         self.btn_timer_60min.clicked.connect(lambda: self._set_timer_preset(60))
-        self.btn_timer_60min.setStyleSheet("""
-            QPushButton {
-                background-color: #e1f5fe;
-                color: #01579b;
-                border: 1px solid #01579b;
-                border-radius: 4px;
-                font-weight: bold;
-                padding: 4px 8px;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                background-color: #b3e5fc;
-            }
-        """)
-
+        
         presets_layout.addWidget(self.btn_timer_5min)
         presets_layout.addWidget(self.btn_timer_15min)
         presets_layout.addWidget(self.btn_timer_30min)
@@ -1663,10 +1875,11 @@ class SettingsDialog(QDialog):
         self.timer_status_label.setStyleSheet("""
             QLabel {
                 font-size: 11px;
-                color: #666;
+                color: black;
                 padding: 5px;
-                background-color: #f0f8ff;
-                border-radius: 4px;
+                background-color: #f5f5f5;
+                border: 1px solid #d0d0d0;
+                border-radius: 2px;
             }
         """)
         status_layout.addWidget(self.timer_status_label)
@@ -1682,16 +1895,17 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #5c2d91;
-                border-radius: 6px;
+                border: 2px solid black;
+                border-radius: 2px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: #fafafa;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #5c2d91;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -1718,10 +1932,13 @@ class SettingsDialog(QDialog):
                 width: 16px;
                 height: 16px;
                 border-radius: 8px;
-                border: 2px solid #5c2d91;
+                border: 2px solid black;
+                background-color: white;
             }
             QRadioButton::indicator:checked {
-                background-color: #5c2d91;
+                background-color: white;
+                border: 2px solid black;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOCIgaGVpZ2h0PSI4IiB2aWV3Qm94PSIwIDAgOCA4IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8Y2lyY2xlIGN4PSI0IiBjeT0iNCIgcj0iMiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+);
             }
         """)
 
@@ -1735,10 +1952,13 @@ class SettingsDialog(QDialog):
                 width: 16px;
                 height: 16px;
                 border-radius: 8px;
-                border: 2px solid #5c2d91;
+                border: 2px solid black;
+                background-color: white;
             }
             QRadioButton::indicator:checked {
-                background-color: #5c2d91;
+                background-color: white;
+                border: 2px solid black;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOCIgaGVpZ2h0PSI4IiB2aWV3Qm94PSIwIDAgOCA4IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8Y2lyY2xlIGN4PSI0IiBjeT0iNCIgcj0iMiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+);
             }
         """)
 
@@ -1748,16 +1968,19 @@ class SettingsDialog(QDialog):
                 font-size: 11px;
                 spacing: 8px;
                 font-weight: bold;
-                color: #5c2d91;
+                color: black;
             }
             QRadioButton::indicator {
                 width: 16px;
                 height: 16px;
                 border-radius: 8px;
-                border: 2px solid #5c2d91;
+                border: 2px solid black;
+                background-color: white;
             }
             QRadioButton::indicator:checked {
-                background-color: #5c2d91;
+                background-color: white;
+                border: 2px solid black;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOCIgaGVpZ2h0PSI4IiB2aWV3Qm94PSIwIDAgOCA4IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8Y2lyY2xlIGN4PSI0IiBjeT0iNCIgcj0iMiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+);
             }
         """)
 
@@ -1779,25 +2002,11 @@ class SettingsDialog(QDialog):
                 font-size: 10px;
                 color: #666;
                 padding: 5px;
-                background-color: #f5f0ff;
+                background-color: #f5f5f5;
                 border-radius: 4px;
             }
         """)
         self.refresh_drive_btn = QPushButton("Оновити")
-        self.refresh_drive_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5c2d91;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                padding: 4px 8px;
-                font-size: 9px;
-            }
-            QPushButton:hover {
-                background-color: #4a2375;
-            }
-        """)
         drive_info_layout.addWidget(self.drive_info_label)
         drive_info_layout.addWidget(self.refresh_drive_btn)
         drive_info_layout.addStretch()
@@ -1819,7 +2028,7 @@ class SettingsDialog(QDialog):
                 if platform.system() == "Windows":
                     try:
                         result = subprocess.run(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
-                                               capture_output=True, text=True, timeout=3)
+                                               capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
                         return result.returncode == 0
                     except:
                         return os.path.exists(f"{drive_letter}:\\")
@@ -1879,16 +2088,17 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #d13438;
-                border-radius: 6px;
+                border: 2px solid black;
+                border-radius: 2px;
                 margin-top: 10px;
                 padding-top: 10px;
+                background-color: #fafafa;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #d13438;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -1909,7 +2119,7 @@ class SettingsDialog(QDialog):
 
         self.quick_actions_dropdown.setStyleSheet("""
             QComboBox {
-                background-color: #d13438;
+                background-color: #808080;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -1919,14 +2129,14 @@ class SettingsDialog(QDialog):
                 min-width: 200px;
             }
             QComboBox:hover {
-                background-color: #a4262c;
+                background-color: black;
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
                 width: 30px;
                 border-left-width: 3px;
-                border-left-color: #a4262c;
+                border-left-color: black;
                 border-left-style: solid;
                 border-top-right-radius: 6px;
                 border-bottom-right-radius: 6px;
@@ -1941,7 +2151,7 @@ class SettingsDialog(QDialog):
             }
             QComboBox QAbstractItemView {
                 background-color: white;
-                border: 2px solid #d13438;
+                border: 2px solid black;
                 border-radius: 6px;
                 selection-background-color: #f0f0f0;
                 padding: 4px;
@@ -1953,7 +2163,7 @@ class SettingsDialog(QDialog):
                 color: #333;
             }
             QComboBox QAbstractItemView::item:selected {
-                background-color: #d13438;
+                background-color: #808080;
                 color: white;
             }
             QComboBox QAbstractItemView::item:hover {
@@ -2499,12 +2709,6 @@ class SettingsDialog(QDialog):
     def setup_autorun(self):
         """Setup Windows autorun with tray mode"""
         try:
-            # Check if running on Windows
-            if platform.system() != "Windows":
-                QMessageBox.warning(self, "Помилка",
-                    "Налаштування автозапуску доступне лише на Windows системах.")
-                return
-
             # Get application path
             if getattr(sys, 'frozen', False):
                 app_path = sys.executable
@@ -2539,7 +2743,7 @@ class SettingsDialog(QDialog):
                 # Update UI
                 self.chk_minimize_to_tray.setChecked(True)
                 self.autorun_status_label.setText("Статус автозапуску: ✅ Налаштовано")
-                self.autorun_status_label.setStyleSheet("font-size: 10px; color: #107c10; padding: 5px;")
+                self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
 
                 QMessageBox.information(self, "Успіх!",
                     f"Автозапуск успішно налаштовано!\n\n"
@@ -2564,12 +2768,6 @@ class SettingsDialog(QDialog):
     def remove_autorun(self):
         """Remove Windows autorun"""
         try:
-            # Check if running on Windows
-            if platform.system() != "Windows":
-                QMessageBox.warning(self, "Помилка",
-                    "Налаштування автозапуску доступне лише на Windows системах.")
-                return
-
             import winreg
             key = winreg.HKEY_CURRENT_USER
             subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
@@ -2583,7 +2781,7 @@ class SettingsDialog(QDialog):
 
                 # Update UI
                 self.autorun_status_label.setText("Статус автозапуску: ❌ Вимкнено")
-                self.autorun_status_label.setStyleSheet("font-size: 10px; color: #d13438; padding: 5px;")
+                self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
 
                 QMessageBox.information(self, "Успіх!",
                     "Автозапуск успішно видалено!\n\n"
@@ -2592,7 +2790,7 @@ class SettingsDialog(QDialog):
             except OSError:
                 # Entry doesn't exist
                 self.autorun_status_label.setText("Статус автозапуску: ❌ Вимкнено")
-                self.autorun_status_label.setStyleSheet("font-size: 10px; color: #d13438; padding: 5px;")
+                self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
                 QMessageBox.information(self, "Інформація",
                     "Автозапуск не був налаштований.")
 
@@ -2606,11 +2804,6 @@ class SettingsDialog(QDialog):
     def check_autorun_status(self):
         """Check current autorun status"""
         try:
-            if platform.system() != "Windows":
-                self.autorun_status_label.setText("Статус автозапуску: Не Windows")
-                self.autorun_status_label.setStyleSheet("font-size: 10px; color: #666; padding: 5px;")
-                return
-
             import winreg
             key = winreg.HKEY_CURRENT_USER
             subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
@@ -2621,10 +2814,10 @@ class SettingsDialog(QDialog):
                     # Try to read the value
                     value, _ = winreg.QueryValueEx(registry_key, app_name)
                     self.autorun_status_label.setText("Статус автозапуску: ✅ Активно")
-                    self.autorun_status_label.setStyleSheet("font-size: 10px; color: #107c10; padding: 5px;")
+                    self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
             except OSError:
                 self.autorun_status_label.setText("Статус автозапуску: ❌ Вимкнено")
-                self.autorun_status_label.setStyleSheet("font-size: 10px; color: #d13438; padding: 5px;")
+                self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
 
         except ImportError:
             self.autorun_status_label.setText("Статус автозапуску: Невідомо")
@@ -2640,21 +2833,25 @@ class SettingsDialog(QDialog):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
-                background-color: #f5f5f5;
+                border: 1px solid #d0d0d0;
+                background-color: #ffffff;
             }
             QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
+                background-color: #f8f8f8;
+                width: 14px;
+                border: 1px solid #e0e0e0;
             }
             QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
+                background-color: #b0b0b0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
+                background-color: #909090;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
             }
         """)
 
@@ -2666,6 +2863,21 @@ class SettingsDialog(QDialog):
 
         # File size limit (keep existing functionality)
         size_group = QGroupBox("Обмеження Розміру Файлу")
+        size_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
         size_layout = QHBoxLayout(size_group)
         size_layout.addWidget(QLabel("Макс. розмір файлу:"))
         self.spin_max_size = self._create_spinbox(1, 10240, " MB")
@@ -2705,6 +2917,21 @@ class SettingsDialog(QDialog):
     def _create_presets_section(self) -> QGroupBox:
         """Create common filter presets section"""
         presets_group = QGroupBox("Шаблонні Набори Фільтрів")
+        presets_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
         presets_layout = QVBoxLayout(presets_group)
 
         # First row of preset buttons
@@ -2778,7 +3005,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #cccccc;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -2809,13 +3036,13 @@ class SettingsDialog(QDialog):
                 font-size: 11px;
             }
             QLineEdit:focus {
-                border: 2px solid #0078d4;
+                border: 2px solid #808080;
             }
         """)
         search_edit.textChanged.connect(lambda text, ft=filter_type: self.filter_list_items(ft))
 
         search_label = QLabel("Пошук:")
-        search_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #555;")
+        search_label.setStyleSheet("font-size: 11px; font-weight: bold; color: black;")
 
         search_layout.addWidget(search_label)
         search_layout.addWidget(search_edit)
@@ -2872,7 +3099,7 @@ class SettingsDialog(QDialog):
                 background-color: white;
             }
             QLineEdit:focus {
-                border: 2px solid #0078d4;
+                border: 2px solid #808080;
                 outline: none;
             }
         """)
@@ -2899,79 +3126,16 @@ class SettingsDialog(QDialog):
         btn_add = QPushButton("Додати")
         btn_add.setFixedHeight(35)  # Increased height to match input field
         btn_add.setMinimumWidth(80)  # Set minimum width
-        btn_add.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 11px;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            QPushButton:pressed {
-                background-color: #005a9e;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-                color: #666;
-            }
-        """)
-
+        
         btn_remove = QPushButton("Видалити Вибране")
         btn_remove.setFixedHeight(35)  # Increased height
         btn_remove.setMinimumWidth(120)  # Set minimum width
         btn_remove.setEnabled(False)
-        btn_remove.setStyleSheet("""
-            QPushButton {
-                background-color: #d13438;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 11px;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: #a4262c;
-            }
-            QPushButton:pressed {
-                background-color: #8b1111;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-                color: #666;
-            }
-        """)
-
+        
         btn_clear = QPushButton("Очистити Все")
         btn_clear.setFixedHeight(35)  # Increased height
         btn_clear.setMinimumWidth(100)  # Set minimum width
-        btn_clear.setStyleSheet("""
-            QPushButton {
-                background-color: #666;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 11px;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-            QPushButton:pressed {
-                background-color: #444;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-                color: #666;
-            }
-        """)
-
+        
         # Connect signals
         if filter_type == "extension":
             edit_widget.returnPressed.connect(self.add_extension)
@@ -3008,6 +3172,21 @@ class SettingsDialog(QDialog):
     def _create_filter_actions_section(self) -> QGroupBox:
         """Create filter actions section with import/export functionality"""
         actions_group = QGroupBox("Дії з Фільтрами")
+        actions_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
         actions_layout = QHBoxLayout(actions_group)
         actions_layout.setSpacing(15)
 
@@ -3037,21 +3216,25 @@ class SettingsDialog(QDialog):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
-                background-color: #f5f5f5;
+                border: 1px solid #d0d0d0;
+                background-color: #ffffff;
             }
             QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
+                background-color: #f8f8f8;
+                width: 14px;
+                border: 1px solid #e0e0e0;
             }
             QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
+                background-color: #b0b0b0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
+                background-color: #909090;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
             }
         """)
 
@@ -3086,7 +3269,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #cccccc;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -3183,7 +3366,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #0078d4;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -3192,7 +3375,7 @@ class SettingsDialog(QDialog):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #0078d4;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -3202,7 +3385,7 @@ class SettingsDialog(QDialog):
         # Description
         desc = QLabel("Windows Task Scheduler забезпечує більш надійне виконання завдань, "
                      "навіть коли додаток закрито. Система працюватиме у фоновому режимі.")
-        desc.setStyleSheet("font-size: 11px; color: #555; background-color: #f0f8ff; padding: 10px; border-radius: 4px;")
+        desc.setStyleSheet("font-size: 11px; color: black; background-color: #f5f5f5; padding: 10px; border-radius: 4px;")
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
@@ -3226,37 +3409,11 @@ class SettingsDialog(QDialog):
 
         self.create_task_btn = QPushButton("Створити Завдання")
         self.create_task_btn.clicked.connect(self.create_windows_task)
-        self.create_task_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #107c10;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #0e6e0e;
-            }
-        """)
         self.create_task_btn.setFixedHeight(35)
         self.create_task_btn.setMinimumWidth(120)
 
         self.remove_task_btn = QPushButton("Видалити Завдання")
         self.remove_task_btn.clicked.connect(self.remove_windows_task)
-        self.remove_task_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d13438;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #a4262c;
-            }
-        """)
         self.remove_task_btn.setFixedHeight(35)
         self.remove_task_btn.setMinimumWidth(120)
 
@@ -3264,7 +3421,7 @@ class SettingsDialog(QDialog):
         self.open_task_scheduler_btn.clicked.connect(self.open_windows_task_scheduler)
         self.open_task_scheduler_btn.setStyleSheet("""
             QPushButton {
-                background-color: #0078d4;
+                background-color: #808080;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -3272,7 +3429,7 @@ class SettingsDialog(QDialog):
                 padding: 8px 16px;
             }
             QPushButton:hover {
-                background-color: #106ebe;
+                background-color: #808080;
             }
         """)
         self.open_task_scheduler_btn.setFixedHeight(35)
@@ -3294,7 +3451,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #666;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -3311,7 +3468,7 @@ class SettingsDialog(QDialog):
 
         # Current status
         self.current_status_label = QLabel("Поточний статус: Вимкнено")
-        self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #d13438;")
+        self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
         layout.addWidget(self.current_status_label)
 
         # Next run time
@@ -3321,7 +3478,7 @@ class SettingsDialog(QDialog):
 
         # Time remaining
         self.time_remaining_label = QLabel("Час до виконання: Н/Д")
-        self.time_remaining_label.setStyleSheet("font-size: 11px; color: #107c10; font-weight: bold;")
+        self.time_remaining_label.setStyleSheet("font-size: 11px; color: black; font-weight: bold;")
         layout.addWidget(self.time_remaining_label)
 
         # Last run info
@@ -3359,12 +3516,6 @@ class SettingsDialog(QDialog):
         """Check if Windows Task Scheduler is available and task exists"""
         try:
             import ctypes
-            # Check if running on Windows
-            if platform.system() != "Windows":
-                self.scheduler_status_label.setText("Статус: Не Windows система")
-                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #666;")
-                return
-
             # Check admin privileges
             try:
                 is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
@@ -3373,32 +3524,32 @@ class SettingsDialog(QDialog):
 
             if not is_admin:
                 self.scheduler_status_label.setText("Статус: Потрібні права адміністратора")
-                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #f9a825;")
+                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #808080;")
                 return
 
             # Check if task exists
             task_exists = self._check_task_exists()
             if task_exists:
                 self.scheduler_status_label.setText("Статус: Завдання створено ✅")
-                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #107c10;")
+                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: black;")
                 self.create_task_btn.setEnabled(False)
                 self.remove_task_btn.setEnabled(True)
             else:
                 self.scheduler_status_label.setText("Статус: Завдання не створено")
-                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #d13438;")
+                self.scheduler_status_label.setStyleSheet("font-weight: bold; color: black;")
                 self.create_task_btn.setEnabled(True)
                 self.remove_task_btn.setEnabled(False)
 
         except Exception as e:
             self.scheduler_status_label.setText(f"Статус: Помилка - {str(e)}")
-            self.scheduler_status_label.setStyleSheet("font-weight: bold; color: #d13438;")
+            self.scheduler_status_label.setStyleSheet("font-weight: bold; color: black;")
 
     def _check_task_exists(self) -> bool:
         """Check if the Windows Task exists"""
         try:
             result = subprocess.run([
                 'schtasks', '/Query', '/TN', 'DesktopOrganizer'
-            ], capture_output=True, text=True, timeout=10)
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             return result.returncode == 0
         except:
             return False
@@ -3435,7 +3586,7 @@ class SettingsDialog(QDialog):
                 *trigger['params'],
                 '/F',  # Force overwrite if exists
                 '/RL', 'HIGHEST'  # Run with highest privileges
-            ], capture_output=True, text=True, timeout=30)
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
             if result.returncode == 0:
                 QMessageBox.information(self, "Успіх",
@@ -3470,7 +3621,7 @@ class SettingsDialog(QDialog):
             if reply == QMessageBox.Yes:
                 result = subprocess.run([
                     'schtasks', '/Delete', '/TN', 'DesktopOrganizer', '/F'
-                ], capture_output=True, text=True, timeout=15)
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15)
 
                 if result.returncode == 0:
                     QMessageBox.information(self, "Успіх",
@@ -3969,7 +4120,7 @@ class SettingsDialog(QDialog):
 
             if schedule_type == "Вимкнено":
                 self.current_status_label.setText("Поточний статус: Вимкнено")
-                self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #d13438;")
+                self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
                 self.next_run_label.setText("Наступне виконання: Н/Д")
                 self.time_remaining_label.setText("Час до виконання: Н/Д")
                 self.last_run_label.setText("Останнє виконання: Н/Д")
@@ -3978,10 +4129,10 @@ class SettingsDialog(QDialog):
                 # Check if Windows task exists
                 if self._check_task_exists():
                     self.current_status_label.setText("Поточний статус: Активно (Windows Task)")
-                    self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #107c10;")
+                    self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
                 else:
                     self.current_status_label.setText("Поточний статус: Налаштовано (Тільки в додатку)")
-                    self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #f9a825;")
+                    self.current_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #808080;")
 
                 # Calculate next run time using enhanced logic
                 schedule_cfg = self._get_schedule_settings()
@@ -3996,11 +4147,11 @@ class SettingsDialog(QDialog):
                     hours_remaining = time_diff.total_seconds() / 3600
 
                     if hours_remaining < 1:
-                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: #d13438; font-weight: bold;")
+                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: black; font-weight: bold;")
                     elif hours_remaining < 24:
-                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: #f9a825; font-weight: bold;")
+                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: #808080; font-weight: bold;")
                     else:
-                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: #107c10; font-weight: bold;")
+                        self.time_remaining_label.setStyleSheet("font-size: 11px; color: black; font-weight: bold;")
                 else:
                     self.next_run_label.setText("Наступне виконання: Н/Д")
                     self.time_remaining_label.setText(f"Час до виконання: {time_remaining}")
@@ -4015,7 +4166,7 @@ class SettingsDialog(QDialog):
                     app_settings = parent_window.settings.get('application', {})
                     if app_settings.get('minimize_to_tray', False):
                         self.tray_info_label.setText("Мінімізація в трей: ✅ Увімкнено")
-                        self.tray_info_label.setStyleSheet("font-size: 11px; color: #107c10;")
+                        self.tray_info_label.setStyleSheet("font-size: 11px; color: black;")
                     else:
                         self.tray_info_label.setText("Мінімізація в трей: ❌ Вимкнено")
                         self.tray_info_label.setStyleSheet("font-size: 11px; color: #666;")
@@ -4034,21 +4185,25 @@ class SettingsDialog(QDialog):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
-                background-color: #f5f5f5;
+                border: 1px solid #d0d0d0;
+                background-color: #ffffff;
             }
             QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
+                background-color: #f8f8f8;
+                width: 14px;
+                border: 1px solid #e0e0e0;
             }
             QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
+                background-color: #b0b0b0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
+                background-color: #909090;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
             }
         """)
 
@@ -4066,10 +4221,7 @@ class SettingsDialog(QDialog):
         package_mgmt_group = self._create_enhanced_package_management_section()
         main_layout.addWidget(package_mgmt_group)
 
-        # Advanced Operations Section
-        advanced_group = self._create_advanced_operations_section()
-        main_layout.addWidget(advanced_group)
-
+        
         # Environment Details Section
         details_group = self._create_environment_details_section()
         main_layout.addWidget(details_group)
@@ -4091,7 +4243,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #0078d4;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -4100,7 +4252,7 @@ class SettingsDialog(QDialog):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #0078d4;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -4124,8 +4276,16 @@ class SettingsDialog(QDialog):
         # Path display
         self.venv_path_label = QLabel("")
         self.venv_path_label.setWordWrap(True)
-        self.venv_path_label.setStyleSheet("font-size: 11px; color: #555; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
+        self.venv_path_label.setStyleSheet("font-size: 11px; color: black; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
         layout.addWidget(self.venv_path_label)
+
+        # Administrator status
+        admin_layout = QHBoxLayout()
+        self.admin_status_label = QLabel("")
+        self.admin_status_label.setStyleSheet("font-size: 11px; color: #333; padding: 8px; background-color: #f8f8f8; border-radius: 4px; border: 1px solid #ddd;")
+        admin_layout.addWidget(self.admin_status_label)
+        admin_layout.addStretch()
+        layout.addLayout(admin_layout)
 
         # Statistics
         stats_layout = QHBoxLayout()
@@ -4141,42 +4301,38 @@ class SettingsDialog(QDialog):
 
         self.repair_venv_btn = QPushButton("Відновити")
         self.repair_venv_btn.clicked.connect(self.repair_virtual_environment)
-        self.repair_venv_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f9a825;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #e68900;
-            }
-        """)
         self.repair_venv_btn.setFixedHeight(30)
         self.repair_venv_btn.setMinimumWidth(80)
 
-        self.recreate_venv_btn = QPushButton("Перестворити")
+        self.recreate_venv_btn = QPushButton("Remove")
         self.recreate_venv_btn.clicked.connect(self.recreate_virtual_environment)
-        self.recreate_venv_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d13438;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #a4262c;
-            }
-        """)
         self.recreate_venv_btn.setFixedHeight(30)
         self.recreate_venv_btn.setMinimumWidth(90)
 
+        # Add administrator restart button if not running as admin
+        if not is_running_as_admin():
+            self.restart_as_admin_btn = QPushButton("🔐 Restart as Admin")
+            self.restart_as_admin_btn.clicked.connect(self.restart_as_administrator)
+            self.restart_as_admin_btn.setFixedHeight(30)
+            self.restart_as_admin_btn.setMinimumWidth(120)
+            self.restart_as_admin_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffc107;
+                    color: #212529;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #e0a800;
+                }
+            """)
+
         actions_layout.addWidget(self.repair_venv_btn)
         actions_layout.addWidget(self.recreate_venv_btn)
+        if not is_running_as_admin():
+            actions_layout.addWidget(self.restart_as_admin_btn)
         actions_layout.addStretch()
 
         layout.addLayout(actions_layout)
@@ -4190,7 +4346,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #107c10;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -4199,7 +4355,7 @@ class SettingsDialog(QDialog):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
-                color: #107c10;
+                color: black;
             }
         """)
         layout = QVBoxLayout(group)
@@ -4220,7 +4376,7 @@ class SettingsDialog(QDialog):
                 font-size: 11px;
             }
             QLineEdit:focus {
-                border: 2px solid #0078d4;
+                border: 2px solid #808080;
             }
         """)
         search_layout.addWidget(self.package_search_edit)
@@ -4247,7 +4403,7 @@ class SettingsDialog(QDialog):
                 border-bottom: 1px solid #f0f0f0;
             }
             QListWidget::item:selected {
-                background-color: #0078d4;
+                background-color: #808080;
                 color: white;
             }
             QListWidget::item:alternate {
@@ -4279,26 +4435,13 @@ class SettingsDialog(QDialog):
                 font-size: 12px;
             }
             QLineEdit:focus {
-                border: 2px solid #0078d4;
+                border: 2px solid #808080;
             }
         """)
         input_layout.addWidget(self.package_input)
 
         self.install_package_btn = QPushButton("Встановити")
         self.install_package_btn.clicked.connect(self.install_user_package)
-        self.install_package_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #107c10;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #0e6e0e;
-            }
-        """)
         self.install_package_btn.setFixedHeight(35)
         input_layout.addWidget(self.install_package_btn)
 
@@ -4311,54 +4454,15 @@ class SettingsDialog(QDialog):
 
         self.upgrade_packages_btn = QPushButton("Оновити Всі")
         self.upgrade_packages_btn.clicked.connect(self.upgrade_all_packages)
-        self.upgrade_packages_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-        """)
         self.upgrade_packages_btn.setFixedHeight(30)
 
         self.uninstall_package_btn = QPushButton("Видалити Вибрані")
         self.uninstall_package_btn.clicked.connect(self.uninstall_selected_packages)
         self.uninstall_package_btn.setEnabled(False)
-        self.uninstall_package_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d13438;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #a4262c;
-            }
-        """)
         self.uninstall_package_btn.setFixedHeight(30)
 
         self.refresh_packages_btn = QPushButton("Оновити Список")
         self.refresh_packages_btn.clicked.connect(self.refresh_package_list)
-        self.refresh_packages_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #666;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-        """)
         self.refresh_packages_btn.setFixedHeight(30)
 
         buttons_layout.addWidget(self.upgrade_packages_btn)
@@ -4373,119 +4477,7 @@ class SettingsDialog(QDialog):
 
         return group
 
-    def _create_advanced_operations_section(self) -> QGroupBox:
-        """Create advanced operations section"""
-        group = QGroupBox("Розширені Операції")
-        group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                font-size: 12px;
-                border: 2px solid #5c2d91;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #5c2d91;
-            }
-        """)
-        layout = QVBoxLayout(group)
-        layout.setSpacing(15)
-        layout.setContentsMargins(15, 20, 15, 15)
-
-        # Export/Import functionality
-        io_layout = QHBoxLayout()
-        io_layout.setSpacing(10)
-
-        self.export_requirements_btn = QPushButton("Експортувати requirements.txt")
-        self.export_requirements_btn.clicked.connect(self.export_requirements)
-        self.export_requirements_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5c2d91;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px 12px;
-            }
-            QPushButton:hover {
-                background-color: #4a2375;
-            }
-        """)
-        self.export_requirements_btn.setFixedHeight(35)
-
-        self.import_requirements_btn = QPushButton("Імпортувати з requirements.txt")
-        self.import_requirements_btn.clicked.connect(self.import_requirements)
-        self.import_requirements_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5c2d91;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 8px 12px;
-            }
-            QPushButton:hover {
-                background-color: #4a2375;
-            }
-        """)
-        self.import_requirements_btn.setFixedHeight(35)
-
-        io_layout.addWidget(self.export_requirements_btn)
-        io_layout.addWidget(self.import_requirements_btn)
-        io_layout.addStretch()
-
-        layout.addLayout(io_layout)
-
-        # Dangerous operations
-        danger_layout = QHBoxLayout()
-        danger_layout.setSpacing(10)
-
-        self.cleanup_venv_btn = QPushButton("Очистити Кеш")
-        self.cleanup_venv_btn.clicked.connect(self.cleanup_virtual_environment_cache)
-        self.cleanup_venv_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f9a825;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #e68900;
-            }
-        """)
-        self.cleanup_venv_btn.setFixedHeight(30)
-
-        self.reset_venv_btn = QPushButton("Скинути Віртуальне Середовище")
-        self.reset_venv_btn.clicked.connect(self.reset_virtual_environment)
-        self.reset_venv_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d13438;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #a4262c;
-            }
-        """)
-        self.reset_venv_btn.setFixedHeight(30)
-
-        danger_layout.addWidget(self.cleanup_venv_btn)
-        danger_layout.addWidget(self.reset_venv_btn)
-        danger_layout.addStretch()
-
-        layout.addLayout(danger_layout)
-
-        return group
-
+    
     def _create_environment_details_section(self) -> QGroupBox:
         """Create environment details section"""
         group = QGroupBox("Деталі Середовища")
@@ -4493,7 +4485,7 @@ class SettingsDialog(QDialog):
             QGroupBox {
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #666;
+                border: 2px solid black;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -4510,12 +4502,12 @@ class SettingsDialog(QDialog):
 
         # Python version
         self.python_version_label = QLabel("Python: Обчислюється...")
-        self.python_version_label.setStyleSheet("font-size: 11px; color: #555;")
+        self.python_version_label.setStyleSheet("font-size: 11px; color: black;")
         layout.addWidget(self.python_version_label)
 
         # Pip version
         self.pip_version_label = QLabel("Pip: Обчислюється...")
-        self.pip_version_label.setStyleSheet("font-size: 11px; color: #555;")
+        self.pip_version_label.setStyleSheet("font-size: 11px; color: black;")
         layout.addWidget(self.pip_version_label)
 
         # Package usage
@@ -4653,6 +4645,12 @@ class SettingsDialog(QDialog):
             success = venv_manager.install_user_package(package_spec)
 
             if success:
+                # Clear package cache to ensure modules can detect the newly installed package
+                if hasattr(venv_manager, '_package_cache'):
+                    venv_manager._package_cache.clear()
+                # Force sync with actual venv packages
+                venv_manager._sync_installed_packages()
+
                 QMessageBox.information(self, "Успіх", f"Пакет '{package_spec}' успішно встановлено")
                 self.package_input.clear()
                 self.refresh_package_list()
@@ -4716,10 +4714,18 @@ class SettingsDialog(QDialog):
 
         venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
 
+        # Update administrator status
+        if is_running_as_admin():
+            self.admin_status_label.setText("🔐 Запущено з правами адміністратора")
+            self.admin_status_label.setStyleSheet("font-size: 11px; color: #155724; padding: 8px; background-color: #d4edda; border-radius: 4px; border: 1px solid #c3e6cb;")
+        else:
+            self.admin_status_label.setText("⚠️ Запущено зі звичайними правами (можуть знадобитися права адміністратора)")
+            self.admin_status_label.setStyleSheet("font-size: 11px; color: #856404; padding: 8px; background-color: #fff3cd; border-radius: 4px; border: 1px solid #ffeaa7;")
+
         # Update status
         if os.path.exists(venv_manager.venv_dir):
             self.venv_status_label.setText("✅ Віртуальне середовище створено")
-            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #107c10;")
+            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
             self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
 
             # Update statistics
@@ -4745,7 +4751,7 @@ class SettingsDialog(QDialog):
 
         else:
             self.venv_status_label.setText("⚠️ Віртуальне середовище не створено")
-            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #d13438;")
+            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
             self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
             self.venv_stats_label.setText("Пакетів: 0 | Розмір: 0 MB")
 
@@ -4759,7 +4765,7 @@ class SettingsDialog(QDialog):
             # Get Python version
             result = subprocess.run([
                 venv_manager.get_pip_path().split()[0], '--version'
-            ], capture_output=True, text=True, timeout=10)
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
             if result.returncode == 0:
                 pip_version = result.stdout.strip()
@@ -4779,7 +4785,7 @@ class SettingsDialog(QDialog):
             if os.path.exists(python_exe):
                 result = subprocess.run([
                     python_exe, '--version'
-                ], capture_output=True, text=True, timeout=10)
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
                 if result.returncode == 0:
                     python_version = result.stdout.strip() or result.stderr.strip()
@@ -4843,7 +4849,7 @@ class SettingsDialog(QDialog):
                 # Run pip upgrade
                 result = subprocess.run([
                     pip_path, 'install', '--upgrade', '-r', 'requirements.txt'
-                ], capture_output=True, text=True, timeout=600)
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
 
                 if result.returncode == 0:
                     QMessageBox.information(self, "Успіх", "Пакети успішно оновлено")
@@ -4922,7 +4928,7 @@ class SettingsDialog(QDialog):
                 # Export to requirements.txt
                 result = subprocess.run([
                     pip_path, 'freeze'
-                ], capture_output=True, text=True, timeout=30)
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
                 if result.returncode == 0:
                     with open(file_path, 'w', encoding='utf-8') as f:
@@ -4968,7 +4974,7 @@ class SettingsDialog(QDialog):
                     # Import from requirements.txt
                     result = subprocess.run([
                         pip_path, 'install', '-r', file_path
-                    ], capture_output=True, text=True, timeout=600)
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
 
                     if result.returncode == 0:
                         QMessageBox.information(self, "Успіх", "Пакети успішно імпортовано")
@@ -5011,7 +5017,7 @@ class SettingsDialog(QDialog):
                         # Upgrade pip
                         subprocess.run([
                             pip_path, 'install', '--upgrade', 'pip'
-                        ], capture_output=True, text=True, timeout=120)
+                        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
                         QMessageBox.information(self, "Успіх",
                             "Віртуальне середовище відновлено")
@@ -5028,8 +5034,8 @@ class SettingsDialog(QDialog):
         """Recreate the virtual environment completely"""
         reply = QMessageBox.question(
             self,
-            "Підтвердження Перестворення",
-            "Ви впевнені, що хочете перестворити віртуальне середовище?\n\n"
+            "Підтвердження Видалення",
+            "Ви впевнені, що хочете видалити віртуальне середовище?\n\n"
             "Це повністю видалить поточне середовище та створить нове. "
             "Усі встановлені пакети будуть втрачені.",
             QMessageBox.Yes | QMessageBox.No,
@@ -5095,7 +5101,7 @@ class SettingsDialog(QDialog):
                     # Clean pip cache
                     subprocess.run([
                         pip_path, 'cache', 'purge'
-                    ], capture_output=True, text=True, timeout=60)
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
 
                     QMessageBox.information(self, "Успіх", "Кеш успішно очищено")
                 else:
@@ -5105,6 +5111,44 @@ class SettingsDialog(QDialog):
 
             except Exception as e:
                 QMessageBox.critical(self, "Помилка", f"Помилка очищення кешу:\n{str(e)}")
+
+    def restart_as_administrator(self):
+        """Restart the application with administrator privileges"""
+        reply = QMessageBox.question(
+            self,
+            "Перезапуск з правами адміністратора",
+            "Перезапустити додаток з правами адміністратора?\n\n"
+            "Це може знадобитися для встановлення пакетів або керування "
+            "віртуальним середовищем. Додаток буде закритий і перезапущений "
+            "з підвищеними привілеями.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Request administrator privileges and restart
+                if request_admin_privileges():
+                    # If request_admin_privileges succeeds, the application should restart
+                    # Close the current application
+                    if self.parent_window:
+                        self.parent_window.close()
+                    QApplication.quit()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Неможливо отримати права адміністратора",
+                        "Не вдалося отримати права адміністратора. \n\n"
+                        "Будь ласка, запустіть додаток вручну з правами адміністратора:\n\n"
+                        "1. Клацніть правою кнопкою миші на іконку додатку\n"
+                        "2. Виберіть 'Запустити від імені адміністратора'"
+                    )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Помилка перезапуску",
+                    f"Не вдалося перезапустити додаток:\n{str(e)}"
+                )
 
     def update_schedule_ui(self, index):
         schedule_type = self.schedule_type_combo.itemText(index)
@@ -5767,6 +5811,62 @@ class FileMover(QThread):
         drive = f"{drive_letter}:\\"
         return os.path.exists(drive)
 
+# --- Package Installation Progress Dialog ---
+class PackageInstallProgressDialog(QDialog):
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setFixedSize(400, 150)
+        self.setWindowFlags(Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # Title label
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self.title_label)
+
+        # Current operation label
+        self.current_label = QLabel("Підготовка...")
+        self.current_label.setStyleSheet("font-size: 12px; color: #666;")
+        layout.addWidget(self.current_label)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #bdc3c7;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #ecf0f1;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 3px;
+            }
+        """)
+        layout.addWidget(self.progress_bar)
+
+        # Status label
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("font-size: 11px; color: #7f8c8d;")
+        layout.addWidget(self.status_label)
+
+    def update_progress(self, message, status=""):
+        """Update progress message and optional status"""
+        self.current_label.setText(message)
+        if status:
+            self.status_label.setText(status)
+        QApplication.processEvents()
+
+    def set_determinate_progress(self, current, total):
+        """Switch to determinate progress"""
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current)
+        QApplication.processEvents()
+
 # --- Run Statistics Dialog ---
 class RunStatisticsDialog(QDialog):
     def __init__(self, success, errors, path, parent=None):
@@ -6025,7 +6125,7 @@ class MainWindow(QMainWindow):
 
         add_splash_message("🔧 Initializing module manager...")
         # Initialize Module Manager
-        self.module_manager = ModuleManager(self.get_module_dir())
+        self.module_manager = ModuleManager(self.get_module_dir(), self)
         self.module_manager.module_loaded.connect(self.on_module_loaded)
         self.module_manager.module_error.connect(self.on_module_error)
         self.module_manager.module_discovered.connect(self.on_module_discovered)

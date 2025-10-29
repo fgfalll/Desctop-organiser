@@ -12,7 +12,7 @@
     "matplotlib>=3.5.0",
     "tqdm>=4.62.0",
     "seaborn>=0.11.0",
-    "compress>=1.0.0",
+    "compress",
     "humanize>=3.2.0"
   ],
   "python_version": "3.8+",
@@ -47,9 +47,9 @@ from PyQt5.QtWidgets import (
     QScrollArea, QSizePolicy, QSlider, QDateEdit, QDialog, QMenu, QListWidget, QListWidgetItem
 )
 from PyQt5.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QDate, QMutex, QMutexLocker
+    Qt, QThread, pyqtSignal, QTimer, QDate, QMutex, QMutexLocker, QRect, QPropertyAnimation, QEasingCurve
 )
-from PyQt5.QtGui import QIcon, QFont, QPixmap, QPainter, QColor
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen, QBrush
 
 # Import dependencies with fallback handling
 try:
@@ -89,6 +89,236 @@ try:
 except ImportError:
     COMPRESS_AVAILABLE = False
     compress = None
+
+
+try:
+    import humanize
+    HUMANIZE_AVAILABLE = True
+except ImportError:
+    HUMANIZE_AVAILABLE = False
+    humanize = None
+
+class SpinningWheel(QWidget):
+    """Custom spinning wheel widget"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.angle = 0
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.rotate)
+        self.setFixedSize(40, 40)
+
+    def start_rotation(self):
+        self.timer.start(50)  # Rotate every 50ms
+
+    def stop_rotation(self):
+        self.timer.stop()
+
+    def rotate(self):
+        self.angle = (self.angle + 10) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Draw background circle
+        painter.setPen(QPen(QColor(240, 240, 240), 2))
+        painter.setBrush(QBrush(QColor(250, 250, 250)))
+        painter.drawEllipse(2, 2, 36, 36)
+
+        # Draw spinning arc
+        painter.setPen(QPen(QColor(52, 152, 219), 3))
+        painter.setBrush(Qt.NoBrush)
+        rect = QRect(5, 5, 30, 30)
+        painter.drawArc(rect, self.angle * 16, 120 * 16)
+
+class ScanSplashScreen(QWidget):
+    """Splash screen for scan operations"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(400, 120)  # Reduced height since no progress bar
+
+        # Center the splash screen on parent
+        if parent:
+            parent_rect = parent.geometry()
+            x = parent_rect.x() + (parent_rect.width() - self.width()) // 2
+            y = parent_rect.y() + (parent_rect.height() - self.height()) // 2
+            self.move(x, y)
+
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Main container with no borders
+        self.container = QWidget()
+        self.container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.95);
+                border-radius: 10px;
+            }
+        """)
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
+
+        # Title and spinner layout
+        title_layout = QHBoxLayout()
+
+        # Spinning wheel
+        self.spinning_wheel = SpinningWheel()
+        title_layout.addWidget(self.spinning_wheel)
+
+        # Title label
+        self.title_label = QLabel("🔍 Сканування файлів...")
+        self.title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-left: 10px;
+            }
+        """)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        container_layout.addLayout(title_layout)
+
+        # Progress label - expanded space
+        self.progress_label = QLabel("Підготовка до сканування...")
+        self.progress_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #7f8c8d;
+                margin-top: 15px;
+                padding: 10px;
+                background-color: rgba(236, 240, 241, 0.5);
+                border-radius: 5px;
+                min-height: 20px;
+            }
+        """)
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setWordWrap(True)  # Allow text wrapping
+        container_layout.addWidget(self.progress_label)
+
+        layout.addWidget(self.container)
+
+        # Add shadow effect
+        self.setStyleSheet("""
+            ScanSplashScreen {
+                background-color: transparent;
+            }
+        """)
+
+    def update_progress(self, value, message):
+        """Update progress message"""
+        self.progress_label.setText(message)
+
+    def showEvent(self, event):
+        """Start spinning when shown"""
+        super().showEvent(event)
+        self.spinning_wheel.start_rotation()
+
+    def hideEvent(self, event):
+        """Stop spinning when hidden"""
+        super().hideEvent(event)
+        self.spinning_wheel.stop_rotation()
+
+class ArchiveSplashScreen(QWidget):
+    """Splash screen for archive viewer operations"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(400, 120)
+
+        # Center the splash screen on parent
+        if parent:
+            parent_rect = parent.geometry()
+            x = parent_rect.x() + (parent_rect.width() - self.width()) // 2
+            y = parent_rect.y() + (parent_rect.height() - self.height()) // 2
+            self.move(x, y)
+
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Main container with no borders
+        self.container = QWidget()
+        self.container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.95);
+                border-radius: 10px;
+            }
+        """)
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(30, 25, 30, 25)
+
+        # Title and spinner layout
+        title_layout = QHBoxLayout()
+
+        # Spinning wheel
+        self.spinning_wheel = SpinningWheel()
+        title_layout.addWidget(self.spinning_wheel)
+
+        # Title label
+        self.title_label = QLabel("📂 Пошук в архівах...")
+        self.title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-left: 10px;
+            }
+        """)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        container_layout.addLayout(title_layout)
+
+        # Progress label - expanded space
+        self.progress_label = QLabel("Підготовка до пошуку...")
+        self.progress_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #7f8c8d;
+                margin-top: 15px;
+                padding: 10px;
+                background-color: rgba(236, 240, 241, 0.5);
+                border-radius: 5px;
+                min-height: 20px;
+            }
+        """)
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setWordWrap(True)
+        container_layout.addWidget(self.progress_label)
+
+        layout.addWidget(self.container)
+
+        # Add shadow effect
+        self.setStyleSheet("""
+            ArchiveSplashScreen {
+                background-color: transparent;
+            }
+        """)
+
+    def update_progress(self, value, message):
+        """Update progress message"""
+        self.progress_label.setText(message)
+
+    def showEvent(self, event):
+        """Start spinning when shown"""
+        super().showEvent(event)
+        self.spinning_wheel.start_rotation()
+
+    def hideEvent(self, event):
+        """Stop spinning when hidden"""
+        super().hideEvent(event)
+        self.spinning_wheel.stop_rotation()
 
 class FileScanner(QThread):
     """Thread for scanning files and directories"""
@@ -451,6 +681,10 @@ class CleanupHelperWidget(QWidget):
         self._last_scan_path = ""  # Track last scanned path
         self._cache_timestamp = 0  # Track when cache was built
 
+        # Splash screens for operations
+        self.scan_splash = None
+        self.archive_splash = None
+
         self.initUI()
 
     def _load_config(self) -> Dict:
@@ -680,14 +914,14 @@ class CleanupHelperWidget(QWidget):
         browse_btn.clicked.connect(self.browse_scan_path)
         browse_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 5px 15px;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #606060;
             }
         """)
         controls_layout.addWidget(browse_btn)
@@ -696,7 +930,7 @@ class CleanupHelperWidget(QWidget):
         self.scan_btn.clicked.connect(self.start_scan)
         self.scan_btn.setStyleSheet("""
             QPushButton {
-                background-color: #27ae60;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 8px 16px;
@@ -704,7 +938,7 @@ class CleanupHelperWidget(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #229954;
+                background-color: #606060;
             }
         """)
         controls_layout.addWidget(self.scan_btn)
@@ -715,7 +949,7 @@ class CleanupHelperWidget(QWidget):
         self.load_to_archive_btn.clicked.connect(self.load_scan_results_to_archive)
         self.load_to_archive_btn.setStyleSheet("""
             QPushButton {
-                background-color: #8e44ad;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 8px 16px;
@@ -723,7 +957,7 @@ class CleanupHelperWidget(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #7d3c98;
+                background-color: #606060;
             }
         """)
         controls_layout.addWidget(self.load_to_archive_btn)
@@ -865,14 +1099,14 @@ class CleanupHelperWidget(QWidget):
         search_btn.clicked.connect(self.search_archives)
         search_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 5px 15px;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #606060;
             }
         """)
         search_layout.addWidget(search_btn)
@@ -936,14 +1170,14 @@ class CleanupHelperWidget(QWidget):
         open_btn.clicked.connect(self.open_selected_location)
         open_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 5px 15px;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #606060;
             }
         """)
         actions_layout.addWidget(open_btn)
@@ -952,14 +1186,14 @@ class CleanupHelperWidget(QWidget):
         restore_btn.clicked.connect(self.restore_selected_file)
         restore_btn.setStyleSheet("""
             QPushButton {
-                background-color: #f39c12;
+                background-color: #a0a0a0;
                 color: white;
                 border: none;
                 padding: 5px 15px;
                 border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #e67e22;
+                background-color: #808080;
             }
         """)
         actions_layout.addWidget(restore_btn)
@@ -1005,7 +1239,7 @@ class CleanupHelperWidget(QWidget):
         oil_gas_btn.clicked.connect(lambda: self.apply_quick_filter("oil_gas"))
         oil_gas_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e67e22;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1034,7 +1268,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #8e44ad;
+                background-color: #808080;
             }
         """)
         primary_filters_layout.addWidget(images_btn)
@@ -1043,7 +1277,7 @@ class CleanupHelperWidget(QWidget):
         documents_btn.clicked.connect(lambda: self.apply_quick_filter("documents"))
         documents_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1051,7 +1285,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #606060;
             }
         """)
         primary_filters_layout.addWidget(documents_btn)
@@ -1060,7 +1294,7 @@ class CleanupHelperWidget(QWidget):
         video_btn.clicked.connect(lambda: self.apply_quick_filter("video"))
         video_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1068,7 +1302,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #c0392b;
+                background-color: #606060;
             }
         """)
         primary_filters_layout.addWidget(video_btn)
@@ -1077,7 +1311,7 @@ class CleanupHelperWidget(QWidget):
         archives_btn.clicked.connect(lambda: self.apply_quick_filter("archives"))
         archives_btn.setStyleSheet("""
             QPushButton {
-                background-color: #16a085;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1085,7 +1319,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #138d75;
+                background-color: #606060;
             }
         """)
         primary_filters_layout.addWidget(archives_btn)
@@ -1095,7 +1329,7 @@ class CleanupHelperWidget(QWidget):
         more_filters_btn.clicked.connect(self.open_advanced_filter_presets)
         more_filters_btn.setStyleSheet("""
             QPushButton {
-                background-color: #34495e;
+                background-color: #606060;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1103,7 +1337,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #2c3e50;
+                background-color: #404040;
             }
         """)
         primary_filters_layout.addWidget(more_filters_btn)
@@ -1146,7 +1380,7 @@ class CleanupHelperWidget(QWidget):
         self.find_duplicates_btn.clicked.connect(self.find_duplicates)
         self.find_duplicates_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 8px 16px;
@@ -1154,7 +1388,7 @@ class CleanupHelperWidget(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #c0392b;
+                background-color: #606060;
             }
         """)
         controls_layout.addWidget(self.find_duplicates_btn)
@@ -1189,6 +1423,11 @@ class CleanupHelperWidget(QWidget):
         self.duplicate_tree.setColumnWidth(1, 300)
         self.duplicate_tree.setColumnWidth(2, 100)
 
+        # Enable context menu for duplicate tree
+        self.duplicate_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self.duplicate_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.duplicate_tree.customContextMenuRequested.connect(self.show_duplicate_context_menu)
+
         duplicate_results_layout.addWidget(self.duplicate_tree)
 
         # Duplicate actions
@@ -1202,7 +1441,7 @@ class CleanupHelperWidget(QWidget):
         delete_selected_btn.clicked.connect(self.delete_selected_duplicates)
         delete_selected_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
+                background-color: #808080;
                 color: white;
             }
         """)
@@ -1342,7 +1581,7 @@ class CleanupHelperWidget(QWidget):
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #8e44ad;
+                background-color: #808080;
             }
         """)
         actions_layout.addWidget(self.compress_btn)
@@ -1432,7 +1671,7 @@ class CleanupHelperWidget(QWidget):
         save_settings_btn.clicked.connect(self.save_settings)
         save_settings_btn.setStyleSheet("""
             QPushButton {
-                background-color: #27ae60;
+                background-color: #808080;
                 color: white;
                 padding: 8px 16px;
                 border-radius: 4px;
@@ -1500,7 +1739,10 @@ class CleanupHelperWidget(QWidget):
             return
 
         self.scan_btn.setEnabled(False)
-  
+
+        # Show splash screen
+        self.show_scan_splash("🔍 Сканування файлів...", "Підготовка до сканування...")
+
         # Start scanner thread
         self.scanner_thread = FileScanner(scan_path)
         self.scanner_thread.progress_updated.connect(self.update_scan_progress)
@@ -1510,7 +1752,8 @@ class CleanupHelperWidget(QWidget):
 
     def update_scan_progress(self, progress, message):
         """Update scan progress"""
-        
+        if self.scan_splash and self.scan_splash.isVisible():
+            self.scan_splash.update_progress(progress, message)
     def on_file_found(self, file_info):
         """Handle file found during scan"""
         pass  # Could update real-time stats here
@@ -1522,24 +1765,61 @@ class CleanupHelperWidget(QWidget):
         # Store scan results for archive browser
         self.analytics_scan_results = results
 
-        # Set progress to 100%
-        
+        # Update splash screen to show completion
+        if self.scan_splash and self.scan_splash.isVisible():
+            self.scan_splash.update_progress(100, "✅ Сканування завершено!")
+            QTimer.singleShot(1500, self.hide_scan_splash)
+
         # Update analytics display with results
         self.update_analytics_display(results)
 
-        # Re-enable scan button and hide progress bar after a short delay
-        QTimer.singleShot(1000, self.hide_progress_and_enable_button)
+        # Re-enable scan button after a short delay
+        QTimer.singleShot(2000, self.hide_progress_and_enable_button)
 
     def hide_progress_and_enable_button(self):
         """Hide progress bar and re-enable scan button"""
         self.scan_btn.setEnabled(True)
-        
+
         # Log to main application
         if hasattr(self.main_window, 'log_message'):
             self.main_window.log_message(
                 f"CleanupHelper: Scanned {self.analytics_scan_results['total_files']} files, "
                 f"total size: {humanize.naturalsize(self.analytics_scan_results['total_size'])}"
             )
+
+    def show_scan_splash(self, title="🔍 Сканування...", message="Підготовка..."):
+        """Show scan splash screen"""
+        if self.scan_splash:
+            self.hide_scan_splash()
+
+        self.scan_splash = ScanSplashScreen(self)
+        self.scan_splash.title_label.setText(title)
+        self.scan_splash.progress_label.setText(message)
+        self.scan_splash.show()
+
+    def hide_scan_splash(self):
+        """Hide scan splash screen"""
+        if self.scan_splash:
+            self.scan_splash.hide()
+            self.scan_splash.deleteLater()
+            self.scan_splash = None
+
+    def show_archive_splash(self, title="📂 Пошук в архівах...", message="Підготовка..."):
+        """Show archive splash screen"""
+        if self.archive_splash:
+            self.hide_archive_splash()
+
+        self.archive_splash = ArchiveSplashScreen(self)
+        self.archive_splash.title_label.setText(title)
+        self.archive_splash.progress_label.setText(message)
+        self.archive_splash.show()
+
+    def hide_archive_splash(self):
+        """Hide archive splash screen"""
+        if self.archive_splash:
+            self.archive_splash.hide()
+            self.archive_splash.deleteLater()
+            self.archive_splash = None
 
     def load_scan_results_to_archive(self):
         """Load analytics scan results into the archive browser"""
@@ -1713,7 +1993,10 @@ class CleanupHelperWidget(QWidget):
             return
 
         self.find_duplicates_btn.setEnabled(False)
-        
+
+        # Show splash screen for duplicate finding
+        self.show_scan_splash("🎯 Пошук дублікатів...", f"Пошук серед {len(files_to_check)} файлів...")
+
         # Start duplicate finder thread
         self.duplicate_finder_thread = DuplicateFileFinder(files_to_check)
         self.duplicate_finder_thread.progress_updated.connect(self.update_scan_progress)
@@ -1729,6 +2012,11 @@ class CleanupHelperWidget(QWidget):
     def on_duplicates_finished(self, results):
         """Handle duplicate finding completion"""
         self.duplicate_results = results
+
+        # Update splash screen to show completion
+        if self.scan_splash and self.scan_splash.isVisible():
+            self.scan_splash.update_progress(100, f"✅ Знайдено {len(results)} груп дублікатів!")
+            QTimer.singleShot(1500, self.hide_scan_splash)
 
         # Update duplicate tree
         self.duplicate_tree.clear()
@@ -1751,7 +2039,7 @@ class CleanupHelperWidget(QWidget):
                 item.setExpanded(True)
 
         self.find_duplicates_btn.setEnabled(True)
-        
+
         # Log to main application
         if hasattr(self.main_window, 'log_message'):
             self.main_window.log_message(f"CleanupHelper: Found {len(results)} groups of duplicate files")
@@ -1981,8 +2269,9 @@ class CleanupHelperWidget(QWidget):
             self.refresh_archive_tree()
             return
 
-        # Show progress bar
-        
+        # Show archive splash screen
+        self.show_archive_splash("📂 Пошук в архівах...", f"Пошук: '{search_term}'...")
+
         # Update the search button to show searching state
         search_btn = self.findChild(QPushButton, "search_button")
         if search_btn:
@@ -1991,7 +2280,8 @@ class CleanupHelperWidget(QWidget):
 
         self.refresh_archive_tree(search_term)
 
-        # Reset progress and button when done
+        # Hide splash screen and reset button when done
+        QTimer.singleShot(500, self.hide_archive_splash)
         if search_btn:
             search_btn.setEnabled(True)
             search_btn.setText("Пошук")
@@ -2015,17 +2305,24 @@ class CleanupHelperWidget(QWidget):
             self.archive_tree.clear()
             self.archive_status_label.setText("Побудова дерева файлів...")
 
-            
+            # Update splash screen if it's active
+            if self.archive_splash and self.archive_splash.isVisible():
+                self.archive_splash.update_progress(0, "Побудова дерева файлів...")
+
             # Check if we have cached data for this path
             current_time = time.time()
             if (self._last_scan_path == scan_path and
                 self._file_cache and
                 current_time - self._cache_timestamp < 300):  # 5 minutes cache
                 self.archive_status_label.setText("Використання кешу...")
+                if self.archive_splash and self.archive_splash.isVisible():
+                    self.archive_splash.update_progress(50, "Використання кешу...")
                 self._build_tree_from_cache(search_term)
             else:
                 # Build cache and tree structure
                 self.archive_status_label.setText("Побудова кешу...")
+                if self.archive_splash and self.archive_splash.isVisible():
+                    self.archive_splash.update_progress(25, "Сканування файлів...")
                 self._build_file_cache(scan_path)
                 self.archive_status_label.setText("Побудова дерева файлів...")
                 self._build_tree_recursive(scan_path, self.archive_tree.invisibleRootItem(), search_term, 0)
@@ -2637,7 +2934,8 @@ class CleanupHelperWidget(QWidget):
         if file_path and os.path.exists(file_path):
             import subprocess
             if sys.platform == "win32":
-                subprocess.run(['explorer', '/select,', file_path])
+                # Proper Windows Explorer command to select file
+                subprocess.run(f'explorer /select,"{file_path}"', shell=True)
             elif sys.platform == "darwin":
                 subprocess.run(['open', '-R', file_path])
             else:
@@ -2836,6 +3134,375 @@ class CleanupHelperWidget(QWidget):
 
         for i in range(self.archive_tree.topLevelItemCount()):
             collapse_items(self.archive_tree.topLevelItem(i))
+
+    def show_duplicate_context_menu(self, position):
+        """Show context menu for duplicate finder"""
+        selected_items = self.duplicate_tree.selectedItems()
+        if not selected_items:
+            return
+
+        menu = QMenu(self)
+
+        # Get selected files and duplicate groups
+        selected_files = self.get_selected_duplicate_files()
+        selected_groups = self.get_selected_duplicate_groups()
+        has_any_selection = selected_files or selected_groups
+
+        if has_any_selection:
+            # Open actions
+            open_action = menu.addAction("📂 Відкрити")
+            open_action.triggered.connect(self.open_selected_duplicates)
+
+            show_action = menu.addAction("👁️ Показати у провіднику")
+            show_action.triggered.connect(self.show_selected_duplicates_in_explorer)
+
+            menu.addSeparator()
+
+            # Duplicate-specific actions
+            if selected_files:
+                # Keep newest (smart selection)
+                keep_newest_action = menu.addAction("🕐 Залишити найновіший, видалити інші")
+                keep_newest_action.triggered.connect(self.keep_newest_delete_others)
+
+                # Keep oldest
+                keep_oldest_action = menu.addAction("🕐 Залишити найстаріший, видалити інші")
+                keep_oldest_action.triggered.connect(self.keep_oldest_delete_others)
+
+                # Keep in specific location
+                keep_location_action = menu.addAction("📁 Залишити у вибраній папці")
+                keep_location_action.triggered.connect(self.keep_in_location_delete_others)
+
+                menu.addSeparator()
+
+            # Selection-based actions
+            if selected_groups:
+                select_all_in_group_action = menu.addAction("✅ Вибрати всі файли у групі")
+                select_all_in_group_action.triggered.connect(self.select_all_in_groups)
+
+                menu.addSeparator()
+
+            # Delete actions
+            if selected_files:
+                delete_selected_action = menu.addAction("🗑️ Видалити вибрані файли")
+                delete_selected_action.triggered.connect(self.delete_selected_duplicate_files)
+
+            if selected_groups:
+                delete_group_action = menu.addAction("🗑️ Видалити всю групу дублікатів")
+                delete_group_action.triggered.connect(self.delete_selected_duplicate_groups)
+
+            menu.addSeparator()
+
+            # Copy operations
+            copy_path_action = menu.addAction("📋 Копіювати шлях")
+            copy_path_action.triggered.connect(self.copy_selected_duplicate_paths)
+
+            copy_hash_action = menu.addAction("🔑 Копіювати хеш")
+            copy_hash_action.triggered.connect(self.copy_selected_duplicate_hashes)
+
+            menu.addSeparator()
+
+        # Tree operations
+        if self.duplicate_tree.topLevelItemCount() > 0:
+            expand_all_action = menu.addAction("📂 Розгорнути все")
+            expand_all_action.triggered.connect(self.expand_all_duplicate_items)
+
+            collapse_all_action = menu.addAction("📁 Згорнути все")
+            collapse_all_action.triggered.connect(self.collapse_all_duplicate_items)
+
+            menu.addSeparator()
+
+            # Refresh action
+            refresh_action = menu.addAction("🔄 Оновити список дублікатів")
+            refresh_action.triggered.connect(self.refresh_duplicates)
+
+        menu.exec_(self.duplicate_tree.viewport().mapToGlobal(position))
+
+    def get_selected_duplicate_files(self):
+        """Get list of selected file paths from duplicate tree"""
+        selected_files = []
+        for item in self.duplicate_tree.selectedItems():
+            # Child items are files (column 0 is empty for files)
+            if item.text(0) == "" and item.text(1):
+                selected_files.append(item.text(1))
+        return selected_files
+
+    def get_selected_duplicate_groups(self):
+        """Get list of selected duplicate groups"""
+        selected_groups = []
+        for item in self.duplicate_tree.selectedItems():
+            # Parent items have hash in column 0
+            if item.text(0) and not item.text(0).startswith(""):
+                selected_groups.append(item)
+        return selected_groups
+
+    def open_selected_duplicates(self):
+        """Open selected duplicate files"""
+        selected_files = self.get_selected_duplicate_files()
+        for file_path in selected_files:
+            if os.path.exists(file_path):
+                if sys.platform == "win32":
+                    os.startfile(file_path)
+                elif sys.platform == "darwin":
+                    subprocess.run(['open', file_path])
+                else:
+                    subprocess.run(['xdg-open', file_path])
+
+    def show_selected_duplicates_in_explorer(self):
+        """Show selected duplicate files in file explorer"""
+        selected_files = self.get_selected_duplicate_files()
+        for file_path in selected_files:
+            if os.path.exists(file_path):
+                if sys.platform == "win32":
+                    subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+                elif sys.platform == "darwin":
+                    subprocess.run(['open', '-R', file_path])
+                else:
+                    subprocess.run(['xdg-open', os.path.dirname(file_path)])
+
+    def keep_newest_delete_others(self):
+        """Keep the newest file in each selected group and delete others"""
+        selected_groups = self.get_selected_duplicate_groups()
+        if not selected_groups:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Підтвердження",
+            f"Ви впевнені, що хочете залишити найновіші файли та видалити інші?\n\n"
+            f"Це видалить {sum(group.childCount() - 1 for group in selected_groups)} файлів.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        files_to_delete = []
+        for group in selected_groups:
+            group_files = []
+            for i in range(group.childCount()):
+                child = group.child(i)
+                file_path = child.text(1)
+                if os.path.exists(file_path):
+                    mtime = os.path.getmtime(file_path)
+                    group_files.append((file_path, mtime))
+
+            # Sort by modification time (newest first) and keep only the newest
+            group_files.sort(key=lambda x: x[1], reverse=True)
+            if group_files:
+                # Keep the newest, add others to delete list
+                files_to_delete.extend([f[0] for f in group_files[1:]])
+
+        self._delete_duplicate_files_list(files_to_delete)
+
+    def keep_oldest_delete_others(self):
+        """Keep the oldest file in each selected group and delete others"""
+        selected_groups = self.get_selected_duplicate_groups()
+        if not selected_groups:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Підтвердження",
+            f"Ви впевнені, що хочете залишити найстаріші файли та видалити інші?\n\n"
+            f"Це видалить {sum(group.childCount() - 1 for group in selected_groups)} файлів.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        files_to_delete = []
+        for group in selected_groups:
+            group_files = []
+            for i in range(group.childCount()):
+                child = group.child(i)
+                file_path = child.text(1)
+                if os.path.exists(file_path):
+                    mtime = os.path.getmtime(file_path)
+                    group_files.append((file_path, mtime))
+
+            # Sort by modification time (oldest first) and keep only the oldest
+            group_files.sort(key=lambda x: x[1])
+            if group_files:
+                # Keep the oldest, add others to delete list
+                files_to_delete.extend([f[0] for f in group_files[1:]])
+
+        self._delete_duplicate_files_list(files_to_delete)
+
+    def keep_in_location_delete_others(self):
+        """Keep files in preferred location and delete others"""
+        selected_groups = self.get_selected_duplicate_groups()
+        if not selected_groups:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            return
+
+        # Let user choose preferred location
+        location = QFileDialog.getExistingDirectory(
+            self, "Оберіть папку для збереження файлів"
+        )
+        if not location:
+            return
+
+        files_to_delete = []
+        for group in selected_groups:
+            files_to_keep = []
+            for i in range(group.childCount()):
+                child = group.child(i)
+                file_path = child.text(1)
+                if os.path.exists(file_path) and file_path.startswith(location):
+                    files_to_keep.append(file_path)
+
+            # If no files in preferred location, ask user to choose
+            if not files_to_keep:
+                # Show dialog to select files to keep
+                group_files = []
+                for i in range(group.childCount()):
+                    child = group.child(i)
+                    file_path = child.text(1)
+                    group_files.append(file_path)
+
+                # For now, keep the first file
+                if group_files:
+                    files_to_keep = [group_files[0]]
+
+            # Add all other files to delete list
+            for i in range(group.childCount()):
+                child = group.child(i)
+                file_path = child.text(1)
+                if file_path not in files_to_keep:
+                    files_to_delete.append(file_path)
+
+        if files_to_delete:
+            reply = QMessageBox.question(
+                self, "Підтвердження",
+                f"Видалити {len(files_to_delete)} файлів, що не знаходяться у вибраній папці?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self._delete_duplicate_files_list(files_to_delete)
+
+    def select_all_in_groups(self):
+        """Select all files in selected duplicate groups"""
+        selected_groups = self.get_selected_duplicate_groups()
+        for group in selected_groups:
+            for i in range(group.childCount()):
+                child = group.child(i)
+                child.setSelected(True)
+
+    def delete_selected_duplicate_files(self):
+        """Delete selected duplicate files"""
+        selected_files = self.get_selected_duplicate_files()
+        if not selected_files:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть файли для видалення.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Підтвердження видалення",
+            f"Ви впевнені, що хочете видалити {len(selected_files)} файлів?\n\n"
+            "Ця дія не може бути скасована!",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self._delete_duplicate_files_list(selected_files)
+
+    def delete_selected_duplicate_groups(self):
+        """Delete entire selected duplicate groups"""
+        selected_groups = self.get_selected_duplicate_groups()
+        if not selected_groups:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи для видалення.")
+            return
+
+        total_files = sum(group.childCount() for group in selected_groups)
+        reply = QMessageBox.question(
+            self, "Підтвердження видалення",
+            f"Ви впевнені, що хочете видалити всі {total_files} файлів у вибраних групах?\n\n"
+            "Ця дія не може бути скасована!",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            files_to_delete = []
+            for group in selected_groups:
+                for i in range(group.childCount()):
+                    child = group.child(i)
+                    file_path = child.text(1)
+                    files_to_delete.append(file_path)
+
+            self._delete_duplicate_files_list(files_to_delete)
+
+    def copy_selected_duplicate_paths(self):
+        """Copy paths of selected duplicate files"""
+        selected_files = self.get_selected_duplicate_files()
+        if selected_files:
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText('\n'.join(selected_files))
+
+    def copy_selected_duplicate_hashes(self):
+        """Copy hashes of selected duplicate groups"""
+        selected_groups = self.get_selected_duplicate_groups()
+        if selected_groups:
+            hashes = [group.text(0) for group in selected_groups]
+            from PyQt5.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText('\n'.join(hashes))
+
+    def expand_all_duplicate_items(self):
+        """Expand all duplicate tree items"""
+        for i in range(self.duplicate_tree.topLevelItemCount()):
+            item = self.duplicate_tree.topLevelItem(i)
+            item.setExpanded(True)
+
+    def collapse_all_duplicate_items(self):
+        """Collapse all duplicate tree items"""
+        for i in range(self.duplicate_tree.topLevelItemCount()):
+            item = self.duplicate_tree.topLevelItem(i)
+            item.setExpanded(False)
+
+    def refresh_duplicates(self):
+        """Refresh duplicate search"""
+        current_path = self.duplicate_path_edit.text().strip()
+        if current_path and os.path.exists(current_path):
+            self.find_duplicates()
+
+    def _delete_duplicate_files_list(self, files_to_delete):
+        """Helper method to delete a list of files"""
+        deleted_count = 0
+        failed_count = 0
+        failed_files = []
+
+        for file_path in files_to_delete:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    deleted_count += 1
+                    # Log to main application
+                    if hasattr(self.main_window, 'log_message'):
+                        self.main_window.log_message(f"CleanupHelper: Deleted duplicate {file_path}")
+            except Exception as e:
+                failed_count += 1
+                failed_files.append(f"{file_path}: {str(e)}")
+
+        # Show results
+        if failed_count == 0:
+            QMessageBox.information(
+                self, "Видалення завершено",
+                f"Успішно видалено {deleted_count} файлів."
+            )
+            # Refresh the duplicate tree
+            self.refresh_duplicates()
+        else:
+            error_details = "\n".join(failed_files[:5])  # Show first 5 errors
+            if len(failed_files) > 5:
+                error_details += f"\n... та ще {len(failed_files) - 5} помилок"
+
+            QMessageBox.warning(
+                self, "Часткове видалення",
+                f"Видалено {deleted_count} файлів.\n"
+                f"Не вдалося видалити {failed_count} файлів:\n{error_details}"
+            )
 
     def handle_action_selection(self, selected_option: str):
         """Handle action selection from dropdown"""
@@ -3443,7 +4110,8 @@ class CleanupHelperWidget(QWidget):
         for item_path in selected_items:
             try:
                 if sys.platform == "win32":
-                    subprocess.run(['explorer', '/select,', item_path])
+                    # Proper Windows Explorer command to select file
+                    subprocess.run(f'explorer /select,"{item_path}"', shell=True)
                 elif sys.platform == "darwin":
                     subprocess.run(['open', '-R', item_path])
                 else:
@@ -4143,17 +4811,14 @@ class FilterPresetsWindow(QDialog):
 
         quick_custom_btn = QPushButton("Зображення")
         quick_custom_btn.clicked.connect(lambda: self.set_custom_extension(".jpg, .jpeg, .png, .gif, .bmp, .svg, .webp"))
-        quick_custom_btn.setStyleSheet("QPushButton { font-size: 11px; padding: 3px 8px; }")
         quick_preset_layout.addWidget(quick_custom_btn)
 
         quick_docs_btn = QPushButton("Документи")
         quick_docs_btn.clicked.connect(lambda: self.set_custom_extension(".pdf, .doc, .docx, .txt, .rtf, .odt"))
-        quick_docs_btn.setStyleSheet("QPushButton { font-size: 11px; padding: 3px 8px; }")
         quick_preset_layout.addWidget(quick_docs_btn)
 
         quick_code_btn = QPushButton("Код")
         quick_code_btn.clicked.connect(lambda: self.set_custom_extension(".py, .js, .html, .css, .java, .cpp, .c"))
-        quick_code_btn.setStyleSheet("QPushButton { font-size: 11px; padding: 3px 8px; }")
         quick_preset_layout.addWidget(quick_code_btn)
 
         quick_preset_layout.addStretch()
