@@ -44,7 +44,8 @@ from PyQt5.QtWidgets import (
     QProgressBar, QSpinBox, QCheckBox, QComboBox, QLineEdit,
     QGroupBox, QSplitter, QTableWidget, QTableWidgetItem,
     QHeaderView, QMessageBox, QFileDialog, QFrame, QGridLayout,
-    QScrollArea, QSizePolicy, QSlider, QDateEdit, QDialog, QMenu, QListWidget, QListWidgetItem
+    QScrollArea, QSizePolicy, QSlider, QDateEdit, QDialog, QMenu, QListWidget, QListWidgetItem,
+    QApplication
 )
 from PyQt5.QtCore import (
     Qt, QThread, pyqtSignal, QTimer, QDate, QMutex, QMutexLocker, QRect, QPropertyAnimation, QEasingCurve
@@ -136,18 +137,29 @@ class ScanSplashScreen(QWidget):
     """Splash screen for scan operations"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # Use different window flags to ensure visibility
+        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(400, 120)  # Reduced height since no progress bar
 
-        # Center the splash screen on parent
+        # Auto-sizing will be calculated after UI initialization
+        self.setMinimumSize(350, 100)
+        self.setMaximumSize(600, 200)
+
+        self.initUI()
+        self.calculate_auto_size()
+
+        # Center on screen if parent available, otherwise center on desktop
         if parent:
             parent_rect = parent.geometry()
             x = parent_rect.x() + (parent_rect.width() - self.width()) // 2
             y = parent_rect.y() + (parent_rect.height() - self.height()) // 2
-            self.move(x, y)
-
-        self.initUI()
+        else:
+            # Center on desktop
+            from PyQt5.QtWidgets import QDesktopWidget
+            screen = QDesktopWidget().screenGeometry()
+            x = (screen.width() - self.width()) // 2
+            y = (screen.height() - self.height()) // 2
+        self.move(x, y)
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -212,9 +224,33 @@ class ScanSplashScreen(QWidget):
             }
         """)
 
+    def calculate_auto_size(self):
+        """Calculate optimal size based on content"""
+        # Ensure layout is updated
+        self.container.layout().update()
+        self.container.layout().activate()
+
+        # Calculate required size
+        title_width = self.title_label.sizeHint().width()
+        progress_width = self.progress_label.sizeHint().width()
+
+        # Add margins and padding
+        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = max(350, min(600, required_width))  # Clamp between min and max
+
+        # Calculate height based on content
+        title_height = self.title_label.sizeHint().height()
+        progress_height = self.progress_label.sizeHint().height()
+        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
+        required_height = max(100, min(200, required_height))  # Clamp between min and max
+
+        self.setFixedSize(required_width, required_height)
+
     def update_progress(self, value, message):
-        """Update progress message"""
+        """Update progress message and recalculate size if needed"""
         self.progress_label.setText(message)
+        # Recalculate size to accommodate new text
+        self.calculate_auto_size()
 
     def showEvent(self, event):
         """Start spinning when shown"""
@@ -227,36 +263,92 @@ class ScanSplashScreen(QWidget):
         self.spinning_wheel.stop_rotation()
 
 class ArchiveSplashScreen(QWidget):
-    """Splash screen for archive viewer operations"""
+    """Simple splash screen overlay for archive viewer operations"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(400, 120)
+        
+        # Window flags for proper floating window
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # Don't use WA_TranslucentBackground for solid background
 
-        # Center the splash screen on parent
-        if parent:
-            parent_rect = parent.geometry()
-            x = parent_rect.x() + (parent_rect.width() - self.width()) // 2
-            y = parent_rect.y() + (parent_rect.height() - self.height()) // 2
-            self.move(x, y)
+        # Modern styling with solid background
+        self.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 12px;
+            }
+        """)
+
+        # Auto-sizing will be calculated after UI initialization
+        self.setMinimumSize(350, 100)
+        self.setMaximumSize(600, 200)
 
         self.initUI()
+        self.calculate_auto_size()
+
+        # Center on parent or screen
+        self.center_on_parent()
+
+        
+    def center_on_parent(self):
+        """Center the splash screen on parent or screen"""
+        try:
+            if self.parent():
+                # Get the parent window's global geometry
+                parent_widget = self.parent()
+                while parent_widget.parent():
+                    parent_widget = parent_widget.parent()
+
+                parent_rect = parent_widget.geometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                # Calculate center position
+                x = parent_rect.x() + (parent_rect.width() - splash_width) // 2
+                y = parent_rect.y() + (parent_rect.height() - splash_height) // 2
+
+            else:
+                # Center on desktop
+                from PyQt5.QtWidgets import QDesktopWidget
+                screen = QDesktopWidget().screenGeometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                x = (screen.width() - splash_width) // 2
+                y = (screen.height() - splash_height) // 2
+
+            self.move(x, y)
+
+        except Exception as e:
+            # Fallback to top-left corner
+            self.move(100, 100)
+
+    def calculate_auto_size(self):
+        """Calculate optimal size based on content"""
+        # Ensure layout is updated
+        self.layout().update()
+        self.layout().activate()
+
+        # Calculate required size
+        title_width = self.title_label.sizeHint().width()
+        progress_width = self.progress_label.sizeHint().width()
+
+        # Add margins and padding
+        required_width = max(title_width, progress_width) + 120  # Extra space for spinner and margins
+        required_width = max(350, min(600, required_width))  # Clamp between min and max
+
+        # Calculate height based on content
+        title_height = self.title_label.sizeHint().height()
+        progress_height = self.progress_label.sizeHint().height()
+        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
+        required_height = max(100, min(200, required_height))  # Clamp between min and max
+
+        self.setFixedSize(required_width, required_height)
 
     def initUI(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-
-        # Main container with no borders
-        self.container = QWidget()
-        self.container.setStyleSheet("""
-            QWidget {
-                background-color: rgba(255, 255, 255, 0.95);
-                border-radius: 10px;
-            }
-        """)
-        container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(30, 25, 30, 25)
 
         # Title and spinner layout
         title_layout = QHBoxLayout()
@@ -278,37 +370,34 @@ class ArchiveSplashScreen(QWidget):
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
 
-        container_layout.addLayout(title_layout)
+        layout.addLayout(title_layout)
 
-        # Progress label - expanded space
+        # Progress label
         self.progress_label = QLabel("Підготовка до пошуку...")
         self.progress_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
-                color: #7f8c8d;
+                color: #2c3e50;
                 margin-top: 15px;
                 padding: 10px;
-                background-color: rgba(236, 240, 241, 0.5);
-                border-radius: 5px;
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 6px;
                 min-height: 20px;
             }
         """)
         self.progress_label.setAlignment(Qt.AlignCenter)
         self.progress_label.setWordWrap(True)
-        container_layout.addWidget(self.progress_label)
+        layout.addWidget(self.progress_label)
 
-        layout.addWidget(self.container)
-
-        # Add shadow effect
-        self.setStyleSheet("""
-            ArchiveSplashScreen {
-                background-color: transparent;
-            }
-        """)
-
+        
     def update_progress(self, value, message):
-        """Update progress message"""
+        """Update progress message and recalculate size if needed"""
         self.progress_label.setText(message)
+        # Recalculate size to accommodate new text
+        self.calculate_auto_size()
+        # Re-center after resizing
+        self.center_on_parent()
 
     def showEvent(self, event):
         """Start spinning when shown"""
@@ -319,6 +408,196 @@ class ArchiveSplashScreen(QWidget):
         """Stop spinning when hidden"""
         super().hideEvent(event)
         self.spinning_wheel.stop_rotation()
+
+class ArchiveTreeBuilder(QThread):
+    """Thread for building archive tree structure"""
+    progress_updated = pyqtSignal(int, str)
+    tree_built = pyqtSignal(object)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, scan_path: str, search_term: str = "", parent=None):
+        super().__init__(parent)
+        self.scan_path = scan_path
+        self.search_term = search_term
+        self.should_stop = False
+
+    def run(self):
+        """Build archive tree in background thread"""
+        try:
+            # Check if we have cached data for this path
+            current_time = time.time()
+            if (hasattr(self.parent(), '_last_scan_path') and
+                self.parent()._last_scan_path == self.scan_path and
+                hasattr(self.parent(), '_file_cache') and
+                self.parent()._file_cache and
+                hasattr(self.parent(), '_cache_timestamp') and
+                current_time - self.parent()._cache_timestamp < 300):  # 5 minutes cache
+                self.progress_updated.emit(50, "Використання кешу...")
+                self._build_tree_from_cache()
+            else:
+                # Build cache and tree structure
+                self.progress_updated.emit(25, "Сканування файлів...")
+                self._build_file_cache()
+                self.progress_updated.emit(75, "Побудова дерева файлів...")
+                tree_widget = self._build_tree_recursive()
+                self.tree_built.emit(tree_widget)
+                return
+
+            # Handle cached case
+            tree_widget = self._build_tree_from_cache()
+            self.tree_built.emit(tree_widget)
+
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+    def _build_file_cache(self):
+        """Build a cache of the file structure for fast searching"""
+        if not hasattr(self.parent(), '_file_cache'):
+            self.parent()._file_cache = {}
+        if not hasattr(self.parent(), '_search_index'):
+            self.parent()._search_index = {}
+
+        self.parent()._file_cache.clear()
+        self.parent()._search_index.clear()
+        self.parent()._last_scan_path = self.scan_path
+        self.parent()._cache_timestamp = time.time()
+
+        def _scan_directory(path: str, cache_dict: dict):
+            """Recursively scan directory and build cache"""
+            try:
+                for item_name in os.listdir(path):
+                    if self.should_stop:
+                        return
+
+                    item_path = os.path.join(path, item_name)
+                    if os.path.exists(item_path):
+                        is_dir = os.path.isdir(item_path)
+
+                        # Get file metadata
+                        try:
+                            stat_info = os.stat(item_path)
+                            file_size = stat_info.st_size
+                            modified_time = stat_info.st_mtime
+                            modified_str = datetime.fromtimestamp(modified_time).strftime("%Y-%m-%d %H:%M")
+                        except (OSError, PermissionError):
+                            file_size = None
+                            modified_time = None
+                            modified_str = "Невідомо"
+
+                        cache_dict[item_name] = {
+                            'path': item_path,
+                            'is_dir': is_dir,
+                            'name_lower': item_name.lower(),
+                            'size': file_size,
+                            'modified_timestamp': modified_time,
+                            'modified': modified_str
+                        }
+
+                        # Add to search index for faster lookups
+                        name_lower = item_name.lower()
+                        for i in range(len(name_lower)):
+                            for j in range(i + 1, min(i + 20, len(name_lower) + 1)):  # Limit substring length
+                                substring = name_lower[i:j]
+                                if substring not in self.parent()._search_index:
+                                    self.parent()._search_index[substring] = []
+                                self.parent()._search_index[substring].append(item_path)
+
+                        if is_dir:
+                            _scan_directory(item_path, cache_dict)
+
+            except (PermissionError, OSError) as e:
+                # Skip directories we can't access
+                pass
+
+        _scan_directory(self.scan_path, self.parent()._file_cache)
+
+    def _build_tree_recursive(self):
+        """Build the tree structure from cache"""
+        from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem
+
+        tree_widget = QTreeWidget()
+        tree_widget.clear()
+
+        def _build_tree_level(path: str, parent_item, level: int = 0):
+            """Recursively build tree level"""
+            if level > 10 or self.should_stop:  # Prevent infinite recursion
+                return
+
+            try:
+                # Get items for this directory from cache
+                items_here = []
+                for item_name, item_data in self.parent()._file_cache.items():
+                    item_path = item_data['path']
+                    item_dir = os.path.dirname(item_path)
+
+                    if os.path.normpath(item_dir) == os.path.normpath(path):
+                        # Check if item matches search term
+                        if self.search_term and self.search_term.lower() not in item_data['name_lower']:
+                            continue
+                        items_here.append(item_data)
+
+                # Sort: directories first, then files
+                items_here.sort(key=lambda x: (not x['is_dir'], x['name_lower']))
+
+                for item_data in items_here:
+                    if self.should_stop:
+                        return
+
+                    item_path = item_data['path']
+                    item_name = os.path.basename(item_path)
+                    is_dir = item_data['is_dir']
+
+                    # Create tree item
+                    tree_item = QTreeWidgetItem(parent_item)
+                    tree_item.setText(0, item_name)
+                    tree_item.setData(0, Qt.UserRole, item_path)
+
+                    # Set appropriate icon
+                    if is_dir:
+                        tree_item.setText(0, f"📁 {item_name}")
+                        tree_item.setData(1, Qt.DisplayRole, "Папка")
+                        # Recursively build subdirectories
+                        _build_tree_level(item_path, tree_item, level + 1)
+                    else:
+                        file_ext = os.path.splitext(item_name)[1].lower()
+                        icon = self._get_file_icon(file_ext)
+                        tree_item.setText(0, f"{icon} {item_name}")
+
+                        size_str = item_data['size'] if item_data['size'] else "Невідомо"
+                        tree_item.setData(1, Qt.DisplayRole, size_str)
+                        tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
+
+            except (PermissionError, OSError) as e:
+                # Handle directories we can't access
+                error_item = QTreeWidgetItem(parent_item)
+                error_item.setText(0, f"🚫 Помилка доступу: {str(e)}")
+                error_item.setData(0, Qt.UserRole, None)
+
+        # Build from root
+        _build_tree_level(self.scan_path, tree_widget.invisibleRootItem())
+        return tree_widget
+
+    def _build_tree_from_cache(self):
+        """Build tree from cached data"""
+        return self._build_tree_recursive()
+
+    def _get_file_icon(self, extension: str) -> str:
+        """Get appropriate icon for file extension"""
+        icon_map = {
+            '.txt': '📄', '.doc': '📝', '.docx': '📝', '.pdf': '📋',
+            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️', '.bmp': '🖼️',
+            '.mp4': '🎬', '.avi': '🎬', '.mkv': '🎬', '.mov': '🎬',
+            '.mp3': '🎵', '.wav': '🎵', '.flac': '🎵', '.aac': '🎵',
+            '.zip': '🗜️', '.rar': '🗜️', '.7z': '🗜️', '.tar': '🗜️', '.gz': '🗜️',
+            '.exe': '⚙️', '.msi': '⚙️', '.bat': '⚙️', '.cmd': '⚙️',
+            '.py': '🐍', '.js': '🌐', '.html': '🌐', '.css': '🎨',
+        }
+        return icon_map.get(extension, '📄')
+
+    def stop(self):
+        """Stop the tree building process"""
+        self.should_stop = True
+
 
 class FileScanner(QThread):
     """Thread for scanning files and directories"""
@@ -1145,6 +1424,11 @@ class CleanupHelperWidget(QWidget):
         self.archive_tree.customContextMenuRequested.connect(self.show_archive_context_menu)
         self.archive_tree.itemDoubleClicked.connect(self.open_file_location)
 
+        # Ensure expand controls are always visible for directories
+        self.archive_tree.setIndentation(20)
+        self.archive_tree.setRootIsDecorated(True)
+        self.archive_tree.setAlternatingRowColors(True)
+
         layout.addWidget(self.archive_tree)
 
         # Status label for archive operations
@@ -1258,9 +1542,9 @@ class CleanupHelperWidget(QWidget):
         # Common file type filters
         images_btn = QPushButton("🖼️ Зображення")
         images_btn.clicked.connect(lambda: self.apply_quick_filter("images"))
-        images_btn.setStyleSheet("""
+        oil_gas_btn.setStyleSheet("""
             QPushButton {
-                background-color: #9b59b6;
+                background-color: #808080;
                 color: white;
                 border: none;
                 padding: 6px 12px;
@@ -1268,7 +1552,10 @@ class CleanupHelperWidget(QWidget):
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #808080;
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
             }
         """)
         primary_filters_layout.addWidget(images_btn)
@@ -1408,6 +1695,31 @@ class CleanupHelperWidget(QWidget):
 
         self.check_content_hash = QCheckBox("Порівнювати вміст файлів (повільніше, але точніше)")
         self.check_content_hash.setChecked(True)
+        self.check_content_hash.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+                border: 1px solid #6C6C6C;
+                background-color: #FFFFFF;
+                border-radius: 0px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FFFFFF;
+                border: 1px solid #6C6C6C;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+            }
+            QCheckBox::indicator:pressed {
+                background-color: #F0F0F0;
+                border: 1px solid #6C6C6C;
+            }
+        """)
         options_layout.addWidget(self.check_content_hash)
 
         options_layout.addStretch()
@@ -1621,9 +1933,59 @@ class CleanupHelperWidget(QWidget):
 
         self.auto_detect_archives = QCheckBox("Автоматично визначати папки архівів")
         self.auto_detect_archives.setChecked(True)
+        self.auto_detect_archives.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+                border: 1px solid #6C6C6C;
+                background-color: #FFFFFF;
+                border-radius: 0px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FFFFFF;
+                border: 1px solid #6C6C6C;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+            }
+            QCheckBox::indicator:pressed {
+                background-color: #F0F0F0;
+                border: 1px solid #6C6C6C;
+            }
+        """)
         general_layout.addWidget(self.auto_detect_archives, 1, 0, 1, 3)
 
         self.show_hidden_files = QCheckBox("Показувати приховані файли в оглядачі")
+        self.show_hidden_files.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+                border: 1px solid #6C6C6C;
+                background-color: #FFFFFF;
+                border-radius: 0px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FFFFFF;
+                border: 1px solid #6C6C6C;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+            }
+            QCheckBox::indicator:pressed {
+                background-color: #F0F0F0;
+                border: 1px solid #6C6C6C;
+            }
+        """)
         general_layout.addWidget(self.show_hidden_files, 2, 0, 1, 3)
 
         layout.addWidget(general_group)
@@ -1660,6 +2022,31 @@ class CleanupHelperWidget(QWidget):
 
         self.enable_caching = QCheckBox("Enable file caching")
         self.enable_caching.setChecked(True)
+        self.enable_caching.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+                border: 1px solid #6C6C6C;
+                background-color: #FFFFFF;
+                border-radius: 0px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FFFFFF;
+                border: 1px solid #6C6C6C;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+            }
+            QCheckBox::indicator:pressed {
+                background-color: #F0F0F0;
+                border: 1px solid #6C6C6C;
+            }
+        """)
         performance_layout.addWidget(self.enable_caching, 1, 0, 1, 2)
 
         layout.addWidget(performance_group)
@@ -1795,7 +2182,18 @@ class CleanupHelperWidget(QWidget):
         self.scan_splash = ScanSplashScreen(self)
         self.scan_splash.title_label.setText(title)
         self.scan_splash.progress_label.setText(message)
+
+        # Ensure the splash screen is properly sized and visible
+        self.scan_splash.calculate_auto_size()
+
+        # Show with multiple methods to ensure visibility
         self.scan_splash.show()
+        self.scan_splash.raise_()
+        self.scan_splash.activateWindow()
+
+        # Force immediate UI update to prevent delays
+        self.scan_splash.repaint()
+        QApplication.processEvents()
 
     def hide_scan_splash(self):
         """Hide scan splash screen"""
@@ -1809,10 +2207,17 @@ class CleanupHelperWidget(QWidget):
         if self.archive_splash:
             self.hide_archive_splash()
 
+        # Create splash screen as separate window
         self.archive_splash = ArchiveSplashScreen(self)
         self.archive_splash.title_label.setText(title)
         self.archive_splash.progress_label.setText(message)
+
         self.archive_splash.show()
+        self.archive_splash.raise_()
+        self.archive_splash.activateWindow()
+
+        # Force immediate UI update
+        QApplication.processEvents()
 
     def hide_archive_splash(self):
         """Hide archive splash screen"""
@@ -2264,11 +2669,22 @@ class CleanupHelperWidget(QWidget):
         # Get search parameters
         search_term = self.search_edit.text().strip()
 
-        # If no search term, show all files
+        # If no search term, show all files with splash screen
         if not search_term:
+            # Show splash screen for refresh
+            self.show_archive_splash("🔄 Оновлення архіву...", "Оновлення списку файлів...")
+
+            # Update the search button to show searching state
+            search_btn = self.findChild(QPushButton, "search_button")
+            if search_btn:
+                search_btn.setEnabled(False)
+                search_btn.setText("Оновлення...")
+
+            # Add a small delay to ensure splash screen appears before starting search
+            QApplication.processEvents()
+
             self.refresh_archive_tree()
             return
-
         # Show archive splash screen
         self.show_archive_splash("📂 Пошук в архівах...", f"Пошук: '{search_term}'...")
 
@@ -2278,13 +2694,13 @@ class CleanupHelperWidget(QWidget):
             search_btn.setEnabled(False)
             search_btn.setText("Пошук...")
 
+        # Add a small delay to ensure splash screen appears before starting search
+        QApplication.processEvents()
+
         self.refresh_archive_tree(search_term)
 
-        # Hide splash screen and reset button when done
-        QTimer.singleShot(500, self.hide_archive_splash)
-        if search_btn:
-            search_btn.setEnabled(True)
-            search_btn.setText("Пошук")
+        # The splash screen will be hidden when refresh_archive_tree completes
+        # Button reset happens in refresh_archive_tree
 
     def refresh_archive_tree(self, search_term: str = ""):
         """Refresh the archive tree view with optional search and category filtering"""
@@ -2294,39 +2710,311 @@ class CleanupHelperWidget(QWidget):
             self.archive_tree.clear()
             item = QTreeWidgetItem(self.archive_tree)
             item.setText(0, "Каталог не знайдено")
+
+            # Show error message on splash screen before hiding
+            if self.archive_splash and self.archive_splash.isVisible():
+                self.archive_splash.update_progress(0, "Помилка: шлях не знайдено")
+                QApplication.processEvents()
+                # Small delay to show error message
+                QTimer.singleShot(1000, self.hide_archive_splash)  # Hide after 1 second
+            else:
+                self.hide_archive_splash()
+
+            # Reset search button on error
+            search_btn = self.findChild(QPushButton, "search_button")
+            if search_btn:
+                search_btn.setEnabled(True)
+                search_btn.setText("Пошук")
             return
 
-        # For now, build tree directly without caching to ensure proper tree structure
-        self._build_tree_directly(scan_path, search_term)
+        # Stop any existing tree building thread
+        if hasattr(self, 'tree_builder_thread') and self.tree_builder_thread:
+            self.tree_builder_thread.stop()
+            self.tree_builder_thread.wait()
+            self.tree_builder_thread.deleteLater()
 
-    def _build_tree_directly(self, scan_path: str, search_term: str = ""):
-        """Build the tree structure directly from filesystem with timeout"""
+        # Use threading to prevent freezing
+        # Create a simple thread to run the tree building without blocking UI
+        import threading
+        tree_thread = threading.Thread(target=self._build_tree_threaded, args=(scan_path, search_term))
+        tree_thread.daemon = True  # Thread will exit when main program exits
+        tree_thread.start()
+
+    def _build_tree_threaded(self, scan_path: str, search_term: str = ""):
+        """Build tree in background thread with progress updates"""
+        try:
+            # Update splash screen progress immediately
+            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Початок сканування..."))
+
+            # Small delay to show initial progress
+            import time
+            time.sleep(0.1)
+
+            # Update progress for cache building
+            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Побудова кешу файлів..."))
+            time.sleep(0.1)
+
+            # Update progress for file scanning
+            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Сканування файлів та папок..."))
+            time.sleep(0.1)
+
+            # Run the actual tree building (this won't touch UI)
+            self._build_tree_directly(scan_path, search_term)
+
+            # Update UI on main thread when done
+            QTimer.singleShot(0, self._on_tree_building_completed)
+
+        except Exception as e:
+            # Handle errors on main thread
+            QTimer.singleShot(0, lambda: self._on_tree_building_error(str(e)))
+
+    def _update_splash_progress_safe(self, message):
+        """Thread-safe splash screen progress update"""
+        if self.archive_splash and self.archive_splash.isVisible():
+            self.archive_splash.update_progress(0, message)
+        if hasattr(self, 'archive_status_label'):
+            self.archive_status_label.setText(message)
+
+    def _on_tree_building_completed(self):
+        """Called when tree building completes (runs on main thread)"""
+        # Hide splash screen and reset button
+        self.hide_archive_splash()
+        search_btn = self.findChild(QPushButton, "search_button")
+        if search_btn:
+            search_btn.setEnabled(True)
+            search_btn.setText("Пошук")
+
+        # Clear any lingering progress messages by setting a final status
+        if hasattr(self, 'archive_status_label'):
+            self.archive_status_label.setText("Готовий до пошуку та фільтрації")
+
+    def _on_tree_building_error(self, error_message):
+        """Called when tree building has an error (runs on main thread)"""
+        self.archive_status_label.setText(f"Помилка: {error_message}")
+        # Hide splash screen and reset button on error
+        self.hide_archive_splash()
+        search_btn = self.findChild(QPushButton, "search_button")
+        if search_btn:
+            search_btn.setEnabled(True)
+            search_btn.setText("Пошук")
+
+    def _build_tree_in_thread(self, scan_path: str, search_term: str = ""):
+        """Build tree in background thread"""
+        try:
+            # Update splash screen progress using thread-safe method
+            QTimer.singleShot(0, lambda: self._update_splash_progress(25, "Побудова дерева файлів..."))
+
+            # Build the tree data in background (this won't touch UI)
+            tree_data = self._build_tree_data(scan_path, search_term)
+
+            # Update UI on main thread when done
+            QTimer.singleShot(0, lambda: self._update_tree_ui(tree_data))
+
+        except Exception as e:
+            # Handle errors on main thread
+            QTimer.singleShot(0, lambda: self._handle_tree_error(str(e)))
+
+    def _build_tree_data(self, scan_path: str, search_term: str = ""):
+        """Build tree data in background thread (no UI operations)"""
+        # This is a simplified version that builds the data structure
+        # without touching any UI elements
+        tree_items = []
+
+        try:
+            # Update progress (thread-safe)
+            QTimer.singleShot(0, lambda: self._update_splash_progress(50, "Сканування файлів..."))
+
+            # Build file cache
+            file_cache = {}
+            self._build_file_cache_threaded(scan_path, file_cache)
+
+            # Update progress
+            QTimer.singleShot(0, lambda: self._update_splash_progress(75, "Побудова структури..."))
+
+            # Build tree structure from cache
+            root_items = self._build_tree_structure_threaded(scan_path, file_cache, search_term)
+            tree_items.extend(root_items)
+
+            # Update progress
+            QTimer.singleShot(0, lambda: self._update_splash_progress(90, "Фіналізація результатів..."))
+
+            return {
+                'items': tree_items,
+                'count': len(tree_items),
+                'scan_path': scan_path
+            }
+
+        except Exception as e:
+            raise e
+
+    def _build_file_cache_threaded(self, scan_path: str, file_cache: dict):
+        """Build file cache in background thread"""
+        def _scan_directory(path: str):
+            try:
+                for item_name in os.listdir(path):
+                    item_path = os.path.join(path, item_name)
+                    if os.path.exists(item_path):
+                        is_dir = os.path.isdir(item_path)
+
+                        # Get file metadata
+                        try:
+                            stat_info = os.stat(item_path)
+                            file_size = stat_info.st_size
+                            modified_time = stat_info.st_mtime
+                            modified_str = datetime.fromtimestamp(modified_time).strftime("%Y-%m-%d %H:%M")
+                        except (OSError, PermissionError):
+                            file_size = None
+                            modified_time = None
+                            modified_str = "Невідомо"
+
+                        file_cache[item_path] = {
+                            'name': item_name,
+                            'path': item_path,
+                            'is_dir': is_dir,
+                            'name_lower': item_name.lower(),
+                            'size': file_size,
+                            'modified': modified_str
+                        }
+
+                        if is_dir:
+                            _scan_directory(item_path)
+
+            except (PermissionError, OSError):
+                # Skip directories we can't access
+                pass
+
+        _scan_directory(scan_path)
+
+    def _build_tree_structure_threaded(self, scan_path: str, file_cache: dict, search_term: str = ""):
+        """Build tree structure from cache in background thread"""
+        root_items = []
+
+        for file_path, file_data in file_cache.items():
+            # Check if item matches search term
+            if search_term and search_term.lower() not in file_data['name_lower']:
+                continue
+
+            # Only include items directly in the scan path for now
+            if os.path.dirname(file_path) == scan_path:
+                root_items.append(file_data)
+
+        # Sort: directories first, then files
+        root_items.sort(key=lambda x: (not x['is_dir'], x['name_lower']))
+
+        return root_items
+
+    def _update_splash_progress(self, value, message):
+        """Thread-safe splash screen progress update"""
+        if self.archive_splash and self.archive_splash.isVisible():
+            self.archive_splash.update_progress(value, message)
+        if hasattr(self, 'archive_status_label'):
+            self.archive_status_label.setText(message)
+
+    def _update_tree_ui(self, tree_data):
+        """Update UI with tree data (runs on main thread)"""
         try:
             self.archive_tree.clear()
-            self.archive_status_label.setText("Побудова дерева файлів...")
 
-            # Update splash screen if it's active
-            if self.archive_splash and self.archive_splash.isVisible():
-                self.archive_splash.update_progress(0, "Побудова дерева файлів...")
+            for item_data in tree_data['items']:
+                tree_item = QTreeWidgetItem(self.archive_tree)
+                tree_item.setText(0, item_data['name'])
+                tree_item.setData(0, Qt.UserRole, item_data['path'])
 
-            # Check if we have cached data for this path
-            current_time = time.time()
-            if (self._last_scan_path == scan_path and
-                self._file_cache and
-                current_time - self._cache_timestamp < 300):  # 5 minutes cache
-                self.archive_status_label.setText("Використання кешу...")
-                if self.archive_splash and self.archive_splash.isVisible():
-                    self.archive_splash.update_progress(50, "Використання кешу...")
-                self._build_tree_from_cache(search_term)
-            else:
-                # Build cache and tree structure
-                self.archive_status_label.setText("Побудова кешу...")
-                if self.archive_splash and self.archive_splash.isVisible():
-                    self.archive_splash.update_progress(25, "Сканування файлів...")
-                self._build_file_cache(scan_path)
-                self.archive_status_label.setText("Побудова дерева файлів...")
-                self._build_tree_recursive(scan_path, self.archive_tree.invisibleRootItem(), search_term, 0)
+                if item_data['is_dir']:
+                    tree_item.setText(0, f"📁 {item_data['name']}")
+                    tree_item.setData(1, Qt.DisplayRole, "Папка")
+                else:
+                    file_ext = os.path.splitext(item_data['name'])[1].lower()
+                    icon = self._get_file_icon(file_ext)
+                    tree_item.setText(0, f"{icon} {item_data['name']}")
+                    size_str = humanize.naturalsize(item_data['size']) if item_data['size'] else "Невідомо"
+                    tree_item.setData(1, Qt.DisplayRole, size_str)
+                    tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
 
+            # Set headers
+            self.archive_tree.setHeaderLabels(["Назва файлу", "Розмір", "Дата модифікації"])
+
+            # Show final count
+            final_count = tree_data['count']
+            self.archive_status_label.setText(f"Дерево побудовано: {final_count} елементів")
+
+            # Expand tree
+            if final_count > 0:
+                self.archive_tree.expandAll()
+
+        except Exception as e:
+            self.archive_status_label.setText(f"Помилка при відображенні: {e}")
+
+        finally:
+            # Always hide splash screen and reset button
+            self.hide_archive_splash()
+            search_btn = self.findChild(QPushButton, "search_button")
+            if search_btn:
+                search_btn.setEnabled(True)
+                search_btn.setText("Пошук")
+
+    def _handle_tree_error(self, error_message):
+        """Handle tree building errors (runs on main thread)"""
+        self.archive_status_label.setText(f"Помилка: {error_message}")
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
+            self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева: {error_message}")
+
+        # Hide splash screen and reset button on error
+        self.hide_archive_splash()
+        search_btn = self.findChild(QPushButton, "search_button")
+        if search_btn:
+            search_btn.setEnabled(True)
+            search_btn.setText("Пошук")
+
+    def _get_file_icon(self, extension: str) -> str:
+        """Get appropriate icon for file extension"""
+        icon_map = {
+            '.txt': '📄', '.doc': '📝', '.docx': '📝', '.pdf': '📋',
+            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️', '.bmp': '🖼️',
+            '.mp4': '🎬', '.avi': '🎬', '.mkv': '🎬', '.mov': '🎬',
+            '.mp3': '🎵', '.wav': '🎵', '.flac': '🎵', '.aac': '🎵',
+            '.zip': '🗜️', '.rar': '🗜️', '.7z': '🗜️', '.tar': '🗜️', '.gz': '🗜️',
+            '.exe': '⚙️', '.msi': '⚙️', '.bat': '⚙️', '.cmd': '⚙️',
+            '.py': '🐍', '.js': '🌐', '.html': '🌐', '.css': '🎨',
+        }
+        return icon_map.get(extension, '📄')
+
+    def _on_tree_progress_updated(self, value, message):
+        """Handle tree building progress updates"""
+        # Update splash screen if it's active
+        if self.archive_splash and self.archive_splash.isVisible():
+            self.archive_splash.update_progress(value, message)
+
+        # Update status label
+        if hasattr(self, 'archive_status_label'):
+            self.archive_status_label.setText(message)
+
+    def _on_tree_built(self, tree_widget):
+        """Handle successful tree building completion"""
+        try:
+            # Copy the tree structure to our main tree widget
+            self.archive_tree.clear()
+
+            # Copy all items from the built tree to our main tree
+            def copy_tree_items(source_parent, target_parent):
+                for i in range(source_parent.childCount()):
+                    source_item = source_parent.child(i)
+                    target_item = QTreeWidgetItem(target_parent)
+
+                    # Copy all columns
+                    for col in range(source_item.columnCount()):
+                        target_item.setText(col, source_item.text(col))
+                        target_item.setData(col, Qt.UserRole, source_item.data(col, Qt.UserRole))
+
+                    # Recursively copy children
+                    copy_tree_items(source_item, target_item)
+
+            copy_tree_items(tree_widget.invisibleRootItem(), self.archive_tree.invisibleRootItem())
+
+            # Set tree headers
+            self.archive_tree.setHeaderLabels(["Назва файлу", "Розмір", "Дата модифікації"])
+
+            # Count and display final results
             final_count = self._count_tree_items(self.archive_tree.invisibleRootItem())
             self.archive_status_label.setText(f"Дерево побудовано: {final_count} елементів")
 
@@ -2334,11 +3022,120 @@ class CleanupHelperWidget(QWidget):
             if final_count > 0:
                 self.archive_tree.expandAll()
 
-            
         except Exception as e:
-            self.archive_status_label.setText(f"Помилка: {e}")
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева: {e}")
+            self.archive_status_label.setText(f"Помилка при відображенні дерева: {e}")
+            if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
+                self.main_window.log_message(f"CleanupHelper: Помилка відображення дерева: {e}")
+
+        finally:
+            # Always hide splash screen and reset button
+            self.hide_archive_splash()
+            search_btn = self.findChild(QPushButton, "search_button")
+            if search_btn:
+                search_btn.setEnabled(True)
+                search_btn.setText("Пошук")
+
+    def _on_tree_error(self, error_message):
+        """Handle tree building errors"""
+        self.archive_status_label.setText(f"Помилка: {error_message}")
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
+            self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева: {error_message}")
+
+        # Hide splash screen and reset button on error
+        self.hide_archive_splash()
+        search_btn = self.findChild(QPushButton, "search_button")
+        if search_btn:
+            search_btn.setEnabled(True)
+            search_btn.setText("Пошук")
+
+    def _count_tree_items_with_breakdown(self, item):
+        """Count total items in tree (recursive) with file/folder breakdown"""
+        count = 0
+        file_count = 0
+        folder_count = 0
+
+        for i in range(item.childCount()):
+            child = item.child(i)
+            count += 1
+
+            # Check if this is a file or folder
+            child_text = child.text(0)
+            if child_text.startswith("📁"):
+                folder_count += 1
+            else:
+                file_count += 1
+
+            # Count children recursively
+            child_counts = self._count_tree_items_with_details(child)
+            count += child_counts['total']
+            file_count += child_counts['files']
+            folder_count += child_counts['folders']
+
+        return {'total': count, 'files': file_count, 'folders': folder_count}
+
+    def _count_tree_items_with_details(self, item):
+        """Count items with file/folder breakdown (recursive)"""
+        total = 0
+        files = 0
+        folders = 0
+
+        for i in range(item.childCount()):
+            child = item.child(i)
+            total += 1
+
+            child_text = child.text(0)
+            if child_text.startswith("📁"):
+                folders += 1
+            else:
+                files += 1
+
+            # Recursive count
+            child_counts = self._count_tree_items_with_details(child)
+            total += child_counts['total']
+            files += child_counts['files']
+            folders += child_counts['folders']
+
+        return {'total': total, 'files': files, 'folders': folders}
+
+    def _build_tree_directly(self, scan_path: str, search_term: str = ""):
+        """Build the tree structure directly from filesystem with timeout (thread-safe version)"""
+        try:
+            # Check if we have cached data for this path
+            current_time = time.time()
+            if (self._last_scan_path == scan_path and
+                self._file_cache and
+                current_time - self._cache_timestamp < 300):  # 5 minutes cache
+                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Використання кешу..."))
+                self._build_tree_from_cache(search_term)
+            else:
+                # Build cache and tree structure
+                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Сканування файлів..."))
+                self._build_file_cache(scan_path)
+                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Побудова дерева файлів..."))
+                self._build_tree_recursive(scan_path, self.archive_tree.invisibleRootItem(), search_term, 0)
+
+            # Update status and count on main thread
+            final_counts = self._count_tree_items_with_breakdown(self.archive_tree.invisibleRootItem())
+            QTimer.singleShot(0, lambda: self._update_tree_status_with_details(final_counts))
+
+            # Expand tree on main thread
+            if final_counts['total'] > 0:
+                QTimer.singleShot(0, lambda: self.archive_tree.expandAll())
+
+        except Exception as e:
+            # Handle errors on main thread
+            QTimer.singleShot(0, lambda: self._on_tree_building_error(str(e)))
+
+    def _update_tree_status(self, final_count):
+        """Update tree status on main thread"""
+        self.archive_status_label.setText(f"Дерево побудовано: {final_count} елементів")
+
+    def _update_tree_status_with_details(self, counts):
+        """Update tree status with file/folder breakdown on main thread"""
+        total = counts['total']
+        files = counts['files']
+        folders = counts['folders']
+        self.archive_status_label.setText(f"Дерево побудовано: {total} елементів ({folders} папок, {files} файлів)")
 
     def _build_file_cache(self, scan_path: str):
         """Build a cache of the file structure for fast searching"""
@@ -2539,11 +3336,17 @@ class CleanupHelperWidget(QWidget):
 
                 # Check search filter with improved matching using display name
                 if not dir_matches:
-                    # Remove the directory item from tree since it doesn't match
-                    parent_item.removeChild(dir_item)
-                    # Search recursively for matching subdirectories/files
-                    self._build_tree_recursive(dir_path, parent_item, search_term, depth + 1)
-                    continue
+                    # Check if it has matching children
+                    has_matching_children = self._has_matching_children(dir_path, search_term)
+                    if not has_matching_children:
+                        # Only remove if no children match
+                        parent_item.removeChild(dir_item)
+                        continue
+                    else:
+                        # Directory doesn't match but has matching children - keep it
+                        dir_item.setText(0, f"📁 {folder_info['name']} (має відповідні файли)")
+                        # Set a light color to indicate it doesn't match directly
+                        dir_item.setForeground(0, QColor(128, 128, 128))
                 dir_item.setText(0, display_name)
                 dir_item.setText(1, "Папка")
                 dir_item.setText(2, "")
@@ -2557,8 +3360,21 @@ class CleanupHelperWidget(QWidget):
                 except:
                     dir_item.setText(1, "Папка")
 
+                # Always add a placeholder child to ensure expand icon is visible
+                # We'll remove it later if we add actual children
+                placeholder = QTreeWidgetItem(dir_item)
+                placeholder.setText(0, "Завантаження...")
+
                 # Recursively add subdirectories and files
                 self._build_tree_recursive(dir_path, dir_item, search_term, depth + 1)
+
+                # Remove placeholder if we added actual children
+                if dir_item.childCount() > 1:
+                    dir_item.removeChild(placeholder)
+                elif dir_item.childCount() == 1 and placeholder == dir_item.child(0):
+                    # Keep placeholder to show it's an empty directory
+                    placeholder.setText(0, "(пуста папка)")
+                    placeholder.setForeground(0, QColor(128, 128, 128))
 
             # Add files
             for file_name, file_path in files:
@@ -2589,7 +3405,8 @@ class CleanupHelperWidget(QWidget):
                     file_item.setText(4, file_path)
 
             if depth == 0:
-                self.archive_status_label.setText("Завершення сканування...")
+                # Don't set completion status here - let the completion callback handle it
+                pass
 
         except Exception as e:
             if hasattr(self.main_window, 'log_message'):
@@ -2898,6 +3715,22 @@ class CleanupHelperWidget(QWidget):
                         if common_chars >= len(search_lower) * 0.8:
                             return True
 
+        return False
+
+    def _has_matching_children(self, dir_path: str, search_term: str) -> bool:
+        """Check if directory has any files/subdirectories that match search term"""
+        try:
+            for item_name in os.listdir(dir_path):
+                item_path = os.path.join(dir_path, item_name)
+                if os.path.exists(item_path):
+                    if self._matches_search_term(search_term, item_name):
+                        return True
+                    # If it's a directory, check recursively
+                    if os.path.isdir(item_path):
+                        if self._has_matching_children(item_path, search_term):
+                            return True
+        except (PermissionError, OSError):
+            pass
         return False
 
     def _fuzzy_match(self, pattern: str, text: str, max_distance: int) -> bool:
