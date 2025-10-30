@@ -249,6 +249,31 @@ class LicenseManager(QWidget):
 
         self.install_system_wide_cb = QCheckBox("Загальносистемний (адміністратор)")
         self.install_system_wide_cb.setToolTip("Встановити для всіх користувачів (потрібні права адміністратора)")
+        self.install_system_wide_cb.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+                border: 1px solid #6C6C6C;
+                background-color: #FFFFFF;
+                border-radius: 0px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FFFFFF;
+                border: 1px solid #6C6C6C;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #0078D4;
+            }
+            QCheckBox::indicator:pressed {
+                background-color: #F0F0F0;
+                border: 1px solid #6C6C6C;
+            }
+        """)
         toolbar.addWidget(self.install_system_wide_cb)
 
         self.conflict_indicator_label = QLabel("⚠️")
