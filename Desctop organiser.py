@@ -8066,8 +8066,8 @@ class MainWindow(QMainWindow):
         if self.last_scheduled_run_date == today:
             return
 
-        start_time = QTime.fromString(schedule_cfg.get('time_start', '22:00'), "HH:mm")
-        end_time = QTime.fromString(schedule_cfg.get('time_end', '23:00'), "HH:mm")
+        start_time = QTime.fromString(schedule_cfg.get('time_start', '16:00'), "HH:mm")
+        end_time = QTime.fromString(schedule_cfg.get('time_end', '17:00'), "HH:mm")
 
         # If we are within the execution window, check for idle
         if start_time <= current_time <= end_time:
@@ -8201,14 +8201,13 @@ if __name__ == "__main__":
         startup_to_tray = '--startup-to-tray' in sys.argv
 
         # Add startup messages to splash
-        splash.add_message("⚙️ Initializing application...")
-        splash.add_message("📚 Loading settings...")
+        splash.add_message("⚙️ Ініціалізація програми...")
+        splash.add_message("📚 Завантаження налаштувань...")
 
         # Create main window (this may take time)
         window = MainWindow(is_scheduled_run=is_scheduled_run)
 
-        splash.add_message("🖥️ Main window created...")
-        splash.add_message("✅ Application ready!")
+        splash.add_message("🖥️ Вікно створено...")
 
         # Add a small delay to show the final message, then fade out
         QTimer.singleShot(1500, lambda: splash.fade_out_and_close(800))
@@ -8219,15 +8218,15 @@ if __name__ == "__main__":
         if startup_to_tray:
             # Windows startup - start minimized to tray
             show_window = False
-            splash.add_message("🔄 Starting minimized to tray...")
+            splash.add_message("🔄 Згортання в трей...")
         elif start_minimized:
             # Manual start minimized request
             show_window = False
-            splash.add_message("🔄 Starting minimized...")
+            splash.add_message("🔄 Запуск згорнутого...")
         elif is_scheduled_run:
             # Scheduled run - don't show UI
             show_window = False
-            splash.add_message("🔄 Running scheduled task...")
+            splash.add_message("🔄 Запуск запланованого завдання...")
 
         if show_window:
             window.show()
