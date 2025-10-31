@@ -1012,9 +1012,26 @@ class SharedVirtualEnvironmentManager:
             # Create progress dialog if parent widget is provided
             progress_dialog = None
             if parent_widget and len(packages_to_process) > 0:
+                # Temporarily hide splash screen to ensure progress dialog is visible
+                if 'global_splash' in globals() and globals()['global_splash']:
+                    splash = globals()['global_splash']
+                    splash.hide()
+                    QApplication.processEvents()
+
                 progress_dialog = PackageInstallProgressDialog(f"Встановлення залежностей для {module_name}", parent_widget)
+
+                # Ensure the progress dialog is on top and visible
+                progress_dialog.setWindowFlags(progress_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+                progress_dialog.raise_()
+                progress_dialog.activateWindow()
                 progress_dialog.show()
+
+                # Force the dialog to be front and center
+                progress_dialog.setFocus()
                 QApplication.processEvents()
+
+                # Additional delay to ensure the dialog is properly displayed
+                QTimer.singleShot(100, lambda: None)  # Small delay to ensure UI updates
 
             # Process packages that need installation or upgrade
             total_packages = len(packages_to_process)
@@ -1134,6 +1151,14 @@ class SharedVirtualEnvironmentManager:
                 progress_dialog.close()
                 progress_dialog.deleteLater()
 
+                # Restore splash screen after progress dialog is closed
+                if 'global_splash' in globals() and globals()['global_splash']:
+                    splash = globals()['global_splash']
+                    splash.show()
+                    splash.raise_()
+                    splash.activateWindow()
+                    QApplication.processEvents()
+
             self._save_package_info()
             return True
 
@@ -1143,6 +1168,15 @@ class SharedVirtualEnvironmentManager:
             if progress_dialog:
                 progress_dialog.close()
                 progress_dialog.deleteLater()
+
+                # Restore splash screen even on error
+                if 'global_splash' in globals() and globals()['global_splash']:
+                    splash = globals()['global_splash']
+                    splash.show()
+                    splash.raise_()
+                    splash.activateWindow()
+                    QApplication.processEvents()
+
             return False
 
     def uninstall_dependencies(self, module_name: str, dependencies: list) -> bool:
@@ -6224,20 +6258,21 @@ class PackageInstallProgressDialog(QDialog):
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setFixedSize(400, 150)
-        self.setWindowFlags(Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
+        self.setFixedSize(450, 180)
+        # Enhanced window flags to ensure visibility
+        self.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
 
         # Title label
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50; padding: 10px;")
         layout.addWidget(self.title_label)
 
         # Current operation label
         self.current_label = QLabel("Підготовка...")
-        self.current_label.setStyleSheet("font-size: 12px; color: #666;")
+        self.current_label.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 5px;")
         layout.addWidget(self.current_label)
 
         # Progress bar
@@ -6267,6 +6302,38 @@ class PackageInstallProgressDialog(QDialog):
         self.current_label.setText(message)
         if status:
             self.status_label.setText(status)
+
+    def showEvent(self, event):
+        """Override show event to ensure proper positioning and visibility"""
+        super().showEvent(event)
+
+        # Center the dialog on the screen
+        if self.parent():
+            parent_geometry = self.parent().geometry()
+            x = parent_geometry.x() + (parent_geometry.width() - self.width()) // 2
+            y = parent_geometry.y() + (parent_geometry.height() - self.height()) // 2
+        else:
+            # Center on primary screen
+            screen = QApplication.desktop().screenGeometry()
+            x = (screen.width() - self.width()) // 2
+            y = (screen.height() - self.height()) // 2
+
+        self.move(x, y)
+
+        # Ensure dialog is on top and visible
+        self.raise_()
+        self.activateWindow()
+        QApplication.processEvents()
+
+        # Additional activation after a short delay to ensure proper visibility
+        QTimer.singleShot(50, self._ensure_visible)
+
+    def _ensure_visible(self):
+        """Ensure the dialog remains visible after initial show"""
+        self.raise_()
+        self.activateWindow()
+        self.setFocus()
+        QApplication.processEvents()
         QApplication.processEvents()
 
     def set_determinate_progress(self, current, total):
