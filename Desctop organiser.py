@@ -17,9 +17,23 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox, QMessageBox, QRadioButton, QGroupBox, QFileDialog, QTimeEdit, QSplashScreen,
     QScrollArea, QProgressDialog, QSystemTrayIcon, QMenu, QProgressBar, QSizePolicy, QStyleOptionButton, QFrame
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect, QDateTime, QCoreApplication
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect, QDateTime, QCoreApplication, QMetaType
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush, QKeySequence, QPainterPath, QPalette
 from PyQt5.QtWidgets import QStyle
+
+# Register custom meta types to avoid QVector<int> warnings
+try:
+    # Register QVector<int> meta type for cross-thread signal/slot connections
+    from PyQt5.QtCore import qRegisterMetaType
+    qRegisterMetaType('QVector<int>')
+except ImportError:
+    # Fallback for older PyQt5 versions
+    try:
+        from PyQt5.QtCore import QMetaType
+        if QMetaType.type('QVector<int>') == 0:
+            QMetaType.registerType('QVector<int>')
+    except:
+        pass  # Final fallback
 
 
 class WindowsCheckBox(QCheckBox):
@@ -7560,7 +7574,11 @@ class MainWindow(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Авто-організатор робочого столу v4.2")
-        self.setFixedSize(991, 701)
+        # Set minimum size to ensure UI remains usable
+        self.setMinimumSize(800, 600)
+        # Set maximum size to prevent excessive stretching
+        self.setMaximumSize(1600, 1200)
+        # Set initial geometry (allowing for future resizing)
         self.setGeometry(300, 300, 991, 701)
 
         menubar = self.menuBar()
