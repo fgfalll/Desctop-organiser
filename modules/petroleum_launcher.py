@@ -33,6 +33,7 @@ import logging
 import subprocess
 import threading
 import time
+import glob
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -67,9 +68,9 @@ from PyQt5.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QTextEdit, QSplitter,
     QGroupBox, QTabWidget, QTableWidget, QTableWidgetItem, QListWidgetItem, QListWidget,
     QHeaderView, QComboBox, QLineEdit, QSpinBox, QCheckBox,
-    QFileDialog, QMessageBox, QProgressBar, QFrame,
+    QFileDialog, QMessageBox, QFrame,
     QScrollArea, QGridLayout, QDialog, QDialogButtonBox,
-    QFormLayout, QSpinBox, QDoubleSpinBox, QSlider, QSizePolicy
+    QFormLayout, QSpinBox, QDoubleSpinBox, QSlider, QSizePolicy, QApplication
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, pyqtSlot, QEvent
 from PyQt5.QtGui import QIcon, QFont, QPixmap
@@ -108,6 +109,9 @@ if not PIL_SUPPORT:
 
         truetype = Font
 
+# Import standard modules that should always be available
+import re
+
 # Try to import Windows-specific modules
 try:
     import win32api
@@ -115,7 +119,6 @@ try:
     import win32gui
     import win32process
     import winreg
-    import re
     WINDOWS_SUPPORT = True
 except ImportError:
     WINDOWS_SUPPORT = False
@@ -123,250 +126,278 @@ except ImportError:
 
 # Set up logging
 logger = logging.getLogger('PetroleumLauncher')
+logger.setLevel(logging.DEBUG)  # Ensure debug messages are visible
 
 
-# Petroleum program configuration adapted from program_install.py
-PETROLEUM_PROGRAM_CONFIG = {
-    "petrel": {
-        "display_name": "Petrel Platform",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Petrel", "Petrel Platform", "Schlumberger Petrel"],
-            "expected_descriptions": ["Petrel Setup", "Petrel Platform Installer", "Petrel E&P Software Platform"],
-            "installer_patterns": ["Petrel*Setup*.exe", "SLB.Petrel*.exe", "PetrelPlatformInstaller.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"Petrel.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"Petrel.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Schlumberger\Petrel", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Schlumberger\Petrel", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Petrel.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["project_setup", "data_import", "grid_creation", "simulation", "plot_generation"],
-            "ui_elements": ["ribbons", "tree_views", "property_panels", "3d_windows"],
-            "file_types": [".petrel", ".grid", ".ecl", ".dat", ".txt"]
-        }
-    },
-    "pipesim": {
-        "display_name": "PIPESIM",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Pipesim", "Schlumberger PIPESIM"],
-            "expected_descriptions": ["Pipesim Setup", "PIPESIM *", "PIPESIM Suite"],
-            "installer_patterns": ["setup.exe", "PIPESIM*.exe", "SLB.PIPESIM*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"PIPESIM .*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"PIPESIM .*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Schlumberger\PIPESIM", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Schlumberger\PIPESIM", "check_existence": True},
-            ],
-        },
-    },
-    "olga": {
-        "display_name": "OLGA",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["OLGA", "Schlumberger OLGA", "OLGA Multiphase Flow Simulator"],
-            "expected_descriptions": ["OLGA Setup", "OLGA Installer", "olga"],
-            "installer_patterns": ["Setup-OLGA*.exe", "OLGA*Setup*.exe", "SLB.OLGA*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*OLGA.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*OLGA.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Schlumberger\OLGA", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Schlumberger\OLGA", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OLGA.exe", "check_existence": True},
-            ],
-        },
-    },
-    "techlog": {
-        "display_name": "Techlog",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Techlog", "Schlumberger Techlog", "Techlog Wellbore Software"],
-            "expected_descriptions": ["Techlog Setup", "install Techlog", "Techlog"],
-            "installer_patterns": ["Install Techlog*", "Techlog*Setup*.exe", "SLB.Techlog*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"Techlog.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r"Techlog.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Schlumberger\Techlog", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Schlumberger\Techlog", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Techlog.exe", "check_existence": True},
-            ],
-        },
-    },
-    "eclipse": {
-        "display_name": "Eclipse Reservoir Simulator",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Eclipse", "Eclipse Simulation", "Schlumberger Eclipse"],
-            "expected_descriptions": ["Eclipse Setup", "Eclipse Simulation Installer", "Schlumberger Eclipse Reservoir Simulator"],
-            "installer_patterns": ["Eclipse*.exe", "Eclipse*Setup*.exe", "SLB.Eclipse*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Eclipse.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Eclipse.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Schlumberger\Eclipse", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Schlumberger\Eclipse", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["deck_setup", "simulation_run", "result_analysis", "history_matching"],
-            "ui_elements": ["deck_editor", "run_manager", "result_viewer", "plot_windows"],
-            "file_types": [".data", ".deck", ".prf", ".smspec", ".unsmry"]
-        }
-    },
-    "harmony_enterprise": {
-        "display_name": "Harmony Enterprise",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Harmony Enterprise", "Harmony", "Landmark Harmony"],
-            "expected_descriptions": ["Harmony Enterprise", "Landmark Harmony", "Production Analysis"],
-            "installer_patterns": ["Harmony*Setup*.exe", "Landmark*Harmony*.exe", "HarmonyEnterprise*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Harmony.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Harmony.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Landmark\Harmony", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Landmark\Harmony", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Harmony.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["well_analysis", "decline_curve_analysis", "forecast_generation", "report_creation"],
-            "ui_elements": ["analysis_panels", "chart_windows", "data_tables", "toolbars"],
-            "file_types": [".har", ".pan", ".csv", ".xls", ".xlsx"]
-        }
-    },
-    "kappa": {
-        "display_name": "Kappa Suite",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Kappa", "Kappa Suite", "Kappa Engineering", "Saphir", "Topaze"],
-            "expected_descriptions": ["Kappa Suite", "Kappa Engineering", "Well Test Analysis"],
-            "installer_patterns": ["Kappa*Setup*.exe", "Saphir*.exe", "Topaze*.exe", "Diamant*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Kappa.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Kappa.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Kappa", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Kappa", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Saphir.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["well_test_analysis", "pvt_analysis", "pressure_transient_analysis", "history_matching"],
-            "ui_elements": ["analysis_windows", "plot_panels", "property_editors", "menu_bars"],
-            "file_types": [".sap", ".tpz", ".dia", ".pan", ".prn"]
-        }
-    },
-    "cmg": {
-        "display_name": "CMG Suite",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["CMG", "Computer Modelling Group", "IMEX", "STARS", "GEM"],
-            "expected_descriptions": ["CMG Suite", "CMG IMEX", "CMG STARS", "CMG GEM"],
-            "installer_patterns": ["CMG*Setup*.exe", "IMEX*.exe", "STARS*.exe", "GEM*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*CMG.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*CMG.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\CMG", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\CMG", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\cmg.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["reservoir_simulation", "thermal_simulation", "compositional_simulation", "result_visualization"],
-            "ui_elements": ["builders", "results_viewers", "property_editors", "run_managers"],
-            "file_types": [".dat", ".out", ".rwd", ".rwo", ".rrf"]
-        }
-    },
-    "tnavigator": {
-        "display_name": "TNavigator",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["TNavigator", "TNavigator+", "TNavigator Pro"],
-            "expected_descriptions": ["TNavigator", "Reservoir Simulation", "TNavigator Simulator"],
-            "installer_patterns": ["TNavigator*.exe", "TNavigator*Setup*.exe", "TN*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*TNavigator.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*TNavigator.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\TNavigator", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\TNavigator", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\TNavigator.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["reservoir_modeling", "simulation_management", "data_analysis", "workflow_automation"],
-            "ui_elements": ["model_editors", "simulation_panels", "result_viewers", "toolbars"],
-            "file_types": [".tnet", ".tnmod", ".case", ".data", ".hdf"]
-        }
-    },
-    "petroleum_experts": {
-        "display_name": "Petroleum Experts",
-        "target_version": "latest",
-        "identity": {
-            "expected_product_names": ["Petroleum Experts", "IPM", "PROSPER", "MBAL", "GAP"],
-            "expected_descriptions": ["Petroleum Experts", "IPM Suite", "PROSPER Well Analysis"],
-            "installer_patterns": ["Petroleum*Experts*.exe", "PROSPER*.exe", "MBAL*.exe", "GAP*.exe"],
-        },
-        "check_method": {
-            "type": "registry",
-            "keys": [
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Petroleum.*Experts.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "match_value": "DisplayName", "match_pattern": r".*Petroleum.*Experts.*", "get_value": "DisplayVersion"},
-                {"path": r"SOFTWARE\Petroleum Experts", "check_existence": True},
-                {"path": r"SOFTWARE\WOW6432Node\Petroleum Experts", "check_existence": True},
-                {"path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\prosper.exe", "check_existence": True},
-            ],
-        },
-        "automation_capabilities": {
-            "can_record": True,
-            "has_scripting": True,
-            "common_automations": ["well_performance_analysis", "production_optimization", "nodal_analysis", "system_integration"],
-            "ui_elements": ["analysis_windows", "plot_panels", "data_editors", "ipm_workspace"],
-            "file_types": [".out", ".prj", ".ipm", ".bal", ".gcs"]
-        }
-    },
-}
+class PetroleumProgramConfigManager:
+    """Manages external petroleum program configuration files"""
 
+    def __init__(self):
+        self.config_dir = None
+        self.config_file = None
+        self.config = {}
+        self.default_config = {}
+        self._init_default_config()
+        self._setup_config_directory()
+        self.load_configuration()
 
+    def _init_default_config(self):
+        """Initialize default petroleum program configuration"""
+        self.default_config = self.get_default_config()
+
+    def _setup_config_directory(self):
+        """Setup the configuration directory in app settings folder"""
+        try:
+            # Try to find the application settings directory
+            import sys
+
+            # Check if we're running within the main application
+            for module_name in sys.modules:
+                if 'main' in module_name.lower() or 'organizer' in module_name.lower():
+                    main_app = sys.modules[module_name]
+                    if hasattr(main_app, 'settings'):
+                        # Use the main app's settings directory
+                        settings_dir = getattr(main_app.settings, 'settings_dir', None)
+                        if settings_dir and os.path.exists(settings_dir):
+                            self.config_dir = Path(settings_dir) / "petroleum_launcher"
+                            self.config_dir.mkdir(exist_ok=True)
+                            logger.info(f"Using app settings directory: {self.config_dir}")
+                            break
+
+            # Fallback to user profile
+            if not self.config_dir:
+                self.config_dir = Path.home() / ".DesktopOrganizer" / "PetroleumLauncher"
+                self.config_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Using user profile config directory: {self.config_dir}")
+
+            # Set config file path
+            self.config_file = self.config_dir / "petroleum_programs.json"
+
+        except Exception as e:
+            logger.error(f"Error setting up config directory: {e}")
+            # Use current directory as last resort
+            self.config_dir = Path(".")
+            self.config_file = self.config_dir / "petroleum_programs.json"
+
+    def load_configuration(self):
+        """Load configuration from JSON file"""
+        try:
+            if self.config_file.exists():
+                logger.info(f"Loading configuration from: {self.config_file}")
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    loaded_config = json.load(f)
+
+                # Check if it's the exported format with "programs" key
+                if "programs" in loaded_config:
+                    program_config = loaded_config["programs"]
+                elif "metadata" in loaded_config:
+                    # Old format with metadata - extract non-metadata keys
+                    program_config = {k: v for k, v in loaded_config.items() if k != "metadata"}
+                else:
+                    # Direct program config
+                    program_config = loaded_config
+
+                # Validate and merge with default config
+                self.config = self._validate_and_merge_config(program_config)
+                logger.info(f"Loaded {len(self.config)} program configurations: {list(self.config.keys())}")
+                logger.debug(f"Configuration structure sample: {list(self.config.items())[:1] if self.config else 'No configs'}")
+
+                # If no valid configurations were loaded, fall back to defaults
+                if len(self.config) == 0:
+                    logger.warning("No valid configurations loaded, falling back to defaults")
+                    self.config = self.default_config.copy()
+                    self.save_configuration()  # Recreate config file
+                    logger.info(f"Recreated config with {len(self.config)} default programs")
+            else:
+                logger.info("Configuration file not found, using defaults")
+                self.config = self.default_config.copy()
+                self.save_configuration()  # Create default config file
+
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+            self.config = self.default_config.copy()
+
+    def save_configuration(self):
+        """Save configuration to JSON file"""
+        try:
+            if not self.config_file.parent.exists():
+                self.config_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Add metadata
+            config_with_metadata = {
+                "metadata": {
+                    "version": "1.0",
+                    "created_date": datetime.now().isoformat(),
+                    "last_modified": datetime.now().isoformat(),
+                    "description": "Petroleum program configuration for Desktop Organizer",
+                    "program_count": len(self.config)
+                },
+                "programs": self.config
+            }
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_with_metadata, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Configuration saved to: {self.config_file}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving configuration: {e}")
+            return False
+
+    def load_configuration_from_file(self, file_path: str) -> bool:
+        """Load configuration from a specific JSON file"""
+        try:
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                logger.error(f"Configuration file not found: {file_path}")
+                return False
+
+            logger.info(f"Loading configuration from: {file_path}")
+            with open(file_path_obj, 'r', encoding='utf-8') as f:
+                loaded_config = json.load(f)
+
+            # Check if it's the new format with "programs" key
+            if "programs" in loaded_config:
+                program_config = loaded_config["programs"]
+            elif "metadata" in loaded_config:
+                # Old format with metadata
+                program_config = {k: v for k, v in loaded_config.items() if k != "metadata"}
+            else:
+                program_config = loaded_config
+
+            # Validate and merge with default config
+            self.config = self._validate_and_merge_config(program_config)
+
+            # Save to proper location
+            self.save_configuration()
+
+            # Check if file was in module directory and move it
+            if "modules" in str(file_path).lower():
+                try:
+                    shutil.move(file_path, self.config_file)
+                    logger.info(f"Moved configuration to: {self.config_file}")
+                except Exception as e:
+                    logger.warning(f"Could not move config file: {e}")
+
+            logger.info(f"Successfully loaded {len(self.config)} program configurations")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error loading configuration from {file_path}: {e}")
+            return False
+
+    def _validate_and_merge_config(self, loaded_config: Dict) -> Dict:
+        """Validate and merge loaded configuration with defaults"""
+        validated_config = {}
+
+        logger.info(f"Validating loaded config with {len(loaded_config)} items: {list(loaded_config.keys())}")
+        logger.info(f"Default config has {len(self.default_config)} items: {list(self.default_config.keys())}")
+
+        for program_key, program_data in loaded_config.items():
+            # Validate required fields
+            if not isinstance(program_data, dict):
+                logger.warning(f"Skipping invalid program config for: {program_key}")
+                continue
+
+            required_fields = ["display_name"]
+            if not all(field in program_data for field in required_fields):
+                logger.warning(f"Program {program_key} missing required fields, using defaults if available")
+                if program_key in self.default_config:
+                    continue  # Use default config
+
+            # Merge with default if program exists in defaults
+            if program_key in self.default_config:
+                default_program = self.default_config[program_key]
+                # Start with default, then override with loaded config
+                merged_program = default_program.copy()
+                merged_program.update(program_data)
+                validated_config[program_key] = merged_program
+            else:
+                # New program, validate structure
+                if "display_name" in program_data:
+                    validated_config[program_key] = program_data
+                else:
+                    logger.warning(f"Skipping program {program_key} - missing display_name")
+
+        logger.info(f"Validation complete. {len(validated_config)} programs validated: {list(validated_config.keys())}")
+        return validated_config
+
+    def add_program(self, program_key: str, program_data: Dict) -> bool:
+        """Add a new program to the configuration"""
+        try:
+            if program_key in self.config:
+                logger.warning(f"Program {program_key} already exists, updating")
+
+            # Validate program data
+            if "display_name" not in program_data:
+                logger.error("Program must have a display_name")
+                return False
+
+            self.config[program_key] = program_data
+            self.save_configuration()
+            logger.info(f"Added program: {program_key} - {program_data.get('display_name', 'Unknown')}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding program: {e}")
+            return False
+
+    def remove_program(self, program_key: str) -> bool:
+        """Remove a program from the configuration"""
+        try:
+            if program_key in self.config:
+                del self.config[program_key]
+                self.save_configuration()
+                logger.info(f"Removed program: {program_key}")
+                return True
+            else:
+                logger.warning(f"Program {program_key} not found in configuration")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error removing program: {e}")
+            return False
+
+    def get_config(self) -> Dict:
+        """Get the current configuration"""
+        return self.config.copy()
+
+    def get_config_file_path(self) -> str:
+        """Get the configuration file path"""
+        return str(self.config_file)
+
+    def export_configuration(self, file_path: str) -> bool:
+        """Export current configuration to a JSON file"""
+        try:
+            export_path = Path(file_path)
+            if not export_path.parent.exists():
+                export_path.parent.mkdir(parents=True, exist_ok=True)
+
+            export_data = {
+                "metadata": {
+                    "version": "1.0",
+                    "export_date": datetime.now().isoformat(),
+                    "source": "Desktop Organizer Petroleum Launcher",
+                    "program_count": len(self.config)
+                },
+                "programs": self.config
+            }
+
+            with open(export_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Configuration exported to: {export_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error exporting configuration: {e}")
+            return False
+
+    def get_default_config(self) -> Dict:
+        """Get the default program configuration - now empty for user-driven configuration"""
+        logger.info("Using empty configuration - all programs must be added manually by users")
+        return {}
 class WindowsUtils:
     """Windows utility functions adapted from program_install.py"""
 
@@ -383,7 +414,6 @@ class WindowsUtils:
                     if reg_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
                         return str(value).strip()
                     else:
-                        logger.debug(f"Reg value '{value_name}' at '{key_path}' is not a string type (Type: {reg_type}).")
                         return None
                 else:
                     # Read the default value
@@ -393,7 +423,6 @@ class WindowsUtils:
                     else:
                         return None
         except FileNotFoundError:
-            logger.debug(f"Reg value '{value_name}' not found at '{key_path}'.")
             return None
         except OSError as e:
             logger.warning(f"OS Error reading reg value '{value_name}' at '{key_path}': {e}")
@@ -425,9 +454,6 @@ class WindowsUtils:
             if not key_path:
                 logger.warning(f"Skipping invalid registry rule (no path): {rule}")
                 continue
-
-            logger.debug(f"Checking Reg Rule: Hive={base_hive_str}, Path='{key_path}', Match='{match_value}/{match_pattern}', Exist={check_existence}, Get='{get_value}'")
-
             try:
                 if check_existence:
                     try:
@@ -450,7 +476,6 @@ class WindowsUtils:
                                 try:
                                     subkey_name = winreg.EnumKey(key, subkey_index)
                                     subkey_full_path = f"{key_path}\\{subkey_name}"
-                                    logger.debug(f"  Checking subkey: '{subkey_full_path}'")
                                     value_to_match = WindowsUtils._reg_read_string(base_hive, subkey_full_path, match_value)
 
                                     if value_to_match:
@@ -478,11 +503,14 @@ class WindowsUtils:
         return found_globally, first_found_version
 
     @staticmethod
-    def find_executable_path(program_key: str) -> Optional[str]:
-        """Find the executable path for a program using App Paths registry entries."""
+    def find_executable_path(program_key: str, program_config: Dict = None) -> Optional[str]:
+        """Find the executable path for a program using multiple detection methods."""
         if not WINDOWS_SUPPORT:
             return None
 
+        logger.debug(f"Searching for executable for program: {program_key}")
+
+        # Method 1: Check App Paths registry entries
         app_paths_to_check = [
             f"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{program_key}.exe",
             f"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{program_key}.EXE"
@@ -521,7 +549,126 @@ class WindowsUtils:
                     logger.debug(f"Error checking App Path {app_path} in hive {hive}: {e}")
                     continue
 
+        # Method 2: Use program configuration to search in common paths
+        if program_config and 'executable_info' in program_config:
+            exec_info = program_config['executable_info']
+            main_executable = exec_info.get('main_executable', '')
+            alternative_names = exec_info.get('alternative_names', [])
+            common_locations = exec_info.get('common_locations', [])
+
+            # Build list of executables to search for
+            exe_names = [main_executable] + alternative_names
+            exe_names = [name for name in exe_names if name]  # Remove empty strings
+
+            logger.info(f"Searching {len(exe_names)} executables in {len(common_locations)} common locations")
+            logger.info(f"Executables to search: {exe_names}")
+            logger.info(f"Common locations: {common_locations}")
+
+            for base_path in common_locations:
+                logger.info(f"Checking path: {base_path}")
+                # Expand wildcards in path
+                if '*' in base_path:
+                    matching_paths = glob.glob(base_path)
+                    logger.info(f"Found {len(matching_paths)} matching paths for pattern: {base_path}")
+                else:
+                    matching_paths = [base_path] if os.path.exists(base_path) else []
+                    logger.info(f"Path exists: {os.path.exists(base_path)} for {base_path}")
+
+                for path in matching_paths:
+                    for exe_name in exe_names:
+                        exe_path = os.path.join(path, exe_name)
+                        logger.info(f"Checking executable: {exe_path}")
+                        if os.path.exists(exe_path):
+                            logger.info(f"Found executable via config search: {exe_path}")
+                            return exe_path
+
+        # Method 3: Enhanced search using registry uninstall information
+        try:
+            # Look for the program in uninstall registry to find installation path
+            uninstall_paths = [
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            ]
+
+            for uninstall_path in uninstall_paths:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, uninstall_path, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+                        subkey_index = 0
+                        while True:
+                            try:
+                                subkey_name = winreg.EnumKey(key, subkey_index)
+                                subkey_full_path = f"{uninstall_path}\\{subkey_name}"
+
+                                # Try to read InstallLocation
+                                install_location = WindowsUtils._reg_read_string(winreg.HKEY_LOCAL_MACHINE, subkey_full_path, "InstallLocation")
+                                if install_location and os.path.exists(install_location):
+                                    # Search for executable in install location
+                                    for root, dirs, files in os.walk(install_location):
+                                        for file in files:
+                                            if file.lower().endswith('.exe'):
+                                                # Check if this could be the main executable
+                                                exe_path = os.path.join(root, file)
+                                                if WindowsUtils._is_main_executable(exe_path, program_key):
+                                                    logger.debug(f"Found executable via install location search: {exe_path}")
+                                                    return exe_path
+                                subkey_index += 1
+                            except OSError:
+                                break
+                except FileNotFoundError:
+                    continue
+        except Exception as e:
+            logger.debug(f"Error in registry-based executable search: {e}")
+
+        # Method 4: Environment PATH search (last resort)
+        if program_config and 'executable_info' in program_config:
+            exe_names = program_config['executable_info'].get('exe_names', [])
+            for exe_name in exe_names:
+                try:
+                    # Check if executable is in system PATH
+                    result = subprocess.run(['where', exe_name], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        exe_path = result.stdout.strip().split('\n')[0]
+                        if os.path.exists(exe_path):
+                            logger.debug(f"Found executable via PATH search: {exe_path}")
+                            return exe_path
+                except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+                    continue
+
+        logger.debug(f"Executable not found for program: {program_key}")
         return None
+
+    @staticmethod
+    def _is_main_executable(exe_path: str, program_key: str) -> bool:
+        """Determine if an executable is likely the main program executable"""
+        try:
+            exe_name = os.path.basename(exe_path).lower()
+            program_key_lower = program_key.lower()
+
+            # Check if exe name contains program key
+            if program_key_lower in exe_name:
+                return True
+
+            # Common main executable patterns
+            main_patterns = ['main.exe', 'app.exe', 'launcher.exe', 'client.exe']
+            if any(pattern in exe_name for pattern in main_patterns):
+                return True
+
+            # Avoid helper executables
+            helper_patterns = ['uninstall', 'setup', 'install', 'config', 'updater', 'helper']
+            if any(pattern in exe_name for pattern in helper_patterns):
+                return False
+
+            # Check file size - main executables are usually larger
+            try:
+                file_size = os.path.getsize(exe_path)
+                if file_size > 1024 * 1024:  # Larger than 1MB
+                    return True
+            except OSError:
+                pass
+
+            return False
+        except Exception:
+            return False
 
     @staticmethod
     def check_path_exists(path_pattern: str) -> bool:
@@ -1841,6 +1988,10 @@ class WindowManager:
                 'top': 0,
                 'width': 1920,
                 'height': 1080,
+                'work_left': 0,
+                'work_top': 0,
+                'work_width': 1920,
+                'work_height': 1080,
                 'dpi': 96
             })
             self.primary_monitor = self.monitors[0]
@@ -1850,33 +2001,66 @@ class WindowManager:
             # Get monitor information
             monitor_info = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))
 
-            # Get all monitors
-            def callback(hmonitor, hdc, rect, data):
-                info = win32api.GetMonitorInfo(hmonitor)
-                monitor = {
-                    'index': len(self.monitors),
-                    'is_primary': info['flags'] & win32api.MONITORINFOF_PRIMARY != 0,
-                    'left': info['Monitor'][0],
-                    'top': info['Monitor'][1],
-                    'width': info['Monitor'][2] - info['Monitor'][0],
-                    'height': info['Monitor'][3] - info['Monitor'][1],
-                    'work_left': info['Work'][0],
-                    'work_top': info['Work'][1],
-                    'work_width': info['Work'][2] - info['Work'][0],
-                    'work_height': info['Work'][3] - info['Work'][1]
-                }
+            # Get all monitors with improved callback
+            try:
+                def callback(hmonitor, hdc, rect, data):
+                    try:
+                        info = win32api.GetMonitorInfo(hmonitor)
+                        monitor = {
+                            'index': len(self.monitors),
+                            'is_primary': info['flags'] & win32api.MONITORINFOF_PRIMARY != 0,
+                            'left': info['Monitor'][0],
+                            'top': info['Monitor'][1],
+                            'width': info['Monitor'][2] - info['Monitor'][0],
+                            'height': info['Monitor'][3] - info['Monitor'][1],
+                            'work_left': info['Work'][0],
+                            'work_top': info['Work'][1],
+                            'work_width': info['Work'][2] - info['Work'][0],
+                            'work_height': info['Work'][3] - info['Work'][1]
+                        }
 
-                if monitor['is_primary']:
+                        if monitor['is_primary']:
+                            self.primary_monitor = monitor
+
+                        self.monitors.append(monitor)
+                        logger.debug(f"Detected monitor {monitor['index']}: {monitor['width']}x{monitor['height']} at ({monitor['left']}, {monitor['top']}) - Primary: {monitor['is_primary']}")
+                        return True
+                    except Exception as e:
+                        logger.debug(f"Error processing monitor: {e}")
+                        return True
+
+                # Use proper enumeration for all monitors
+                win32api.EnumDisplayMonitors(None, None, callback, None)
+
+            except Exception as e:
+                logger.error(f"Error enumerating monitors: {e}")
+                # Try alternative method
+                try:
+                    # Fallback: Get monitor at cursor position
+                    hmonitor = win32api.MonitorFromPoint((0, 0))
+                    info = win32api.GetMonitorInfo(hmonitor)
+                    monitor = {
+                        'index': 0,
+                        'is_primary': True,
+                        'left': info['Monitor'][0],
+                        'top': info['Monitor'][1],
+                        'width': info['Monitor'][2] - info['Monitor'][0],
+                        'height': info['Monitor'][3] - info['Monitor'][1],
+                        'work_left': info['Work'][0],
+                        'work_top': info['Work'][1],
+                        'work_width': info['Work'][2] - info['Work'][0],
+                        'work_height': info['Work'][3] - info['Work'][1]
+                    }
+                    self.monitors.append(monitor)
                     self.primary_monitor = monitor
-
-                self.monitors.append(monitor)
-                return True
-
-            win32api.EnumDisplayMonitors(None, None, callback, None)
+                    logger.info(f"Using fallback monitor detection: {monitor['width']}x{monitor['height']}")
+                except Exception as fallback_e:
+                    logger.error(f"Fallback monitor detection failed: {fallback_e}")
+                    raise e
 
         except Exception as e:
             logger.error(f"Error detecting monitors: {e}")
-            # Fallback to single monitor
+            # Fallback to single monitor with work area fields
             self.monitors.append({
                 'index': 0,
                 'is_primary': True,
@@ -1884,42 +2068,80 @@ class WindowManager:
                 'top': 0,
                 'width': 1920,
                 'height': 1080,
+                'work_left': 0,
+                'work_top': 0,
+                'work_width': 1920,
+                'work_height': 1080,
                 'dpi': 96
             })
             self.primary_monitor = self.monitors[0]
 
         return self.monitors
 
-    def get_optimal_position(self, program_name: str = "", prefer_secondary: bool = False) -> Dict[str, int]:
+    def get_optimal_position(self, program_name: str = "") -> Dict[str, int]:
         """Get optimal window position for a program"""
-        if len(self.monitors) == 1:
-            # Single monitor setup
-            monitor = self.monitors[0]
-            return {
-                'left': monitor['work_left'] + 50,
-                'top': monitor['work_top'] + 50,
-                'width': min(1200, monitor['work_width'] - 100),
-                'height': min(800, monitor['work_height'] - 100)
-            }
+        try:
+            if len(self.monitors) == 1:
+                # Single monitor setup
+                monitor = self.monitors[0]
+                work_left = monitor.get('work_left', monitor.get('left', 0))
+                work_top = monitor.get('work_top', monitor.get('top', 0))
+                work_width = monitor.get('work_width', monitor.get('width', 1920))
+                work_height = monitor.get('work_height', monitor.get('height', 1080))
 
-        # Multi-monitor setup
-        if prefer_secondary and len(self.monitors) > 1:
-            # Use secondary monitor
-            monitor = next((m for m in self.monitors if not m['is_primary']), self.monitors[0])
-        else:
-            # Use primary monitor
+                return {
+                    'left': work_left + 50,
+                    'top': work_top + 50,
+                    'width': min(1200, work_width - 100),
+                    'height': min(800, work_height - 100)
+                }
+
+            # Multi-monitor setup - always use primary monitor for launching
+            # Positioning will be handled dynamically by workflows using OpenCV
             monitor = self.primary_monitor or self.monitors[0]
 
-        return {
-            'left': monitor['work_left'] + 50,
-            'top': monitor['work_top'] + 50,
-            'width': min(1200, monitor['work_width'] - 100),
-            'height': min(800, monitor['work_height'] - 100)
-        }
+            work_left = monitor.get('work_left', monitor.get('left', 0))
+            work_top = monitor.get('work_top', monitor.get('top', 0))
+            work_width = monitor.get('work_width', monitor.get('width', 1920))
+            work_height = monitor.get('work_height', monitor.get('height', 1080))
+
+            return {
+                'left': work_left + 50,
+                'top': work_top + 50,
+                'width': min(1200, work_width - 100),
+                'height': min(800, work_height - 100)
+            }
+        except Exception as e:
+            logger.error(f"Error getting optimal position: {e}")
+            # Fallback to safe default position
+            return {
+                'left': 50,
+                'top': 50,
+                'width': 1200,
+                'height': 800
+            }
 
     def get_monitor_info(self) -> List[Dict[str, Any]]:
         """Get information about all detected monitors"""
         return self.monitors.copy()
+
+    def get_monitor_count(self) -> int:
+        """Get the number of detected monitors"""
+        return len(self.monitors)
+
+    def detect_monitors_debug(self) -> str:
+        """Debug method to get detailed monitor information"""
+        try:
+            self.detect_monitors()
+            info = f"Detected {len(self.monitors)} monitor(s):\n"
+            for i, monitor in enumerate(self.monitors):
+                info += f"  Monitor {i}: {monitor['width']}x{monitor['height']} at ({monitor['left']}, {monitor['top']})"
+                if monitor.get('is_primary'):
+                    info += " [PRIMARY]"
+                info += "\n"
+            return info
+        except Exception as e:
+            return f"Error detecting monitors: {e}"
 
 
 class AutomationEngine(QThread):
@@ -2336,6 +2558,11 @@ class AutomationEngine(QThread):
 class PetroleumLauncherWidget(QWidget):
     """Main widget for the Petroleum Program Launcher module"""
 
+    # Signals for thread-safe UI updates
+    detection_completed = pyqtSignal()
+    detection_status = pyqtSignal(str)
+    program_detected = pyqtSignal(str, dict)  # program_key, program_info
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = parent
@@ -2345,6 +2572,9 @@ class PetroleumLauncherWidget(QWidget):
         self.automation_engine: Optional[AutomationEngine] = None
         self.screen_recorder = ScreenRecorder()
 
+        # Initialize configuration manager
+        self.config_manager = PetroleumProgramConfigManager()
+
         # Initialize UI first
         self.initUI()
 
@@ -2353,6 +2583,11 @@ class PetroleumLauncherWidget(QWidget):
 
         # Load saved data after UI is created
         self.load_configuration()
+
+        # Connect signals for thread-safe UI updates
+        self.detection_completed.connect(self.on_detection_completed)
+        self.detection_status.connect(self.on_detection_status)
+        self.program_detected.connect(self.on_program_detected)
 
         # Detect programs after UI is ready
         QTimer.singleShot(1000, self.detect_programs)
@@ -2394,7 +2629,9 @@ class PetroleumLauncherWidget(QWidget):
         # Status bar at bottom
         status_layout = QHBoxLayout()
 
-        self.status_label = QLabel("Ready")
+        # Status label with monitor info
+        monitor_count = self.window_manager.get_monitor_count()
+        self.status_label = QLabel(f"Ready - Detected {monitor_count} monitor(s)")
         status_layout.addWidget(self.status_label)
 
         status_layout.addStretch()
@@ -2446,10 +2683,44 @@ class PetroleumLauncherWidget(QWidget):
         programs_tab = QWidget()
         layout = QVBoxLayout(programs_tab)
 
-        # Refresh button
-        refresh_btn = QPushButton("Refresh Programs")
-        refresh_btn.clicked.connect(self.detect_programs)
-        layout.addWidget(refresh_btn)
+        # Configuration dropdown menu
+        config_dropdown = QComboBox()
+        config_dropdown.addItem("⚙️ Configuration Options")
+        config_dropdown.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                font-weight: bold;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background: white;
+                min-width: 200px;
+            }
+            QComboBox:hover {
+                border-color: #007acc;
+            }
+        """)
+
+        # Configuration menu items
+        config_dropdown.addItem("🔄 Refresh Programs")
+        config_dropdown.addItem("📂 Load Configuration File")
+        config_dropdown.addItem("💾 Save Configuration")
+        config_dropdown.addItem("📤 Export Configuration")
+        config_dropdown.addItem("➕ Add from Uninstaller Data")
+        config_dropdown.addItem("🗑️ Clear All Programs")
+
+        config_dropdown.currentIndexChanged.connect(self.handle_config_action)
+        layout.addWidget(config_dropdown)
+
+        # Help message for empty configuration
+        self.no_programs_label = QLabel(
+            "No programs configured yet. Use the configuration dropdown above to add programs:\n"
+            "• 'Add from Uninstaller Data' - Paste uninstaller registry data\n"
+            "• 'Load Configuration File' - Import existing configuration"
+        )
+        self.no_programs_label.setWordWrap(True)
+        self.no_programs_label.setStyleSheet("QLabel { color: #666; font-style: italic; padding: 20px; }")
+        self.no_programs_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.no_programs_label)
 
         # Programs tree
         self.programs_tree = QTreeWidget()
@@ -4377,42 +4648,12 @@ class PetroleumLauncherWidget(QWidget):
 
         layout.addWidget(details_group)
 
-        # Progress group (for automation execution)
-        progress_group = QGroupBox("Progress")
-        progress_layout = QVBoxLayout(progress_group)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        progress_layout.addWidget(self.progress_bar)
-
-        self.progress_label = QLabel("")
-        self.progress_label.setVisible(False)
-        progress_layout.addWidget(self.progress_label)
-
-        # Stop automation button
-        self.stop_automation_btn = QPushButton("Stop Automation")
-        self.stop_automation_btn.setVisible(False)
-        self.stop_automation_btn.clicked.connect(self.stop_automation)
-        progress_layout.addWidget(self.stop_automation_btn)
-
-        layout.addWidget(progress_group)
-
+        
         # Settings group
         settings_group = QGroupBox("Settings")
         settings_layout = QFormLayout(settings_group)
 
-        self.monitor_combo = QComboBox()
-        self.monitor_combo.addItem("Primary Monitor")
-        if len(self.window_manager.monitors) > 1:
-            self.monitor_combo.addItem("Secondary Monitor")
-        self.monitor_combo.currentIndexChanged.connect(self.on_settings_changed)
-        settings_layout.addRow("Default Monitor:", self.monitor_combo)
-
-        self.window_position_check = QCheckBox("Remember window positions")
-        self.window_position_check.toggled.connect(self.on_settings_changed)
-        settings_layout.addRow("", self.window_position_check)
-
-        save_settings_btn = QPushButton("Save Settings")
+        save_settings_btn = QPushButton("Save Configuration")
         save_settings_btn.clicked.connect(self.save_configuration)
         settings_layout.addRow("", save_settings_btn)
 
@@ -4489,9 +4730,12 @@ class PetroleumLauncherWidget(QWidget):
         monitor_count = len(self.window_manager.monitors)
         if monitor_count == 1:
             monitor = self.window_manager.monitors[0]
-            return f"1 Monitor: {monitor['width']}x{monitor['height']}"
+            primary_text = " [PRIMARY]" if monitor.get('is_primary') else ""
+            return f"1 Monitor: {monitor['width']}x{monitor['height']}{primary_text}"
         else:
-            return f"{monitor_count} Monitors detected"
+            primary_count = sum(1 for m in self.window_manager.monitors if m.get('is_primary'))
+            secondary_count = monitor_count - primary_count
+            return f"{monitor_count} Monitors: {primary_count} Primary, {secondary_count} Secondary"
 
     def detect_programs(self):
         """Detect installed petroleum programs"""
@@ -4507,8 +4751,10 @@ class PetroleumLauncherWidget(QWidget):
             logger.info("Starting petroleum program detection...")
 
             # Iterate through all configured petroleum programs
-            for program_key, config in PETROLEUM_PROGRAM_CONFIG.items():
-                logger.info(f"Checking {config['display_name']}...")
+            logger.info(f"Starting detection for {len(self.config_manager.config)} programs: {list(self.config_manager.config.keys())}")
+            for program_key, config in self.config_manager.config.items():
+                logger.info(f"Checking {config['display_name']} (key: {program_key})...")
+                logger.debug(f"Config: {config.get('check_method', {})}")
 
                 program_info = ProgramInfo(
                     name=program_key,
@@ -4529,17 +4775,31 @@ class PetroleumLauncherWidget(QWidget):
                 executable_path = None
 
                 try:
+                    if not WINDOWS_SUPPORT:
+                        logger.warning(f"Windows support not available for {config['display_name']} detection")
+                        program_info.detected = False
+                        program_info.install_error = "Windows support not available"
+                        self.detected_programs[program_key] = program_info
+                        continue
+
                     if check_type == 'registry':
                         check_keys = check_method.get('keys', [])
+                        logger.info(f"Checking {config['display_name']} with {len(check_keys)} registry rules")
+                        for i, key in enumerate(check_keys):
+                            logger.info(f"  Rule {i+1}: {key}")
                         is_installed, found_version = WindowsUtils.check_registry(check_keys)
+                        logger.info(f"Registry check result for {config['display_name']}: {is_installed}, version: {found_version}")
 
                         # If installed, try to find executable path
                         if is_installed:
-                            executable_path = WindowsUtils.find_executable_path(program_key)
+                            executable_path = WindowsUtils.find_executable_path(program_key, config)
+                            logger.debug(f"Found executable path for {config['display_name']}: {executable_path}")
 
                     elif check_type == 'path':
                         paths_to_check = check_method.get('paths', [])
+                        logger.info(f"Checking {config['display_name']} paths: {paths_to_check}")
                         is_installed = any(WindowsUtils.check_path_exists(p) for p in paths_to_check)
+                        logger.info(f"Path check result for {config['display_name']}: {is_installed}")
 
                         if is_installed and paths_to_check:
                             # Use the first existing path as install location
@@ -4547,34 +4807,104 @@ class PetroleumLauncherWidget(QWidget):
                                 expanded_path = os.path.expandvars(path)
                                 if os.path.exists(expanded_path):
                                     program_info.install_path = expanded_path
+                                    # Try to find executable path for path-based detection
+                                    executable_path = WindowsUtils.find_executable_path(program_key, config)
+                                    logger.info(f"Found executable path for {config['display_name']}: {executable_path}")
                                     break
 
                     # Update program info with detection results
                     program_info.detected = is_installed
-                    program_info.version = found_version or ""
+                    # Use found version, then configuration version, then unknown
+                    if found_version:
+                        program_info.version = found_version
+                    elif config.get('target_version') and config['target_version'] != 'latest':
+                        program_info.version = config['target_version']
+                    else:
+                        program_info.version = "Unknown"
                     program_info.executable_path = executable_path or ""
 
                     logger.info(f"{config['display_name']}: {'Installed' if is_installed else 'Not Found'}" +
                                (f" (v{found_version})" if found_version else ""))
 
                 except Exception as e:
-                    logger.error(f"Error checking {config['display_name']}: {e}")
+                    logger.error(f"Error checking {config['display_name']}: {e}", exc_info=True)
                     program_info.detected = False
                     program_info.install_error = str(e)
 
                 # Store the program info
                 self.detected_programs[program_key] = program_info
 
-            # Update UI on main thread
-            QTimer.singleShot(100, self.update_programs_ui)
+                # Emit signal for UI update (thread-safe)
+                self.program_detected.emit(program_key, asdict(program_info))
+
+            # Signal completion
+            self.detection_completed.emit()
             logger.info("Petroleum program detection completed")
 
         except Exception as e:
             logger.error(f"Error in program detection worker: {e}")
-            QTimer.singleShot(100, lambda: self.status_label.setText("Error detecting programs"))
+            self.detection_status.emit("Error detecting programs")
+
+    def on_detection_status(self, status_text):
+        """Handle detection status updates (thread-safe)"""
+        if hasattr(self, 'status_label'):
+            self.status_label.setText(status_text)
+
+    def on_program_detected(self, program_key, program_info_dict):
+        """Handle individual program detection (thread-safe)"""
+        if not hasattr(self, 'programs_tree'):
+            return
+
+        # Hide the help message when programs are added
+        if hasattr(self, 'no_programs_label'):
+            self.no_programs_label.hide()
+
+        # Convert dict back to ProgramInfo
+        program_info = ProgramInfo(**program_info_dict)
+
+        # Find existing item or create new one
+        for i in range(self.programs_tree.topLevelItemCount()):
+            item = self.programs_tree.topLevelItem(i)
+            if item.data(0, Qt.UserRole) == program_key:
+                # Update existing item
+                item.setText(0, program_info.display_name)
+                item.setText(1, program_info.version or "Unknown")
+                if program_info.detected:
+                    item.setText(2, "Installed")
+                    item.setIcon(0, self.get_style_icon("✓"))
+                else:
+                    item.setText(2, "Not Found")
+                    item.setIcon(0, self.get_style_icon("✗"))
+                return
+
+        # Create new item if not found
+        item = QTreeWidgetItem(self.programs_tree)
+        item.setText(0, program_info.display_name)
+        item.setText(1, program_info.version or "Unknown")
+        if program_info.detected:
+            item.setText(2, "Installed")
+            item.setIcon(0, self.get_style_icon("✓"))
+        else:
+            item.setText(2, "Not Found")
+            item.setIcon(0, self.get_style_icon("✗"))
+        item.setData(0, Qt.UserRole, program_key)
+
+        self.programs_tree.resizeColumnToContents(0)
+        self.programs_tree.resizeColumnToContents(1)
+
+    def on_detection_completed(self):
+        """Handle detection completion (thread-safe)"""
+        if hasattr(self, 'status_label'):
+            self.status_label.setText("Program detection completed")
+
+        # Final column resize
+        if hasattr(self, 'programs_tree'):
+            self.programs_tree.resizeColumnToContents(0)
+            self.programs_tree.resizeColumnToContents(1)
+            self.programs_tree.resizeColumnToContents(2)
 
     def update_programs_ui(self):
-        """Update the programs tree widget with detected programs"""
+        """Update the programs tree widget with detected programs (legacy method)"""
         # Safety check - make sure the UI is initialized
         if not hasattr(self, 'programs_tree'):
             return
@@ -4666,11 +4996,8 @@ class PetroleumLauncherWidget(QWidget):
                                   f"Executable file not found:\n{program.executable_path}")
                 return
 
-            # Get window position
-            position = self.window_manager.get_optimal_position(
-                program.name,
-                prefer_secondary=(self.monitor_combo.currentIndex() == 1)
-            )
+            # Get dynamic window position (no hardcoded monitor preferences)
+            position = self.window_manager.get_optimal_position(program.name)
 
             # Launch the program
             logger.info(f"Launching {program.display_name} from {program.executable_path}")
@@ -4690,10 +5017,8 @@ class PetroleumLauncherWidget(QWidget):
                 self.status_label.setText(f"Launched {program.display_name} (PID: {process.pid})")
                 logger.info(f"Successfully launched {program.display_name} (PID: {process.pid})")
 
-                # Store position if enabled
-                if self.window_position_check.isChecked():
-                    # Save position for future use (placeholder for window positioning)
-                    logger.debug(f"Storing window position: {position}")
+                # Log position for debugging (positions will be handled dynamically by workflows)
+                logger.debug(f"Calculated window position: {position}")
 
                 # Optionally implement window positioning here
                 if WINDOWS_SUPPORT and position:
@@ -4801,20 +5126,14 @@ class PetroleumLauncherWidget(QWidget):
         self.automation_engine.step_completed.connect(self.on_workflow_step_completed)
         self.automation_engine.workflow_completed.connect(self.on_workflow_completed)
 
-        # Show progress UI
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.progress_label.setVisible(True)
-        self.progress_label.setText("Starting workflow...")
-        self.stop_automation_btn.setVisible(True)
+        # Workflow started
+        self.status_label.setText("Starting workflow...")
 
         # Start the workflow
         self.automation_engine.start()
 
     def on_workflow_progress(self, progress: int, message: str):
         """Handle workflow progress updates"""
-        self.progress_bar.setValue(progress)
-        self.progress_label.setText(message)
         self.status_label.setText(f"Workflow: {message}")
 
     def on_workflow_step_completed(self, step_index: int, description: str, success: bool):
@@ -4824,10 +5143,6 @@ class PetroleumLauncherWidget(QWidget):
 
     def on_workflow_completed(self, success: bool, message: str):
         """Handle workflow completion"""
-        self.progress_bar.setVisible(False)
-        self.progress_label.setVisible(False)
-        self.stop_automation_btn.setVisible(False)
-
         if success:
             QMessageBox.information(self, "Workflow Complete", message)
         else:
@@ -5923,10 +6238,7 @@ class PetroleumLauncherWidget(QWidget):
                     except Exception as e:
                         logger.error(f"Error loading workflow '{workflow_name}': {e}")
 
-                # Load UI settings
-                ui_settings = module_settings.get('ui_settings', {})
-                self.monitor_combo.setCurrentIndex(ui_settings.get('default_monitor', 0))
-                self.window_position_check.setChecked(ui_settings.get('remember_positions', False))
+                # UI settings are now handled dynamically by workflows
 
                 logger.info(f"Loaded {len(self.workflows)} workflows from configuration")
 
@@ -5975,18 +6287,13 @@ class PetroleumLauncherWidget(QWidget):
                         'version': workflow.version
                     }
 
-                # Prepare UI settings
-                ui_settings = {
-                    'default_monitor': self.monitor_combo.currentIndex(),
-                    'remember_positions': self.window_position_check.isChecked()
-                }
+                # UI settings are now handled dynamically by workflows
 
                 # Update module settings in main application
                 if 'petroleum_launcher' not in self.main_window.settings:
                     self.main_window.settings['petroleum_launcher'] = {}
 
                 self.main_window.settings['petroleum_launcher']['workflows'] = workflows_data
-                self.main_window.settings['petroleum_launcher']['ui_settings'] = ui_settings
 
                 # Trigger save in main application
                 if hasattr(self.main_window, 'save_settings'):
@@ -6026,10 +6333,6 @@ class PetroleumLauncherWidget(QWidget):
                     }
                     for workflow_name, workflow in self.workflows.items()
                 },
-                'ui_settings': {
-                    'default_monitor': self.monitor_combo.currentIndex(),
-                    'remember_positions': self.window_position_check.isChecked()
-                },
                 'last_saved': datetime.now().isoformat()
             }
 
@@ -6041,6 +6344,508 @@ class PetroleumLauncherWidget(QWidget):
         except Exception as e:
             logger.error(f"Error saving to local file: {e}")
             raise
+
+    def load_configuration_file(self):
+        """Load a configuration file using file dialog"""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Load Configuration File",
+                str(Path.home() / "Downloads"),
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if file_path:
+                self.status_label.setText(f"Loading configuration from {file_path}...")
+
+                # Use the config manager to load the file
+                if self.config_manager.load_configuration(file_path):
+                    # Refresh the programs detection
+                    self.detect_programs()
+
+                    self.status_label.setText(f"Configuration loaded successfully")
+                    logger.info(f"Configuration loaded from: {file_path}")
+                else:
+                    self.status_label.setText("Failed to load configuration")
+                    logger.error(f"Failed to load configuration from: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Error loading configuration file: {e}")
+            self.status_label.setText("Error loading configuration")
+
+    def save_configuration_file(self):
+        """Save current configuration to a file using file dialog"""
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Configuration File",
+                str(Path.home() / "Downloads" / "petroleum_config.json"),
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if file_path:
+                self.status_label.setText(f"Saving configuration to {file_path}...")
+
+                # Use the config manager to save the file
+                if self.config_manager.save_configuration(file_path):
+                    self.status_label.setText("Configuration saved successfully")
+                    logger.info(f"Configuration saved to: {file_path}")
+                else:
+                    self.status_label.setText("Failed to save configuration")
+                    logger.error(f"Failed to save configuration to: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Error saving configuration file: {e}")
+            self.status_label.setText("Error saving configuration")
+
+    def export_configuration_file(self):
+        """Export current configuration with metadata"""
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Configuration",
+                str(Path.home() / "Downloads" / f"petroleum_config_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"),
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if file_path:
+                self.status_label.setText(f"Exporting configuration to {file_path}...")
+
+                # Use the config manager to export the file
+                if self.config_manager.export_configuration(file_path):
+                    self.status_label.setText("Configuration exported successfully")
+                    logger.info(f"Configuration exported to: {file_path}")
+                else:
+                    self.status_label.setText("Failed to export configuration")
+                    logger.error(f"Failed to export configuration to: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Error exporting configuration file: {e}")
+            self.status_label.setText("Error exporting configuration")
+
+    def add_program_from_uninstaller_data(self):
+        """Add or update program configuration from uninstaller registry data with editable fields"""
+        try:
+            # Create a dialog for input
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Add Program from Uninstaller Data")
+            dialog.setMinimumSize(700, 650)
+
+            layout = QVBoxLayout(dialog)
+
+            # Instructions
+            instructions = QLabel(
+                "Paste the uninstaller registry data below. The fields will be populated automatically,\n"
+                "and the system will try to find the executable. You can edit any field before saving."
+            )
+            instructions.setWordWrap(True)
+            layout.addWidget(instructions)
+
+            # Text area for uninstaller data input
+            input_group = QGroupBox("📋 Uninstaller Data Input")
+            input_layout = QVBoxLayout(input_group)
+
+            text_area = QTextEdit()
+            text_area.setPlaceholderText("Paste uninstaller data here...\nExample:\nDisplayName=CMG 2024.20 Release\nInstallLocation=D:\\Program Files\\CMG\\")
+            text_area.setMaximumHeight(100)
+            input_layout.addWidget(text_area)
+
+            layout.addWidget(input_group)
+
+            # Editable fields group
+            fields_group = QGroupBox("✏️ Editable Program Information")
+            fields_layout = QFormLayout(fields_group)
+
+            # Program Name
+            name_edit = QLineEdit()
+            name_edit.setPlaceholderText("Program name will be extracted from DisplayName")
+            fields_layout.addRow("Program Name*:", name_edit)
+
+            # Install Location
+            location_layout = QHBoxLayout()
+            location_edit = QLineEdit()
+            location_edit.setPlaceholderText("Install location will be extracted from InstallLocation")
+            browse_btn = QPushButton("Browse...")
+            browse_btn.setMaximumWidth(80)
+            location_layout.addWidget(location_edit)
+            location_layout.addWidget(browse_btn)
+            fields_layout.addRow("Install Location*:", location_layout)
+
+            # Publisher
+            publisher_edit = QLineEdit()
+            publisher_edit.setPlaceholderText("Publisher will be extracted from Publisher field")
+            fields_layout.addRow("Publisher:", publisher_edit)
+
+            # Version
+            version_edit = QLineEdit()
+            version_edit.setPlaceholderText("Version will be extracted from DisplayVersion")
+            fields_layout.addRow("Version:", version_edit)
+
+            # Executable detection and selection
+            exe_group = QGroupBox("🔍 Executable Detection")
+            exe_layout = QVBoxLayout(exe_group)
+
+            # Executable path with browse button
+            exe_path_layout = QHBoxLayout()
+            exe_path_edit = QLineEdit()
+            exe_path_edit.setPlaceholderText("Detected executable path will appear here")
+            exe_path_edit.setReadOnly(True)
+            exe_browse_btn = QPushButton("Browse Manually...")
+            exe_browse_btn.setMaximumWidth(120)
+            exe_path_layout.addWidget(exe_path_edit)
+            exe_path_layout.addWidget(exe_browse_btn)
+            exe_layout.addLayout(exe_path_layout)
+
+            # Alternative executables
+            exe_layout.addWidget(QLabel("Alternative Executables:"))
+            alt_exes_edit = QTextEdit()
+            alt_exes_edit.setMaximumHeight(60)
+            alt_exes_edit.setPlaceholderText("Alternative executable names (one per line)")
+            exe_layout.addWidget(alt_exes_edit)
+
+            layout.addWidget(fields_group)
+            layout.addWidget(exe_group)
+
+            # Detection status
+            status_label = QLabel("")
+            status_label.setStyleSheet("QLabel { color: #666; font-style: italic; }")
+            layout.addWidget(status_label)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+
+            def parse_uninstaller_data():
+                """Parse uninstaller data and populate editable fields"""
+                uninstaller_data = text_area.toPlainText().strip()
+                if not uninstaller_data:
+                    status_label.setText("⚠️ Please paste uninstaller data first")
+                    return False
+
+                # Parse the data
+                parsed_data = {}
+                for line in uninstaller_data.split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        parsed_data[key.strip()] = value.strip()
+
+                # Populate fields with parsed data
+                display_name = parsed_data.get('DisplayName', '')
+                install_location = parsed_data.get('InstallLocation', '')
+                display_version = parsed_data.get('DisplayVersion', '')
+                publisher = parsed_data.get('Publisher', '')
+
+                name_edit.setText(display_name)
+                location_edit.setText(install_location)
+                version_edit.setText(display_version)
+                publisher_edit.setText(publisher)
+
+                status_label.setText(f"✅ Parsed data for: {display_name or 'Unknown Program'}")
+                return True
+
+            def detect_executable():
+                """Try to find executable automatically"""
+                install_location = location_edit.text().strip()
+                display_name = name_edit.text().strip()
+                publisher = publisher_edit.text().strip()
+
+                if not install_location:
+                    status_label.setText("⚠️ Please provide install location first")
+                    return
+
+                if not os.path.exists(install_location):
+                    status_label.setText(f"⚠️ Install location does not exist: {install_location}")
+                    return
+
+                status_label.setText("🔍 Searching for executables...")
+
+                # Find main executable
+                main_exe = self._find_main_executable_from_path(install_location, display_name, publisher)
+                if main_exe:
+                    exe_path_edit.setText(main_exe)
+                    status_label.setText(f"✅ Found executable: {os.path.basename(main_exe)}")
+                else:
+                    exe_path_edit.setText("")
+                    status_label.setText("⚠️ No executable found automatically - please browse manually")
+
+                # Find alternative executables
+                alt_exes = self._find_alternative_executables(install_location, display_name, publisher)
+                if alt_exes:
+                    alt_exes_edit.setPlainText('\n'.join(alt_exes))
+
+            def browse_location():
+                """Browse for install location"""
+                directory = QFileDialog.getExistingDirectory(dialog, "Select Install Location")
+                if directory:
+                    location_edit.setText(directory)
+
+            def browse_executable():
+                """Browse for executable manually"""
+                install_location = location_edit.text().strip()
+                if install_location and os.path.exists(install_location):
+                    start_dir = install_location
+                else:
+                    start_dir = "C:\\Program Files"
+
+                file_path, _ = QFileDialog.getOpenFileName(
+                    dialog, "Select Executable", start_dir, "Executable Files (*.exe)"
+                )
+                if file_path:
+                    exe_path_edit.setText(file_path)
+                    status_label.setText(f"✅ Manually selected: {os.path.basename(file_path)}")
+
+            # Connect signals
+            text_area.textChanged.connect(parse_uninstaller_data)
+            location_edit.textChanged.connect(detect_executable)
+            browse_btn.clicked.connect(browse_location)
+            exe_browse_btn.clicked.connect(browse_executable)
+
+            # Parse initial data if clipboard has content
+            clipboard = QApplication.clipboard()
+            if clipboard.text():
+                text_area.setText(clipboard.text())
+                parse_uninstaller_data()
+                detect_executable()
+
+            def add_program():
+                """Add the program with all configurations"""
+                program_name = name_edit.text().strip()
+                install_location = location_edit.text().strip()
+                executable_path = exe_path_edit.text().strip()
+
+                if not program_name or not install_location:
+                    QMessageBox.warning(dialog, "Warning", "Program Name and Install Location are required.")
+                    return
+
+                if not executable_path:
+                    reply = QMessageBox.question(dialog, "No Executable",
+                        "No executable was found. Continue anyway?",
+                        QMessageBox.Yes | QMessageBox.No)
+                    if reply == QMessageBox.No:
+                        return
+
+                # Create program configuration
+                program_key = program_name.lower().replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '').replace('.', '')
+                alt_executables = [line.strip() for line in alt_exes_edit.toPlainText().split('\n') if line.strip()]
+
+                program_config = {
+                    "display_name": program_name,
+                    "target_version": version_edit.text().strip() or "latest",
+                    "identity": {
+                        "expected_product_names": [program_name, publisher_edit.text().strip()],
+                        "expected_descriptions": [program_name, f"{publisher_edit.text().strip()} Software"],
+                        "installer_patterns": [f"{program_name.replace(' ', '*')}*.exe"]
+                    },
+                    "check_method": {
+                        "type": "path",
+                        "paths": [install_location]
+                    },
+                    "automation_capabilities": {
+                        "can_record": True,
+                        "has_scripting": True,
+                        "common_automations": ["data_processing", "analysis", "workflow_automation"],
+                        "ui_elements": ["main_window", "workspace", "tools"],
+                        "file_types": ["*.*"]
+                    },
+                    "executable_info": {
+                        "main_executable": executable_path,
+                        "alternative_names": alt_executables,
+                        "common_locations": [install_location],
+                        "search_patterns": ["*.exe"]
+                    }
+                }
+
+                # Add to configuration manager
+                if self.config_manager.add_program(program_key, program_config):
+                    logger.info(f"Successfully added program from uninstaller data: {program_key}")
+
+                    QMessageBox.information(dialog, "Success",
+                        f"Successfully added/updated {program_name} configuration.\n"
+                        f"Program Key: {program_key}\n"
+                        f"Install Location: {install_location}\n"
+                        f"Executable: {executable_path or 'Not specified'}\n"
+                        f"Config File: {self.config_manager.config_file}")
+
+                    # Refresh program detection
+                    self.detect_programs()
+                    dialog.accept()
+                else:
+                    logger.error(f"Failed to add program: {program_key}")
+                    QMessageBox.critical(dialog, "Error", "Failed to add program configuration.")
+
+            # Dialog buttons
+            ok_btn = QPushButton("➕ Add Program")
+            ok_btn.clicked.connect(add_program)
+            button_layout.addWidget(ok_btn)
+
+            cancel_btn = QPushButton("❌ Cancel")
+            cancel_btn.clicked.connect(dialog.reject)
+            button_layout.addWidget(cancel_btn)
+
+            layout.addLayout(button_layout)
+
+            # Show dialog
+            if dialog.exec_() == QDialog.Accepted:
+                self.status_label.setText("Program configuration added successfully")
+                logger.info(f"Added program configuration from uninstaller data with editable fields")
+
+        except Exception as e:
+            logger.error(f"Error adding program from uninstaller data: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to add program: {str(e)}")
+
+    
+    def handle_config_action(self, index):
+        """Handle configuration dropdown actions"""
+        try:
+            if index == 0:  # Default/placeholder item
+                return
+
+            action_text = self.sender().itemText(index)
+
+            if "Refresh Programs" in action_text:
+                self.detect_programs()
+            elif "Load Configuration File" in action_text:
+                self.load_configuration_file()
+            elif "Save Configuration" in action_text:
+                self.save_configuration_file()
+            elif "Export Configuration" in action_text:
+                self.export_configuration_file()
+            elif "Add from Uninstaller Data" in action_text:
+                self.add_program_from_uninstaller_data()
+            elif "Clear All Programs" in action_text:
+                self.clear_all_programs()
+
+            # Reset dropdown to first item after action
+            self.sender().setCurrentIndex(0)
+
+        except Exception as e:
+            logger.error(f"Error handling config action: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to perform action: {str(e)}")
+
+    def clear_all_programs(self):
+        """Clear all configured programs"""
+        reply = QMessageBox.question(
+            self, "Clear All Programs",
+            "Are you sure you want to remove all configured programs?\n\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Clear all programs from config
+                self.config_manager.config.clear()
+                self.config_manager.save_configuration()
+
+                # Clear detected programs
+                self.detected_programs.clear()
+
+                # Clear the UI
+                self.programs_tree.clear()
+
+                # Show help message
+                if hasattr(self, 'no_programs_label'):
+                    self.no_programs_label.show()
+
+                self.status_label.setText("All programs cleared")
+                logger.info("All programs cleared successfully")
+                QMessageBox.information(self, "Success", "All programs have been cleared.")
+
+            except Exception as e:
+                logger.error(f"Error clearing programs: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to clear programs: {str(e)}")
+
+    def _browse_for_directory(self, line_edit):
+        """Browse for a directory and update the line edit"""
+        directory = QFileDialog.getExistingDirectory(self, "Select Program Install Directory")
+        if directory:
+            line_edit.setText(directory)
+
+    def _find_main_executable_from_path(self, install_location: str, display_name: str, publisher: str) -> str:
+        """Find the main executable from the install location"""
+        try:
+            import glob
+            import os
+
+            if not os.path.exists(install_location):
+                return f"{display_name.replace(' ', '')}.exe"
+
+            # Look for common main executable patterns
+            common_patterns = [
+                f"{display_name}.exe",
+                f"{display_name.replace(' ', '')}.exe",
+                f"{publisher}.exe",
+                "main.exe",
+                "app.exe",
+                "run.exe"
+            ]
+
+            # Search for exact matches first
+            for pattern in common_patterns:
+                full_path = os.path.join(install_location, pattern)
+                if os.path.exists(full_path):
+                    return pattern
+
+            # Search for executables containing program name
+            exe_files = []
+            for ext in ['*.exe']:
+                exe_files.extend(glob.glob(os.path.join(install_location, ext)))
+
+            # Try to find the most likely main executable
+            for exe_file in exe_files:
+                exe_name = os.path.basename(exe_file).lower()
+                display_lower = display_name.lower()
+                publisher_lower = publisher.lower()
+
+                # Priority 1: Exact match with display name
+                if display_lower in exe_name:
+                    return os.path.basename(exe_file)
+
+                # Priority 2: Contains publisher name
+                if publisher_lower in exe_name and len(exe_name) > 5:
+                    return os.path.basename(exe_file)
+
+                # Priority 3: Common application names
+                if exe_name in ['main.exe', 'app.exe', 'run.exe', 'start.exe']:
+                    return os.path.basename(exe_file)
+
+            # If no good match, return the first exe file found
+            if exe_files:
+                return os.path.basename(exe_files[0])
+
+            # Fallback
+            return f"{display_name.replace(' ', '')}.exe"
+
+        except Exception as e:
+            logger.error(f"Error finding main executable: {e}")
+            return f"{display_name.replace(' ', '')}.exe"
+
+    def _find_alternative_executables(self, install_location: str, display_name: str, publisher: str) -> list:
+        """Find alternative executable names"""
+        try:
+            import glob
+            import os
+
+            alternatives = []
+            if not os.path.exists(install_location):
+                return alternatives
+
+            # Find all exe files
+            exe_files = []
+            for ext in ['*.exe']:
+                exe_files.extend(glob.glob(os.path.join(install_location, ext)))
+
+            # Add all executables except the main one
+            main_exe = self._find_main_executable_from_path(install_location, display_name, publisher)
+            for exe_file in exe_files:
+                exe_name = os.path.basename(exe_file)
+                if exe_name != main_exe:
+                    alternatives.append(exe_name)
+
+            return alternatives[:5]  # Limit to 5 alternatives
+
+        except Exception as e:
+            logger.error(f"Error finding alternative executables: {e}")
+            return []
 
     def resizeEvent(self, event):
         """Handle window resize events for auto-scaling"""
