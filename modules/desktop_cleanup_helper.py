@@ -45,12 +45,12 @@ from PyQt5.QtWidgets import (
     QGroupBox, QSplitter, QTableWidget, QTableWidgetItem,
     QHeaderView, QMessageBox, QFileDialog, QFrame, QGridLayout,
     QScrollArea, QSizePolicy, QSlider, QDateEdit, QDialog, QMenu, QListWidget, QListWidgetItem,
-    QApplication
+    QApplication, QToolTip
 )
 from PyQt5.QtCore import (
     Qt, QThread, pyqtSignal, QTimer, QDate, QMutex, QMutexLocker, QRect, QPropertyAnimation, QEasingCurve
 )
-from PyQt5.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen, QBrush
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen, QBrush, QCursor
 
 # Import dependencies with fallback handling
 try:
@@ -60,23 +60,6 @@ except ImportError:
     PANDAS_AVAILABLE = False
     pd = None
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.backends.backend_qt5agg as plt_backend
-    from matplotlib.figure import Figure
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
-    plt = None
-    plt_backend = None
-    Figure = None
-
-try:
-    import seaborn as sns
-    SEABORN_AVAILABLE = True
-except ImportError:
-    SEABORN_AVAILABLE = False
-    sns = None
 
 try:
     from tqdm import tqdm
@@ -275,9 +258,6 @@ class ScanSplashScreen(QWidget):
         # Recalculating size on each update causes geometry errors on Windows.
         # The initial size is made sufficient by having a larger min-height.
         # self.calculate_auto_size()
-        """Start spinning when shown"""
-        super().showEvent(event)
-        self.spinning_wheel.start_rotation()
 
     def hideEvent(self, event):
         """Stop spinning when hidden"""
@@ -1588,6 +1568,34 @@ class CleanupHelperWidget(QWidget):
         file_types_layout.addWidget(self.file_types_table)
 
         left_layout.addWidget(self.file_types_group)
+
+        # Add storage insights section
+        self.insights_group = QGroupBox("💡 Інсайти зберігання")
+        self.insights_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #9b59b6;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #9b59b6;
+            }
+        """)
+
+        self.insights_text = QTextEdit()
+        self.insights_text.setMaximumHeight(120)
+        self.insights_text.setReadOnly(True)
+        self.insights_text.setPlainText("Запустіть сканування для отримання інсайтів...")
+
+        insights_layout = QVBoxLayout(self.insights_group)
+        insights_layout.addWidget(self.insights_text)
+
+        left_layout.addWidget(self.insights_group)
         left_layout.addStretch()
 
         # Right side - Large files list
@@ -1611,19 +1619,56 @@ class CleanupHelperWidget(QWidget):
             }
         """)
 
+        # Large files controls
+        large_files_controls = QHBoxLayout()
+
+        self.filter_large_files_input = QLineEdit()
+        self.filter_large_files_input.setPlaceholderText("🔍 Фільтрувати файли...")
+        self.filter_large_files_input.textChanged.connect(self.filter_large_files)
+        large_files_controls.addWidget(self.filter_large_files_input)
+
+        self.export_btn = QPushButton("📥 Експорт")
+        self.export_btn.clicked.connect(self.export_analytics)
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #219a52;
+            }
+        """)
+        large_files_controls.addWidget(self.export_btn)
+
+        large_files_controls.addStretch()
+
         self.large_files_table = QTableWidget()
-        self.large_files_table.setColumnCount(3)
-        self.large_files_table.setHorizontalHeaderLabels(["Назва файлу", "Розмір", "Змінено"])
+        self.large_files_table.setColumnCount(4)
+        self.large_files_table.setHorizontalHeaderLabels(["Назва файлу", "Розмір", "Змінено", "Шлях"])
         self.large_files_table.horizontalHeader().setStretchLastSection(True)
+        self.large_files_table.setAlternatingRowColors(True)
+        self.large_files_table.setSortingEnabled(True)
+        self.large_files_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.large_files_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.large_files_table.customContextMenuRequested.connect(self.show_large_files_context_menu)
+
+        # Add tooltip support
+        self.large_files_table.setMouseTracking(True)
+        self.large_files_table.cellEntered.connect(self.show_file_tooltip)
 
         large_files_layout = QVBoxLayout(self.large_files_group)
+        large_files_layout.addLayout(large_files_controls)
         large_files_layout.addWidget(self.large_files_table)
 
         right_layout.addWidget(self.large_files_group)
 
         results_splitter.addWidget(left_widget)
         results_splitter.addWidget(right_widget)
-        results_splitter.setSizes([300, 500])
+        results_splitter.setSizes([400, 600])
 
         layout.addWidget(results_splitter)
 
@@ -2729,6 +2774,322 @@ class CleanupHelperWidget(QWidget):
             self.large_files_table.setItem(i, 2, QTableWidgetItem(
                 file_info['modified'].strftime("%Y-%m-%d %H:%M")
             ))
+            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info['path']))
+
+        # Store current analytics data for export and filtering
+        self.current_analytics_data = results
+
+        # Generate and display insights
+        self.generate_insights(results)
+
+    def generate_insights(self, results):
+        """Generate storage insights from scan results"""
+        try:
+            insights = []
+
+            # File count insights
+            total_files = results['total_files']
+            if total_files == 0:
+                insights.append("📁 Немає файлів для аналізу")
+            else:
+                insights.append(f"📁 Всього знайдено {total_files:,} файлів")
+
+                # Size insights
+                total_size = results['total_size']
+                if total_size > 0:
+                    insights.append(f"💾 Загальний розмір: {humanize.naturalsize(total_size)}")
+
+                    # Average file size
+                    avg_size = total_size / total_files
+                    insights.append(f"📏 Середній розмір файлу: {humanize.naturalsize(avg_size)}")
+
+                    # Storage efficiency
+                    if total_size > 1024**3:  # More than 1GB
+                        insights.append(f"⚠️ Великий обсяг даних ({humanize.naturalsize(total_size)}) - рекомендується очищення")
+
+                # File types insights
+                file_types = results['file_types']
+                if file_types:
+                    # Most common file type
+                    most_common = max(file_types.items(), key=lambda x: x[1]['count'])
+                    insights.append(f"🏷️ Найпоширеніший тип: {most_common[0] or '(без розширення)'} ({most_common[1]['count']} файлів)")
+
+                    # Largest file type by size
+                    largest_type = max(file_types.items(), key=lambda x: x[1]['size'])
+                    insights.append(f"📊 Найбільший тип за розміром: {largest_type[0] or '(без розширення)'} ({humanize.naturalsize(largest_type[1]['size'])})")
+
+                    # File type diversity
+                    type_count = len(file_types)
+                    if type_count > 20:
+                        insights.append(f"🌈 Висока різноманітність типів файлів ({type_count} типів)")
+                    elif type_count > 10:
+                        insights.append(f"📂 Середня різноманітність файлів ({type_count} типів)")
+                    else:
+                        insights.append(f"📦 Низька різноманітність файлів ({type_count} типів)")
+
+                # Large files insights
+                large_files = results['large_files']
+                if large_files:
+                    large_count = len(large_files)
+                    large_size = sum(f['size'] for f in large_files)
+                    insights.append(f"🔍 {large_count} великих файлів (>10МБ) займають {humanize.naturalsize(large_size)}")
+
+                    # Storage impact
+                    if total_size > 0:
+                        large_percentage = (large_size / total_size) * 100
+                        if large_percentage > 50:
+                            insights.append(f"⚠️ Великі файли становлять {large_percentage:.1f}% усього місця - рекомендується очищення")
+                        elif large_percentage > 20:
+                            insights.append(f"💡 Великі файли становлять {large_percentage:.1f}% усього місця")
+
+                    # Largest file
+                    largest_file = max(large_files, key=lambda x: x['size'])
+                    insights.append(f"🗄️ Найбільший файл: {largest_file['name']} ({humanize.naturalsize(largest_file['size'])})")
+
+                # Recommendations
+                insights.append("\n💡 Рекомендації:")
+
+                if large_files:
+                    insights.append("  • Розгляньте видалення або архівацію великих файлів")
+
+                if total_size > 10 * 1024**3:  # More than 10GB
+                    insights.append("  • Розгляньте переміщення старих файлів на зовнішній носій")
+
+                if len(file_types) > 15:
+                    insights.append("  • Організуйте файли по типах для кращої структури")
+
+                if total_files > 10000:
+                    insights.append("  • Використовуйте фільтрацію та пошук для навігації")
+
+            # Display insights
+            if hasattr(self, 'insights_text'):
+                self.insights_text.setPlainText('\n'.join(insights))
+
+        except Exception as e:
+            if hasattr(self, 'insights_text'):
+                self.insights_text.setPlainText(f"❌ Помилка генерації інсайтів: {str(e)}")
+
+
+    def filter_large_files(self, text):
+        """Filter large files table based on search text"""
+        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+            return
+
+        search_text = text.lower().strip()
+        large_files = self.current_analytics_data['large_files']
+
+        if not search_text:
+            # Show all files
+            filtered_files = large_files
+        else:
+            # Filter by filename or path
+            filtered_files = [
+                file_info for file_info in large_files
+                if search_text in file_info['name'].lower() or search_text in file_info['path'].lower()
+            ]
+
+        # Update table with filtered results
+        self.large_files_table.setRowCount(len(filtered_files))
+        for i, file_info in enumerate(filtered_files):
+            self.large_files_table.setItem(i, 0, QTableWidgetItem(file_info['name']))
+            self.large_files_table.setItem(i, 1, QTableWidgetItem(humanize.naturalsize(file_info['size'])))
+            self.large_files_table.setItem(i, 2, QTableWidgetItem(
+                file_info['modified'].strftime("%Y-%m-%d %H:%M")
+            ))
+            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info['path']))
+
+        # Update status
+        if hasattr(self, 'analytics_status_label'):
+            self.analytics_status_label.setText(
+                f"Показано {len(filtered_files)} з {len(large_files)} великих файлів"
+            )
+
+    def show_large_files_context_menu(self, position):
+        """Show context menu for large files table"""
+        index = self.large_files_table.indexAt(position)
+        if not index.isValid():
+            return
+
+        row = index.row()
+        file_path = self.large_files_table.item(row, 3).text()
+        file_name = self.large_files_table.item(row, 0).text()
+
+        menu = QMenu(self)
+
+        # Open file
+        open_action = menu.addAction("🔓 Відкрити файл")
+        open_action.triggered.connect(lambda: self.open_file(file_path))
+
+        # Open containing folder
+        open_folder_action = menu.addAction("📁 Відкрити папку")
+        open_folder_action.triggered.connect(lambda: self.open_containing_folder(file_path))
+
+        # Copy path
+        copy_path_action = menu.addAction("📋 Копіювати шлях")
+        copy_path_action.triggered.connect(lambda: self.copy_to_clipboard(file_path))
+
+        menu.addSeparator()
+
+        # File properties
+        props_action = menu.addAction("ℹ️ Властивості файлу")
+        props_action.triggered.connect(lambda: self.show_file_properties(file_path, file_name))
+
+        menu.exec_(self.large_files_table.mapToGlobal(position))
+
+    def show_file_tooltip(self, row, column):
+        """Show detailed tooltip for file in table"""
+        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+            return
+
+        try:
+            if row >= len(self.current_analytics_data['large_files']):
+                return
+
+            file_info = self.current_analytics_data['large_files'][row]
+
+            tooltip_text = f"""
+<b>📁 {file_info['name']}</b><br/>
+📍 <b>Шлях:</b> {file_info['path']}<br/>
+📏 <b>Розмір:</b> {humanize.naturalsize(file_info['size'])}<br/>
+📅 <b>Створено:</b> {file_info.get('created', 'N/A').strftime('%Y-%m-%d %H:%M') if file_info.get('created') else 'N/A'}<br/>
+✏️ <b>Змінено:</b> {file_info['modified'].strftime('%Y-%m-%d %H:%M')}<br/>
+🏷️ <b>Тип:</b> {os.path.splitext(file_info['name'])[1] or '(немає розширення)'}
+            """.strip()
+
+            QToolTip.showText(QCursor.pos(), tooltip_text)
+
+        except Exception as e:
+            print(f"Error showing tooltip: {e}")
+
+    def open_file(self, file_path):
+        """Open file with default application"""
+        try:
+            if sys.platform == "win32":
+                os.startfile(file_path)
+            elif sys.platform == "darwin":
+                subprocess.run(['open', file_path])
+            else:
+                subprocess.run(['xdg-open', file_path])
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити файл:\n{str(e)}")
+
+    def open_containing_folder(self, file_path):
+        """Open the folder containing the file and select the file"""
+        try:
+            folder_path = os.path.dirname(file_path)
+            if sys.platform == "win32":
+                subprocess.run(['explorer', '/select,', file_path])
+            elif sys.platform == "darwin":
+                subprocess.run(['open', folder_path])
+            else:
+                subprocess.run(['xdg-open', folder_path])
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити папку:\n{str(e)}")
+
+    def copy_to_clipboard(self, text):
+        """Copy text to clipboard"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+
+        # Show brief confirmation
+        if hasattr(self, 'analytics_status_label'):
+            self.analytics_status_label.setText(f"Скопійовано: {text}")
+            QTimer.singleShot(2000, lambda: self.analytics_status_label.setText(""))
+
+    def show_file_properties(self, file_path, file_name):
+        """Show detailed file properties dialog"""
+        try:
+            if not os.path.exists(file_path):
+                QMessageBox.warning(self, "Файл не знайдено", f"Файл не існує:\n{file_path}")
+                return
+
+            stat = os.stat(file_path)
+
+            properties = f"""
+<b>📁 Властивості файлу</b>
+
+🏷️ <b>Назва:</b> {file_name}
+📍 <b>Повний шлях:</b> {file_path}
+📏 <b>Розмір:</b> {humanize.naturalsize(stat.st_size)} ({stat.st_size:,} байт)
+📅 <b>Створено:</b> {datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')}
+✏️ <b>Змінено:</b> {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}
+🔍 <b>Доступно:</b> {datetime.fromtimestamp(stat.st_atime).strftime('%Y-%m-%d %H:%M:%S')}
+🔒 <b>Атрибути:</b> {oct(stat.st_mode)[-3:]}
+            """.strip()
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Властивості файлу")
+            msg.setTextFormat(Qt.RichText)
+            msg.setText(properties)
+            msg.setIcon(QMessageBox.Information)
+            msg.exec_()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Не вдалося отримати властивості файлу:\n{str(e)}")
+
+    def export_analytics(self):
+        """Export analytics data to CSV file"""
+        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+            QMessageBox.warning(self, "Немає даних", "Немає даних для експорту.")
+            return
+
+        try:
+            # Ask user for save location
+            file_dialog = QFileDialog(self)
+            file_dialog.setAcceptMode(QFileDialog.AcceptSave)
+            file_dialog.setNameFilter("CSV файли (*.csv)")
+            file_dialog.setDefaultSuffix("csv")
+            file_dialog.selectFile(f"analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+
+            if file_dialog.exec_() != QFileDialog.Accepted:
+                return
+
+            save_path = file_dialog.selectedFiles()[0]
+
+            # Prepare data for export
+            export_data = []
+
+            # Add summary
+            export_data.append(['Підсумки'])
+            export_data.append(['Загальна кількість файлів', self.current_analytics_data['total_files']])
+            export_data.append(['Загальний розмір', self.current_analytics_data['total_size']])
+            export_data.append(['Кількість типів файлів', len(self.current_analytics_data['file_types'])])
+            export_data.append([])
+
+            # Add file types breakdown
+            export_data.append(['Типи файлів'])
+            export_data.append(['Розширення', 'Кількість', 'Розмір'])
+            for ext, data in self.current_analytics_data['file_types'].items():
+                export_data.append([ext or '(без розширення)', data['count'], data['size']])
+            export_data.append([])
+
+            # Add large files
+            export_data.append(['Великі файли (>10МБ)'])
+            export_data.append(['Назва', 'Розмір', 'Шлях', 'Дата зміни'])
+            for file_info in self.current_analytics_data['large_files']:
+                export_data.append([
+                    file_info['name'],
+                    file_info['size'],
+                    file_info['path'],
+                    file_info['modified'].strftime('%Y-%m-%d %H:%M:%S')
+                ])
+
+            # Write to CSV
+            with open(save_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                import csv
+                writer = csv.writer(csvfile)
+                writer.writerows(export_data)
+
+            QMessageBox.information(self, "Експорт завершено", f"Дані аналітики експортовано до:\n{save_path}")
+
+            # Offer to open the file
+            reply = QMessageBox.question(self, "Відкрити файл?", "Відкрити експортований файл?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.open_file(save_path)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка експорту", f"Не вдалося експортувати дані:\n{str(e)}")
 
     def find_duplicates(self):
         """Find duplicate files"""
@@ -2781,10 +3142,10 @@ class CleanupHelperWidget(QWidget):
         """Handle duplicate finding completion"""
         self.duplicate_results = results
 
-        # Update splash screen to show completion
-        if self.scan_splash and self.scan_splash.isVisible():
-            self.scan_splash.update_progress(100, f"✅ Знайдено {len(results)} груп дублікатів!")
-            QTimer.singleShot(1500, self.hide_scan_splash)
+        # Update and hide duplicate splash screen
+        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
+            self.duplicate_splash.update_progress(100, f"✅ Знайдено {len(results)} груп дублікатів!")
+            QTimer.singleShot(1500, self.duplicate_splash.hide)
 
         # Update duplicate tree
         self.duplicate_tree.clear()
@@ -3032,6 +3393,9 @@ class CleanupHelperWidget(QWidget):
         # Get search parameters
         search_term = self.search_edit.text().strip()
 
+        # Update current search term
+        self.current_search_term = search_term
+
         # If no search term, show all files with splash screen
         if not search_term:
             # Show splash screen for refresh
@@ -3089,6 +3453,13 @@ class CleanupHelperWidget(QWidget):
                 search_btn.setEnabled(True)
                 search_btn.setText("Пошук")
             return
+
+        # Show splash screen if not already visible
+        if not (self.archive_splash and self.archive_splash.isVisible()):
+            if search_term:
+                self.show_archive_splash("📂 Пошук в архівах...", f"Пошук: '{search_term}'...")
+            else:
+                self.show_archive_splash("🔄 Оновлення архіву...", "Оновлення списку файлів...")
 
         # Stop any existing tree building thread
         if hasattr(self, 'tree_builder_thread') and self.tree_builder_thread:
@@ -4927,22 +5298,30 @@ class CleanupHelperWidget(QWidget):
             self.current_search_term = ""
             self.search_edit.clear()
 
-            # Fast reset: just unhide all items instead of refreshing the tree
-            root = self.archive_tree.invisibleRootItem()
-            shown_count = 0
+            # Clear advanced filters
+            if hasattr(self, 'archive_filters'):
+                self.archive_filters = {
+                    'file_types': [],
+                    'min_date': None,
+                    'max_date': None,
+                    'min_size': None,
+                    'max_size': None
+                }
 
-            def show_recursive(item):
-                nonlocal shown_count
-                if item.isHidden():
-                    item.setHidden(False)
-                    shown_count += 1
-                for i in range(item.childCount()):
-                    show_recursive(item.child(i))
+            # Clear filter history to prevent re-application
+            if hasattr(self, '_filter_history'):
+                self._filter_history = []
 
-            for i in range(root.childCount()):
-                show_recursive(root.child(i))
+            # Reset any active date/size filters
+            if hasattr(self, 'date_filter_active'):
+                self.date_filter_active = False
+            if hasattr(self, 'size_filter_active'):
+                self.size_filter_active = False
 
-            self.archive_status_label.setText(f"✅ Усі фільтри скинуто - показано {shown_count} прихованих елементів")
+            # Rebuild the tree to show all items without new scan
+            self._rebuild_tree_without_scan()
+
+            self.archive_status_label.setText("✅ Усі фільтри скинуто - показано всі файли")
             self.archive_status_label.setStyleSheet("""
                 QLabel {
                     font-size: 11px;
@@ -4956,13 +5335,43 @@ class CleanupHelperWidget(QWidget):
             """)
 
             if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: All filters reset - {shown_count} items shown")
+                self.main_window.log_message("CleanupHelper: All filters reset - showing all files")
 
             QTimer.singleShot(2000, lambda: self._reset_status_style())
 
         except Exception as e:
             if hasattr(self.main_window, 'log_message'):
                 self.main_window.log_message(f"CleanupHelper: Error resetting filters: {e}")
+
+    def _rebuild_tree_without_scan(self):
+        """Show all items in current tree without starting a new scan"""
+        try:
+            # Simply unhide all items in the current tree instead of rebuilding
+            root = self.archive_tree.invisibleRootItem()
+            shown_count = 0
+
+            def unhide_all_items(item):
+                nonlocal shown_count
+                # Unhide this item if it was hidden
+                if item.isHidden():
+                    item.setHidden(False)
+                    shown_count += 1
+
+                # Recursively unhide all children
+                for i in range(item.childCount()):
+                    unhide_all_items(item.child(i))
+
+            # Unhide all items in the tree
+            for i in range(root.childCount()):
+                unhide_all_items(root.child(i))
+
+            # Update the tree to show the changes
+            self.archive_tree.viewport().update()
+
+        except Exception as e:
+            print(f"Error unhiding tree items: {e}")
+            # Fallback to full refresh
+            self.refresh_archive_tree("")
 
     def _reset_status_style(self):
         """Reset status label to default style"""
@@ -5283,10 +5692,155 @@ class CleanupHelperWidget(QWidget):
 
             self.archive_status_label.setText(f"Видалено {', '.join(success_parts)}")
 
-            # Refresh tree after deletion
-            self.refresh_archive_tree(self.current_search_term)
+            # Immediately remove deleted items from UI tree for instant feedback
+            self._remove_items_from_tree(selected_items)
 
+            # Invalidate cache to ensure next scan is fresh
+            self._file_cache = {}
+            self._cache_timestamp = 0
+            self._last_scan_path = ""
+
+            # Update analytics if on analytics tab
+            if hasattr(self, 'current_analytics_data') and self.current_analytics_data:
+                self._update_analytics_after_deletion(selected_items)
+
+            # Show success message immediately
             QMessageBox.information(self, "Готово", f"Видалено {', '.join(success_parts)}.")
+
+    def _remove_items_from_tree(self, deleted_items):
+        """Immediately remove deleted items from the archive tree UI"""
+        try:
+            if not deleted_items or not hasattr(self, 'archive_tree'):
+                return
+
+            root = self.archive_tree.invisibleRootItem()
+            items_to_remove = []
+            deleted_set = set(deleted_items)  # Convert to set for faster lookup
+
+            # Block signals during tree manipulation to prevent UI flicker
+            self.archive_tree.setUpdatesEnabled(False)
+            self.archive_tree.blockSignals(True)
+
+            # Find all tree items that correspond to deleted files
+            def find_items_to_remove(parent_item):
+                for i in range(parent_item.childCount()):
+                    child = parent_item.child(i)
+                    file_path = child.text(4)  # File path is stored in column 4
+
+                    if file_path and file_path in deleted_set:
+                        items_to_remove.append(child)
+
+                    # Recursively check children
+                    if child.childCount() > 0:
+                        find_items_to_remove(child)
+
+            find_items_to_remove(root)
+
+            # Remove found items from tree (process in reverse order to avoid index issues)
+            for item in items_to_remove:
+                try:
+                    parent = item.parent()
+                    if parent:
+                        parent.removeChild(item)
+                    else:
+                        root.removeChild(item)
+                except Exception as e:
+                    print(f"Error removing individual tree item: {e}")
+
+            # Clean up empty directories
+            self._clean_empty_directories(root)
+
+        except Exception as e:
+            print(f"Error removing items from tree: {e}")
+        finally:
+            # Re-enable signals and updates
+            if hasattr(self, 'archive_tree'):
+                self.archive_tree.blockSignals(False)
+                self.archive_tree.setUpdatesEnabled(True)
+                self.archive_tree.viewport().update()  # Force redraw
+
+    def _clean_empty_directories(self, parent_item):
+        """Remove empty directory items from tree"""
+        try:
+            if not hasattr(self, 'archive_tree'):
+                return
+
+            # Keep cleaning until no more empty directories are found
+            max_passes = 10  # Prevent infinite loops
+            for pass_num in range(max_passes):
+                empty_dirs = []
+                items_to_check = []
+
+                # Collect all items to check
+                for i in range(parent_item.childCount()):
+                    child = parent_item.child(i)
+                    items_to_check.append(child)
+
+                # Find empty directories
+                for item in items_to_check:
+                    # Directory if column 4 is empty AND it has no children
+                    if (not item.text(4) or item.text(4).strip() == "") and item.childCount() == 0:
+                        empty_dirs.append(item)
+
+                # If no empty directories found, we're done
+                if not empty_dirs:
+                    break
+
+                # Remove empty directories
+                for item in empty_dirs:
+                    try:
+                        parent = item.parent()
+                        if parent:
+                            parent.removeChild(item)
+                        else:
+                            parent_item.removeChild(item)
+                    except Exception as e:
+                        print(f"Error removing empty directory: {e}")
+
+        except Exception as e:
+            print(f"Error cleaning empty directories: {e}")
+
+    def _update_analytics_after_deletion(self, deleted_items):
+        """Update analytics data immediately after file deletion"""
+        try:
+            if not self.current_analytics_data:
+                return
+
+            # Update file counts and sizes
+            for item_path in deleted_items:
+                if os.path.exists(item_path):
+                    continue  # File wasn't actually deleted
+
+                # Update total file count
+                if os.path.isfile(item_path):
+                    self.current_analytics_data['total_files'] -= 1
+
+                # Update large files list
+                self.current_analytics_data['large_files'] = [
+                    f for f in self.current_analytics_data['large_files']
+                    if f['path'] != item_path
+                ]
+
+                # Update file types
+                ext = os.path.splitext(item_path)[1].lower()
+                if ext in self.current_analytics_data['file_types']:
+                    file_type_data = self.current_analytics_data['file_types'][ext]
+                    file_type_data['count'] -= 1
+
+                    if file_type_data['count'] <= 0:
+                        del self.current_analytics_data['file_types'][ext]
+                    else:
+                        # Estimate size removal (we don't have exact size anymore)
+                        file_type_data['size'] = max(0, file_type_data['size'] - 1024)  # Remove estimated 1KB
+
+            # Update large files count
+            self.current_analytics_data['large_files_count'] = len(self.current_analytics_data['large_files'])
+
+            # Update analytics display
+            self.update_analytics_display(self.current_analytics_data)
+
+        except Exception as e:
+            print(f"Error updating analytics after deletion: {e}")
 
     def open_selected_items(self):
         """Open selected items with default application"""
