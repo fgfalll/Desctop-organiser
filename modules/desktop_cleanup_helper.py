@@ -148,18 +148,41 @@ class ScanSplashScreen(QWidget):
         self.initUI()
         self.calculate_auto_size()
 
-        # Center on screen if parent available, otherwise center on desktop
-        if parent:
-            parent_rect = parent.geometry()
-            x = parent_rect.x() + (parent_rect.width() - self.width()) // 2
-            y = parent_rect.y() + (parent_rect.height() - self.height()) // 2
-        else:
-            # Center on desktop
-            from PyQt5.QtWidgets import QDesktopWidget
-            screen = QDesktopWidget().screenGeometry()
-            x = (screen.width() - self.width()) // 2
-            y = (screen.height() - self.height()) // 2
-        self.move(x, y)
+        # Center on parent or screen
+        self.center_on_parent()
+
+    def center_on_parent(self):
+        """Center the splash screen on parent or screen"""
+        try:
+            if self.parent():
+                # Get the parent window's global geometry
+                parent_widget = self.parent()
+                while parent_widget.parent():
+                    parent_widget = parent_widget.parent()
+
+                parent_rect = parent_widget.geometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                # Calculate center position
+                x = parent_rect.x() + (parent_rect.width() - splash_width) // 2
+                y = parent_rect.y() + (parent_rect.height() - splash_height) // 2
+
+            else:
+                # Center on desktop
+                from PyQt5.QtWidgets import QDesktopWidget
+                screen = QDesktopWidget().screenGeometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                x = (screen.width() - splash_width) // 2
+                y = (screen.height() - splash_height) // 2
+
+            self.move(x, y)
+
+        except Exception as e:
+            # Fallback to top-left corner
+            self.move(100, 100)
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -208,7 +231,7 @@ class ScanSplashScreen(QWidget):
                 padding: 10px;
                 background-color: rgba(236, 240, 241, 0.5);
                 border-radius: 5px;
-                min-height: 20px;
+                min-height: 40px;
             }
         """)
         self.progress_label.setAlignment(Qt.AlignCenter)
@@ -247,12 +270,11 @@ class ScanSplashScreen(QWidget):
         self.setFixedSize(required_width, required_height)
 
     def update_progress(self, value, message):
-        """Update progress message and recalculate size if needed"""
+        """Update progress message"""
         self.progress_label.setText(message)
-        # Recalculate size to accommodate new text
-        self.calculate_auto_size()
-
-    def showEvent(self, event):
+        # Recalculating size on each update causes geometry errors on Windows.
+        # The initial size is made sufficient by having a larger min-height.
+        # self.calculate_auto_size()
         """Start spinning when shown"""
         super().showEvent(event)
         self.spinning_wheel.start_rotation()
@@ -263,22 +285,12 @@ class ScanSplashScreen(QWidget):
         self.spinning_wheel.stop_rotation()
 
 class ArchiveSplashScreen(QWidget):
-    """Simple splash screen overlay for archive viewer operations"""
+    """Splash screen for archive viewer operations"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        
-        # Window flags for proper floating window
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        # Don't use WA_TranslucentBackground for solid background
-
-        # Modern styling with solid background
-        self.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 12px;
-            }
-        """)
+        # Use different window flags to ensure visibility
+        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         # Auto-sizing will be calculated after UI initialization
         self.setMinimumSize(350, 100)
@@ -290,7 +302,6 @@ class ArchiveSplashScreen(QWidget):
         # Center on parent or screen
         self.center_on_parent()
 
-        
     def center_on_parent(self):
         """Center the splash screen on parent or screen"""
         try:
@@ -324,31 +335,20 @@ class ArchiveSplashScreen(QWidget):
             # Fallback to top-left corner
             self.move(100, 100)
 
-    def calculate_auto_size(self):
-        """Calculate optimal size based on content"""
-        # Ensure layout is updated
-        self.layout().update()
-        self.layout().activate()
-
-        # Calculate required size
-        title_width = self.title_label.sizeHint().width()
-        progress_width = self.progress_label.sizeHint().width()
-
-        # Add margins and padding
-        required_width = max(title_width, progress_width) + 120  # Extra space for spinner and margins
-        required_width = max(350, min(600, required_width))  # Clamp between min and max
-
-        # Calculate height based on content
-        title_height = self.title_label.sizeHint().height()
-        progress_height = self.progress_label.sizeHint().height()
-        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
-        required_height = max(100, min(200, required_height))  # Clamp between min and max
-
-        self.setFixedSize(required_width, required_height)
-
     def initUI(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
+
+        # Main container with no borders
+        self.container = QWidget()
+        self.container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.95);
+                border-radius: 10px;
+            }
+        """)
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
 
         # Title and spinner layout
         title_layout = QHBoxLayout()
@@ -370,34 +370,62 @@ class ArchiveSplashScreen(QWidget):
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
 
-        layout.addLayout(title_layout)
+        container_layout.addLayout(title_layout)
 
-        # Progress label
+        # Progress label - expanded space
         self.progress_label = QLabel("Підготовка до пошуку...")
         self.progress_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
-                color: #2c3e50;
+                color: #7f8c8d;
                 margin-top: 15px;
                 padding: 10px;
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 6px;
-                min-height: 20px;
+                background-color: rgba(236, 240, 241, 0.5);
+                border-radius: 5px;
+                min-height: 40px;
             }
         """)
         self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.setWordWrap(True)
-        layout.addWidget(self.progress_label)
+        self.progress_label.setWordWrap(True)  # Allow text wrapping
+        container_layout.addWidget(self.progress_label)
 
-        
+        layout.addWidget(self.container)
+
+        # Add shadow effect
+        self.setStyleSheet("""
+            ArchiveSplashScreen {
+                background-color: transparent;
+            }
+        """)
+
+    def calculate_auto_size(self):
+        """Calculate optimal size based on content"""
+        # Ensure layout is updated
+        self.container.layout().update()
+        self.container.layout().activate()
+
+        # Calculate required size
+        title_width = self.title_label.sizeHint().width()
+        progress_width = self.progress_label.sizeHint().width()
+
+        # Add margins and padding
+        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = max(350, min(600, required_width))  # Clamp between min and max
+
+        # Calculate height based on content
+        title_height = self.title_label.sizeHint().height()
+        progress_height = self.progress_label.sizeHint().height()
+        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
+        required_height = max(100, min(200, required_height))  # Clamp between min and max
+
+        self.setFixedSize(required_width, required_height)
+
     def update_progress(self, value, message):
-        """Update progress message and recalculate size if needed"""
+        """Update progress message"""
         self.progress_label.setText(message)
-        # Recalculate size to accommodate new text
-        self.calculate_auto_size()
-        # Re-center after resizing
-        self.center_on_parent()
+        # Recalculating size on each update causes geometry errors on Windows.
+        # The initial size is made sufficient by having a larger min-height.
+        # self.calculate_auto_size()
 
     def showEvent(self, event):
         """Start spinning when shown"""
@@ -409,42 +437,192 @@ class ArchiveSplashScreen(QWidget):
         super().hideEvent(event)
         self.spinning_wheel.stop_rotation()
 
+class DuplicateFinderSplashScreen(QWidget):
+    """Splash screen for duplicate finder operations"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Use different window flags to ensure visibility
+        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        # Auto-sizing will be calculated after UI initialization
+        self.setMinimumSize(350, 100)
+        self.setMaximumSize(600, 200)
+
+        self.initUI()
+        self.calculate_auto_size()
+
+        # Center on parent or screen
+        self.center_on_parent()
+
+    def center_on_parent(self):
+        """Center the splash screen on parent or screen"""
+        try:
+            if self.parent():
+                # Get the parent window's global geometry
+                parent_widget = self.parent()
+                while parent_widget.parent():
+                    parent_widget = parent_widget.parent()
+
+                parent_rect = parent_widget.geometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                # Calculate center position
+                x = parent_rect.x() + (parent_rect.width() - splash_width) // 2
+                y = parent_rect.y() + (parent_rect.height() - splash_height) // 2
+
+            else:
+                # Center on desktop
+                from PyQt5.QtWidgets import QDesktopWidget
+                screen = QDesktopWidget().screenGeometry()
+                splash_width = self.width()
+                splash_height = self.height()
+
+                x = (screen.width() - splash_width) // 2
+                y = (screen.height() - splash_height) // 2
+
+            self.move(x, y)
+
+        except Exception as e:
+            # Fallback to top-left corner
+            self.move(100, 100)
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Main container with no borders
+        self.container = QWidget()
+        self.container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.95);
+                border-radius: 10px;
+            }
+        """)
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
+
+        # Title and spinner layout
+        title_layout = QHBoxLayout()
+
+        # Spinning wheel
+        self.spinning_wheel = SpinningWheel()
+        title_layout.addWidget(self.spinning_wheel)
+
+        # Title label
+        self.title_label = QLabel("🎯 Пошук дублікатів...")
+        self.title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-left: 10px;
+            }
+        """)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        container_layout.addLayout(title_layout)
+
+        # Progress label - expanded space
+        self.progress_label = QLabel("Підготовка до пошуку...")
+        self.progress_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #7f8c8d;
+                margin-top: 15px;
+                padding: 10px;
+                background-color: rgba(236, 240, 241, 0.5);
+                border-radius: 5px;
+                min-height: 40px;
+            }
+        """)
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setWordWrap(True)  # Allow text wrapping
+        container_layout.addWidget(self.progress_label)
+
+        layout.addWidget(self.container)
+
+        # Add shadow effect
+        self.setStyleSheet("""
+            DuplicateFinderSplashScreen {
+                background-color: transparent;
+            }
+        """)
+
+    def calculate_auto_size(self):
+        """Calculate optimal size based on content"""
+        # Ensure layout is updated
+        self.container.layout().update()
+        self.container.layout().activate()
+
+        # Calculate required size
+        title_width = self.title_label.sizeHint().width()
+        progress_width = self.progress_label.sizeHint().width()
+
+        # Add margins and padding
+        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = max(350, min(600, required_width))  # Clamp between min and max
+
+        # Calculate height based on content
+        title_height = self.title_label.sizeHint().height()
+        progress_height = self.progress_label.sizeHint().height()
+        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
+        required_height = max(100, min(200, required_height))  # Clamp between min and max
+
+        self.setFixedSize(required_width, required_height)
+
+    def update_progress(self, value, message):
+        """Update progress message"""
+        self.progress_label.setText(message)
+        # Recalculating size on each update causes geometry errors on Windows.
+        # The initial size is made sufficient by having a larger min-height.
+        # self.calculate_auto_size()
+
+    def showEvent(self, event):
+        """Start spinning when shown"""
+        super().showEvent(event)
+        self.spinning_wheel.start_rotation()
+
+    def hideEvent(self, event):
+        """Stop spinning when hidden"""
+        super().hideEvent(event)
+        self.spinning_wheel.stop_rotation()
+
+
 class ArchiveTreeBuilder(QThread):
     """Thread for building archive tree structure"""
     progress_updated = pyqtSignal(int, str)
     tree_built = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, scan_path: str, search_term: str = "", parent=None):
+    def __init__(self, scan_path: str, search_term: str = "", filters: dict = None, parent=None):
         super().__init__(parent)
         self.scan_path = scan_path
         self.search_term = search_term
+        self.filters = filters or {}
         self.should_stop = False
 
     def run(self):
         """Build archive tree in background thread"""
         try:
-            # Check if we have cached data for this path
             current_time = time.time()
-            if (hasattr(self.parent(), '_last_scan_path') and
-                self.parent()._last_scan_path == self.scan_path and
-                hasattr(self.parent(), '_file_cache') and
-                self.parent()._file_cache and
-                hasattr(self.parent(), '_cache_timestamp') and
-                current_time - self.parent()._cache_timestamp < 300):  # 5 minutes cache
-                self.progress_updated.emit(50, "Використання кешу...")
-                self._build_tree_from_cache()
-            else:
-                # Build cache and tree structure
+            use_cache = (hasattr(self.parent(), '_last_scan_path') and
+                         self.parent()._last_scan_path == self.scan_path and
+                         hasattr(self.parent(), '_file_cache') and
+                         self.parent()._file_cache and
+                         hasattr(self.parent(), '_cache_timestamp') and
+                         current_time - self.parent()._cache_timestamp < 300)
+
+            if not use_cache:
                 self.progress_updated.emit(25, "Сканування файлів...")
                 self._build_file_cache()
-                self.progress_updated.emit(75, "Побудова дерева файлів...")
-                tree_widget = self._build_tree_recursive()
-                self.tree_built.emit(tree_widget)
-                return
+            else:
+                self.progress_updated.emit(50, "Використання кешу...")
 
-            # Handle cached case
-            tree_widget = self._build_tree_from_cache()
+            self.progress_updated.emit(75, "Побудова дерева файлів...")
+            tree_widget = self._build_tree_recursive()
             self.tree_built.emit(tree_widget)
 
         except Exception as e:
@@ -484,7 +662,7 @@ class ArchiveTreeBuilder(QThread):
                             modified_time = None
                             modified_str = "Невідомо"
 
-                        cache_dict[item_name] = {
+                        cache_dict[item_path] = {
                             'path': item_path,
                             'is_dir': is_dir,
                             'name_lower': item_name.lower(),
@@ -512,74 +690,119 @@ class ArchiveTreeBuilder(QThread):
         _scan_directory(self.scan_path, self.parent()._file_cache)
 
     def _build_tree_recursive(self):
-        """Build the tree structure from cache"""
+        """Build the tree structure from cache based on filters."""
         from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem
+        from pathlib import Path
 
+        # Step 1: Find all paths that should be visible
+        visible_paths = set()
+        all_cached_paths = self.parent()._file_cache
+
+        # If no filters are active, show everything
+        if not self.search_term and not any(self.filters.values()):
+            visible_paths.update(all_cached_paths.keys())
+        else:
+            # First, find all files that match the filters
+            matching_files = set()
+            for item_path, item_data in all_cached_paths.items():
+                if item_data.get('is_dir', False):
+                    continue
+
+                # Apply text search on file name
+                if self.search_term and self.search_term.lower() not in item_data['name_lower']:
+                    continue
+                
+                # Apply file type filter
+                if self.filters.get('file_types'):
+                    ext = os.path.splitext(item_data['name_lower'])[1]
+                    if ext not in self.filters['file_types']:
+                        continue
+                
+                # Apply date filter
+                if item_data.get('modified_timestamp') and item_data['modified_timestamp'] is not None:
+                    ts = item_data['modified_timestamp']
+                    min_date = self.filters.get('min_date')
+                    max_date = self.filters.get('max_date')
+                    if min_date and ts < min_date.timestamp():
+                        continue
+                    if max_date and ts > max_date.timestamp():
+                        continue
+                
+                matching_files.add(item_path)
+            
+            visible_paths.update(matching_files)
+
+            # Second, add all parent directories of matching files
+            scan_path_obj = Path(self.scan_path)
+            for path_str in matching_files:
+                try:
+                    p = Path(path_str).parent
+                    while p != p.parent: # Stop at root
+                        if p in visible_paths: # Optimization
+                            break
+                        visible_paths.add(str(p))
+                        if p == scan_path_obj:
+                            break
+                        p = p.parent
+                except Exception:
+                    continue # Ignore errors from invalid paths
+            
+            # Third, add any directories that match the text search term directly
+            if self.search_term:
+                for item_path, item_data in all_cached_paths.items():
+                    if item_data.get('is_dir', False) and self.search_term.lower() in item_data['name_lower']:
+                        visible_paths.add(item_path)
+
+        # Step 2: Build the tree using only the visible paths
         tree_widget = QTreeWidget()
         tree_widget.clear()
 
-        def _build_tree_level(path: str, parent_item, level: int = 0):
-            """Recursively build tree level"""
-            if level > 10 or self.should_stop:  # Prevent infinite recursion
+        def _build_level(path: str, parent_item):
+            """Recursively build tree level from visible paths."""
+            child_paths = []
+            for p in visible_paths:
+                if os.path.dirname(p) == path:
+                    child_paths.append(p)
+            
+            if not child_paths:
                 return
 
-            try:
-                # Get items for this directory from cache
-                items_here = []
-                for item_name, item_data in self.parent()._file_cache.items():
-                    item_path = item_data['path']
-                    item_dir = os.path.dirname(item_path)
+            child_data = [all_cached_paths[p] for p in child_paths if p in all_cached_paths]
+            child_data.sort(key=lambda x: (not x.get('is_dir', False), x.get('name_lower', '')))
 
-                    if os.path.normpath(item_dir) == os.path.normpath(path):
-                        # Check if item matches search term
-                        if self.search_term and self.search_term.lower() not in item_data['name_lower']:
-                            continue
-                        items_here.append(item_data)
+            for item_data in child_data:
+                if self.should_stop:
+                    return
 
-                # Sort: directories first, then files
-                items_here.sort(key=lambda x: (not x['is_dir'], x['name_lower']))
+                item_path = item_data['path']
+                item_name = os.path.basename(item_path)
+                is_dir = item_data['is_dir']
 
-                for item_data in items_here:
-                    if self.should_stop:
-                        return
+                tree_item = QTreeWidgetItem(parent_item)
+                tree_item.setData(0, Qt.UserRole, item_path)
 
-                    item_path = item_data['path']
-                    item_name = os.path.basename(item_path)
-                    is_dir = item_data['is_dir']
-
-                    # Create tree item
-                    tree_item = QTreeWidgetItem(parent_item)
-                    tree_item.setText(0, item_name)
-                    tree_item.setData(0, Qt.UserRole, item_path)
-
-                    # Set appropriate icon
-                    if is_dir:
-                        tree_item.setText(0, f"📁 {item_name}")
-                        tree_item.setData(1, Qt.DisplayRole, "Папка")
-                        # Recursively build subdirectories
-                        _build_tree_level(item_path, tree_item, level + 1)
-                    else:
-                        file_ext = os.path.splitext(item_name)[1].lower()
-                        icon = self._get_file_icon(file_ext)
-                        tree_item.setText(0, f"{icon} {item_name}")
-
-                        size_str = item_data['size'] if item_data['size'] else "Невідомо"
-                        tree_item.setData(1, Qt.DisplayRole, size_str)
-                        tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
-
-            except (PermissionError, OSError) as e:
-                # Handle directories we can't access
-                error_item = QTreeWidgetItem(parent_item)
-                error_item.setText(0, f"🚫 Помилка доступу: {str(e)}")
-                error_item.setData(0, Qt.UserRole, None)
-
-        # Build from root
-        _build_tree_level(self.scan_path, tree_widget.invisibleRootItem())
+                if is_dir:
+                    tree_item.setText(0, f"📁 {item_name}")
+                    tree_item.setData(1, Qt.DisplayRole, "Папка")
+                    _build_level(item_path, tree_item)
+                else:
+                    file_ext = os.path.splitext(item_name)[1].lower()
+                    icon = self._get_file_icon(file_ext)
+                    tree_item.setText(0, f"{icon} {item_name}")
+                    
+                    size_str = "Невідомо"
+                    if item_data.get('size') is not None:
+                        try:
+                            size_str = humanize.naturalsize(item_data['size'])
+                        except (TypeError, ValueError):
+                            pass
+                    tree_item.setData(1, Qt.DisplayRole, size_str)
+                    tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
+        
+        _build_level(self.scan_path, tree_widget.invisibleRootItem())
         return tree_widget
 
-    def _build_tree_from_cache(self):
-        """Build tree from cached data"""
-        return self._build_tree_recursive()
+
 
     def _get_file_icon(self, extension: str) -> str:
         """Get appropriate icon for file extension"""
@@ -602,8 +825,8 @@ class ArchiveTreeBuilder(QThread):
 class FileScanner(QThread):
     """Thread for scanning files and directories"""
     progress_updated = pyqtSignal(int, str)
-    file_found = pyqtSignal(dict)
-    scanning_finished = pyqtSignal(dict)
+    file_found = pyqtSignal(object)
+    scanning_finished = pyqtSignal(object)
 
     def __init__(self, scan_path: str, file_types: List[str] = None):
         super().__init__()
@@ -722,12 +945,13 @@ class FileScanner(QThread):
 class DuplicateFileFinder(QThread):
     """Thread for finding duplicate files"""
     progress_updated = pyqtSignal(int, str)
-    duplicate_found = pyqtSignal(list)
-    finished = pyqtSignal(dict)
+    duplicate_found = pyqtSignal(str, object)
+    finished = pyqtSignal(object)
 
-    def __init__(self, file_list: List[str]):
+    def __init__(self, file_list: List[str], check_content: bool = True):
         super().__init__()
         self.file_list = file_list
+        self.check_content = check_content
         self.should_stop = False
         self.duplicates = {}
 
@@ -735,40 +959,83 @@ class DuplicateFileFinder(QThread):
         """Find duplicate files using hash comparison"""
         try:
             self._find_duplicates()
-            self.finished.emit(self.duplicates)
         except Exception as e:
-            self.progress_updated.emit(0, f"Error finding duplicates: {str(e)}")
+            # Try to emit an error message to the user via the progress signal
+            try:
+                self.progress_updated.emit(0, f"Error finding duplicates: {str(e)}")
+            except Exception:
+                pass # Signal might be disconnected
+        finally:
+            # Always emit finished signal to unblock UI
+            self.finished.emit(self.duplicates)
 
     def _find_duplicates(self):
-        """Find duplicate files by comparing file hashes"""
-        file_hashes = {}
+        """Find duplicate files by size, and optionally by hash."""
+        files_by_size = {}
         total_files = len(self.file_list)
-        processed = 0
-
-        for file_path in self.file_list:
+        
+        # --- Pass 1: Group files by size ---
+        for i, file_path in enumerate(self.file_list):
             if self.should_stop:
-                break
-
+                return
+            
+            self.progress_updated.emit(int((i / total_files) * 20), f"Аналіз розміру: {os.path.basename(file_path)}") # Progress up to 20%
+            
             try:
+                # Skip zero-byte files
+                file_size = os.path.getsize(file_path)
+                if file_size == 0:
+                    continue
+                
+                if file_size not in files_by_size:
+                    files_by_size[file_size] = []
+                files_by_size[file_size].append(file_path)
+            except OSError:
+                continue # Skip files that can't be accessed
+
+        # --- Pass 2: Find duplicates in same-size groups ---
+        potential_duplicates = {size: files for size, files in files_by_size.items() if len(files) > 1}
+
+        if not self.check_content:
+            # If not checking content, report all same-sized files as duplicates
+            for size, files in potential_duplicates.items():
+                # Use size as the "hash" key for reporting
+                group_key = f"size:{size}"
+                self.duplicate_found.emit(group_key, files)
+                self.duplicates[group_key] = files
+            self.progress_updated.emit(100, "Знайдено потенційні дублікати за розміром.")
+            return
+
+        # If checking content, proceed to hash
+        processed_files = 0
+        num_potential_files = sum(len(files) for files in potential_duplicates.values())
+
+        for size, files in potential_duplicates.items():
+            if self.should_stop:
+                return
+            
+            file_hashes = {}
+            for file_path in files:
+                if self.should_stop:
+                    return
+
+                # Update progress based on number of files to be hashed
+                progress = 20 + int((processed_files / num_potential_files) * 80) if num_potential_files > 0 else 100
+                self.progress_updated.emit(progress, f"Хешування: {os.path.basename(file_path)}")
+
                 file_hash = self._calculate_file_hash(file_path)
+                processed_files += 1
+
                 if file_hash:
                     if file_hash not in file_hashes:
                         file_hashes[file_hash] = []
                     file_hashes[file_hash].append(file_path)
 
-                    # Check for duplicates
-                    if len(file_hashes[file_hash]) > 1:
-                        self.duplicate_found.emit(file_hashes[file_hash])
-                        self.duplicates[file_hash] = file_hashes[file_hash]
-
-                processed += 1
-                progress = int((processed / total_files) * 100)
-                self.progress_updated.emit(
-                    progress,
-                    f"Processing: {os.path.basename(file_path)}"
-                )
-            except Exception as e:
-                continue
+            # Report duplicates found by hash within the same-size group
+            for file_hash, hashed_files in file_hashes.items():
+                if len(hashed_files) > 1:
+                    self.duplicate_found.emit(file_hash, hashed_files)
+                    self.duplicates[file_hash] = hashed_files
 
     def _calculate_file_hash(self, file_path: str, chunk_size: int = 8192) -> Optional[str]:
         """Calculate SHA256 hash of a file"""
@@ -953,6 +1220,11 @@ class CleanupHelperWidget(QWidget):
 
         # Search parameters
         self.current_search_term = ""
+        self.archive_filters = {
+            'file_types': [],
+            'min_date': None,
+            'max_date': None,
+        }
 
         # Performance optimization: Add caching
         self._file_cache = {}  # Cache for file structure
@@ -963,6 +1235,7 @@ class CleanupHelperWidget(QWidget):
         # Splash screens for operations
         self.scan_splash = None
         self.archive_splash = None
+        self.duplicate_splash = None
 
         self.initUI()
 
@@ -1356,6 +1629,43 @@ class CleanupHelperWidget(QWidget):
 
         self.tab_widget.addTab(tab, "📊 Аналітика")
 
+    def on_archive_build_error(self, error_message: str):
+        """Handle archive tree build error."""
+        if self.archive_splash:
+            self.archive_splash.hide()
+        QMessageBox.critical(self, "Помилка побудови дерева", f"Не вдалося побудувати дерево архівів: {error_message}")
+
+    def reset_all_filters(self):
+        """Resets all search and filter criteria and refreshes the tree."""
+        self.search_edit.clear()
+        self.archive_filters = {
+            'file_types': [],
+            'min_date': None,
+            'max_date': None,
+        }
+        # TODO: Reset advanced filter dialog UI if it exists and is open
+        self.refresh_archive_tree()
+
+    def apply_quick_filter(self, filter_type: str):
+        """Apply a predefined quick filter and refresh the tree."""
+        # Toggling behavior: if the same filter is clicked again, clear it.
+        filter_map = {
+            "oil_gas": ['.las', '.dlis', '.prj', '.dat', '.ini', '.xtf'],
+            "images": ['.png', '.jpg', '.jpeg', '.gif', '.bmp'],
+            "documents": ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt'],
+            "video": ['.mp4', '.avi', '.mkv', '.mov'],
+            "archives": ['.zip', '.rar', '.7z', '.tar', '.gz']
+        }
+        
+        new_filter = filter_map.get(filter_type, [])
+        
+        if self.archive_filters.get('file_types') == new_filter:
+            self.archive_filters['file_types'] = []
+        else:
+            self.archive_filters['file_types'] = new_filter
+            
+        self.refresh_archive_tree()
+
     def create_archive_browser_tab(self):
         """Create the archive browser tab"""
         tab = QWidget()
@@ -1368,14 +1678,14 @@ class CleanupHelperWidget(QWidget):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Пошук в архівах...")
         # Add keyboard shortcuts
-        self.search_edit.returnPressed.connect(self.search_archives)
+        self.search_edit.returnPressed.connect(self.refresh_archive_tree)
         # Add Ctrl+F shortcut to focus search
         self.search_edit.setToolTip("Пошук... (Enter для пошуку, Ctrl+F для фокусу)")
         search_layout.addWidget(self.search_edit)
 
         search_btn = QPushButton("Пошук")
         search_btn.setObjectName("search_button")
-        search_btn.clicked.connect(self.search_archives)
+        search_btn.clicked.connect(self.refresh_archive_tree)
         search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #808080;
@@ -1391,7 +1701,7 @@ class CleanupHelperWidget(QWidget):
         search_layout.addWidget(search_btn)
 
         clear_search_btn = QPushButton("Очистити")
-        clear_search_btn.clicked.connect(self.clear_search)
+        clear_search_btn.clicked.connect(self.reset_all_filters)
         clear_search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #95a5a6;
@@ -1765,6 +2075,53 @@ class CleanupHelperWidget(QWidget):
         layout.addWidget(self.duplicate_results_group)
 
         self.tab_widget.addTab(tab, "🎯 Пошук дублікатів")
+
+    def update_duplicate_progress(self, value, message):
+        """Update duplicate finder progress on splash screen"""
+        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
+            self.duplicate_splash.update_progress(value, message)
+
+    def on_duplicates_finished(self, duplicates):
+        """Handle duplicate finder finished signal"""
+        self.find_duplicates_btn.setEnabled(True)
+        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
+            self.duplicate_splash.hide()
+
+        if not duplicates:
+            QMessageBox.information(self, "Дублікати не знайдено", "У вказаній папці не знайдено дублікатів файлів.")
+
+    def add_duplicate_item(self, file_hash: str, file_list: list):
+        """Add a new duplicate item to the tree"""
+        if not file_list:
+            return
+
+        # Check if this hash is already in the tree (shouldn't happen with new logic, but for safety)
+        root_items = self.duplicate_tree.findItems(file_hash[:12], Qt.MatchExactly, 0)
+        if root_items:
+            root_item = root_items[0]
+        else:
+            root_item = QTreeWidgetItem(self.duplicate_tree)
+            root_item.setText(0, file_hash[:12]) # Display truncated hash
+            self.duplicate_tree.addTopLevelItem(root_item)
+
+        # Clear existing children for this hash and re-add (in case of updates)
+        root_item.takeChildren()
+
+        total_size = 0
+        for file_path in file_list:
+            child_item = QTreeWidgetItem(root_item)
+            child_item.setText(1, file_path) # Full path in column 1
+            child_item.setData(1, Qt.UserRole, file_path) # Store full path in UserRole
+
+            try:
+                file_size = os.path.getsize(file_path)
+                total_size += file_size
+                child_item.setText(2, humanize.naturalsize(file_size)) # Size in column 2
+            except OSError:
+                child_item.setText(2, "N/A")
+
+        root_item.setText(2, humanize.naturalsize(total_size)) # Total size for the hash group
+        root_item.setExpanded(True) # Expand the hash group by default
 
     def create_compression_tab(self):
         """Create the file compression tab"""
@@ -2374,38 +2731,44 @@ class CleanupHelperWidget(QWidget):
             ))
 
     def find_duplicates(self):
-        """Start duplicate file finding"""
-        search_path = self.duplicate_path_edit.text().strip()
-        if not search_path or not os.path.exists(search_path):
-            QMessageBox.warning(self, "Помилка", "Будь ласка, введіть коректний шлях для пошуку.")
+        """Find duplicate files"""
+        path = self.duplicate_path_edit.text()
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Шлях не знайдено", "Вказаний шлях не існує.")
             return
 
-        # Collect files for duplicate checking
-        files_to_check = []
-        min_size = self.min_file_size_spin.value() * 1024 * 1024  # Convert to bytes
+        # Show splash screen
+        if not self.duplicate_splash:
+            self.duplicate_splash = DuplicateFinderSplashScreen(self)
+        self.duplicate_splash.show()
+        self.duplicate_splash.update_progress(0, "Підготовка до пошуку...")
 
-        for root, dirs, files in os.walk(search_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                try:
-                    if os.path.getsize(file_path) >= min_size:
-                        files_to_check.append(file_path)
-                except OSError:
-                    continue
-
-        if not files_to_check:
-            QMessageBox.information(self, "Info", "No files found for duplicate checking.")
+        # This can be slow and block the UI, but we keep it for now
+        try:
+            file_list = []
+            for root, _, files in os.walk(path):
+                for file in files:
+                    file_list.append(os.path.join(root, file))
+        except Exception as e:
+            if self.duplicate_splash:
+                self.duplicate_splash.hide()
+            QMessageBox.critical(self, "Помилка", f"Помилка під час сканування файлів: {e}")
             return
 
+        if not file_list:
+            if self.duplicate_splash:
+                self.duplicate_splash.hide()
+            QMessageBox.information(self, "Файли не знайдено", "У вказаній папці немає файлів для перевірки.")
+            return
+
+        self.duplicate_splash.update_progress(0, f"Аналіз {len(file_list)} файлів...")
         self.find_duplicates_btn.setEnabled(False)
+        self.duplicate_tree.clear()
 
-        # Show splash screen for duplicate finding
-        self.show_scan_splash("🎯 Пошук дублікатів...", f"Пошук серед {len(files_to_check)} файлів...")
-
-        # Start duplicate finder thread
-        self.duplicate_finder_thread = DuplicateFileFinder(files_to_check)
-        self.duplicate_finder_thread.progress_updated.connect(self.update_scan_progress)
-        self.duplicate_finder_thread.duplicate_found.connect(self.on_duplicate_found)
+        check_content = self.check_content_hash.isChecked()
+        self.duplicate_finder_thread = DuplicateFileFinder(file_list, check_content=check_content)
+        self.duplicate_finder_thread.progress_updated.connect(self.update_duplicate_progress)
+        self.duplicate_finder_thread.duplicate_found.connect(self.add_duplicate_item)
         self.duplicate_finder_thread.finished.connect(self.on_duplicates_finished)
         self.duplicate_finder_thread.start()
 
@@ -2664,7 +3027,7 @@ class CleanupHelperWidget(QWidget):
         self.search_edit.clear()
         self.refresh_archive_tree()
 
-    def search_archives(self):
+    def refresh_archive_tree(self):
         """Search files in archives"""
         # Get search parameters
         search_term = self.search_edit.text().strip()
@@ -3762,17 +4125,20 @@ class CleanupHelperWidget(QWidget):
 
     def open_file_location(self, item, column):
         """Open file location in file explorer"""
-        # Path is now in column 4 (index 3)
+        # Path is in column 4
         file_path = item.text(4)
         if file_path and os.path.exists(file_path):
             import subprocess
+            # Ensure the path is absolute and normalized
+            abs_path = os.path.abspath(file_path)
             if sys.platform == "win32":
-                # Proper Windows Explorer command to select file
-                subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+                # Use a list of arguments for security and to handle paths correctly
+                subprocess.run(['explorer', '/select,', abs_path])
             elif sys.platform == "darwin":
-                subprocess.run(['open', '-R', file_path])
+                subprocess.run(['open', '-R', abs_path])
             else:
-                subprocess.run(['xdg-open', os.path.dirname(file_path)])
+                # For Linux, open the containing directory
+                subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
     def open_selected_location(self):
         """Open selected file location"""
@@ -4085,12 +4451,15 @@ class CleanupHelperWidget(QWidget):
         selected_files = self.get_selected_duplicate_files()
         for file_path in selected_files:
             if os.path.exists(file_path):
+                # Ensure the path is absolute and normalized
+                abs_path = os.path.abspath(file_path)
                 if sys.platform == "win32":
-                    subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+                    # Use a list of arguments for security and to handle paths correctly
+                    subprocess.run(['explorer', '/select,', abs_path])
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', '-R', file_path])
+                    subprocess.run(['open', '-R', abs_path])
                 else:
-                    subprocess.run(['xdg-open', os.path.dirname(file_path)])
+                    subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
     def keep_newest_delete_others(self):
         """Keep the newest file in each selected group and delete others"""
@@ -4942,13 +5311,15 @@ class CleanupHelperWidget(QWidget):
 
         for item_path in selected_items:
             try:
+                # Ensure the path is absolute and normalized
+                abs_path = os.path.abspath(item_path)
                 if sys.platform == "win32":
-                    # Proper Windows Explorer command to select file
-                    subprocess.run(f'explorer /select,"{item_path}"', shell=True)
+                    # Use a list of arguments for security and to handle paths correctly
+                    subprocess.run(['explorer', '/select,', abs_path])
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', '-R', item_path])
+                    subprocess.run(['open', '-R', abs_path])
                 else:
-                    subprocess.run(['xdg-open', os.path.dirname(item_path)])
+                    subprocess.run(['xdg-open', os.path.dirname(abs_path)])
             except Exception as e:
                 if hasattr(self.main_window, 'log_message'):
                     self.main_window.log_message(f"CleanupHelper: Помилка показу {item_path}: {e}")
