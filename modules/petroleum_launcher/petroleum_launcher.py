@@ -63,6 +63,202 @@ except ImportError as e:
     SCREEN_RECORDING_SUPPORT = False
     print(f"Warning: Screen recording dependencies not available: {e}")
 
+# Enhanced dependency checking system
+VISUAL_FEATURES_STATUS = {
+    'pyautogui': False,
+    'opencv': False,
+    'pil': False,
+    'numpy': False,
+    'psutil': False
+}
+
+def check_visual_dependencies():
+    """Check availability of visual automation dependencies"""
+    global VISUAL_FEATURES_STATUS
+
+    # Check PyAutoGUI
+    try:
+        import pyautogui
+        # Basic safety configuration
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.1
+        VISUAL_FEATURES_STATUS['pyautogui'] = True
+    except ImportError:
+        VISUAL_FEATURES_STATUS['pyautogui'] = False
+
+    # Check OpenCV
+    try:
+        import cv2
+        VISUAL_FEATURES_STATUS['opencv'] = True
+    except ImportError:
+        VISUAL_FEATURES_STATUS['opencv'] = False
+
+    # Check PIL/Pillow
+    try:
+        from PIL import Image
+        VISUAL_FEATURES_STATUS['pil'] = True
+    except ImportError:
+        VISUAL_FEATURES_STATUS['pil'] = False
+
+    # Check NumPy
+    try:
+        import numpy as np
+        VISUAL_FEATURES_STATUS['numpy'] = True
+    except ImportError:
+        VISUAL_FEATURES_STATUS['numpy'] = False
+
+    # Check psutil
+    try:
+        import psutil
+        VISUAL_FEATURES_STATUS['psutil'] = True
+    except ImportError:
+        VISUAL_FEATURES_STATUS['psutil'] = False
+
+    # Determine overall support
+    global SCREEN_RECORDING_SUPPORT
+    SCREEN_RECORDING_SUPPORT = all([
+        VISUAL_FEATURES_STATUS['pyautogui'],
+        VISUAL_FEATURES_STATUS['opencv'],
+        VISUAL_FEATURES_STATUS['pil'],
+        VISUAL_FEATURES_STATUS['numpy']
+    ])
+
+    return VISUAL_FEATURES_STATUS
+
+def get_missing_dependencies():
+    """Get list of missing dependencies with installation commands"""
+    missing = []
+    if not VISUAL_FEATURES_STATUS['pyautogui']:
+        missing.append({
+            'name': 'PyAutoGUI',
+            'install': 'pip install pyautogui',
+            'purpose': 'Screen capture and mouse control'
+        })
+    if not VISUAL_FEATURES_STATUS['opencv']:
+        missing.append({
+            'name': 'OpenCV',
+            'install': 'pip install opencv-python',
+            'purpose': 'Image processing and computer vision'
+        })
+    if not VISUAL_FEATURES_STATUS['pil']:
+        missing.append({
+            'name': 'Pillow',
+            'install': 'pip install Pillow',
+            'purpose': 'Image manipulation'
+        })
+    if not VISUAL_FEATURES_STATUS['numpy']:
+        missing.append({
+            'name': 'NumPy',
+            'install': 'pip install numpy',
+            'purpose': 'Numerical operations and arrays'
+        })
+    if not VISUAL_FEATURES_STATUS['psutil']:
+        missing.append({
+            'name': 'psutil',
+            'install': 'pip install psutil',
+            'purpose': 'Process monitoring'
+        })
+    return missing
+
+def show_dependency_dialog(parent=None):
+    """Show dialog explaining missing dependencies"""
+    missing = get_missing_dependencies()
+    if not missing:
+        return True  # All dependencies available
+
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Visual Features - Missing Dependencies")
+    dialog.setMinimumWidth(600)
+    dialog.setMinimumHeight(400)
+    layout = QVBoxLayout(dialog)
+
+    # Warning message
+    warning_label = QLabel("⚠️ Visual automation features require additional dependencies")
+    warning_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ff6b35; padding: 10px;")
+    layout.addWidget(warning_label)
+
+    # Missing dependencies list
+    info_label = QLabel("The following dependencies are missing:")
+    layout.addWidget(info_label)
+
+    missing_text = QTextEdit()
+    missing_text.setReadOnly(True)
+    missing_content = ""
+
+    for dep in missing:
+        missing_content += f"📦 {dep['name']}\n"
+        missing_content += f"   Purpose: {dep['purpose']}\n"
+        missing_content += f"   Install: {dep['install']}\n\n"
+
+    missing_text.setText(missing_content)
+    layout.addWidget(missing_text)
+
+    # Installation instructions
+    instructions = QLabel("💡 To install all dependencies at once:\npip install pyautogui opencv-python Pillow numpy psutil")
+    instructions.setStyleSheet("background-color: #e3f2fd; padding: 10px; border-radius: 5px;")
+    layout.addWidget(instructions)
+
+    # Buttons
+    button_layout = QHBoxLayout()
+
+    continue_btn = QPushButton("Continue Without Visual Features")
+    continue_btn.clicked.connect(dialog.reject)
+    button_layout.addWidget(continue_btn)
+
+    install_btn = QPushButton("Install Dependencies")
+    install_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; }")
+    install_btn.clicked.connect(lambda: install_dependencies_and_restart(dialog))
+    button_layout.addWidget(install_btn)
+
+    layout.addLayout(button_layout)
+
+    return dialog.exec_() == QDialog.Accepted
+
+def install_dependencies_and_restart(dialog):
+    """Install dependencies and restart application"""
+    try:
+        import subprocess
+        import sys
+
+        # Close dialog
+        dialog.accept()
+
+        # Show installation dialog
+        progress = QProgressDialog("Installing dependencies...", "Cancel", 0, 0, None)
+        progress.setWindowTitle("Installing Dependencies")
+        progress.show()
+
+        # Install dependencies
+        dependencies = [
+            'pyautogui',
+            'opencv-python',
+            'Pillow',
+            'numpy',
+            'psutil'
+        ]
+
+        for i, dep in enumerate(dependencies):
+            progress.setLabelText(f"Installing {dep}...")
+            result = subprocess.run([sys.executable, "-m", "pip", "install", dep],
+                                  capture_output=True, text=True)
+            if result.returncode != 0:
+                progress.close()
+                QMessageBox.critical(None, "Installation Failed",
+                    f"Failed to install {dep}:\n{result.stderr}")
+                return
+
+        progress.close()
+
+        # Show success message
+        QMessageBox.information(None, "Installation Complete",
+            "Dependencies installed successfully!\n\nPlease restart the application.")
+
+    except Exception as e:
+        QMessageBox.critical(None, "Installation Error", f"Failed to install dependencies: {e}")
+
+# Check dependencies at module load
+check_visual_dependencies()
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTreeWidget, QTreeWidgetItem, QTextEdit, QSplitter,
@@ -2555,6 +2751,310 @@ class AutomationEngine(QThread):
         self.is_running = False
 
 
+class WorkflowSetupDialog(QDialog):
+    """Initial workflow setup dialog"""
+
+    def __init__(self, parent=None, detected_programs=None):
+        super().__init__(parent)
+        self.detected_programs = detected_programs or {}
+        self.workflow_data = {}
+        self.initUI()
+
+    def initUI(self):
+        """Initialize the setup dialog interface"""
+        self.setWindowTitle("🚀 New Workflow Setup")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(500)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # Header
+        header_label = QLabel("📋 Create New Workflow")
+        header_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
+        header_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(header_label)
+
+        # Description
+        desc_label = QLabel(
+            "Let's set up your workflow profile. This information will help us create the perfect automation workflow for your needs."
+        )
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #6c757d; font-style: italic; margin-bottom: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;")
+        layout.addWidget(desc_label)
+
+        # Main content area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+
+        # Basic Information Group
+        basic_group = QGroupBox("📝 Basic Information")
+        basic_layout = QFormLayout(basic_group)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g., Daily Seismic Analysis, Monthly Report Generation")
+        basic_layout.addRow("Workflow Name *:", self.name_edit)
+
+        self.desc_edit = QLineEdit()
+        self.desc_edit.setPlaceholderText("e.g., Process daily seismic data and generate comprehensive reports")
+        basic_layout.addRow("Description *:", self.desc_edit)
+
+        self.author_edit = QLineEdit()
+        self.author_edit.setPlaceholderText("Your name or team name")
+        self.author_edit.setText("User")
+        basic_layout.addRow("Author:", self.author_edit)
+
+        content_layout.addWidget(basic_group)
+
+        # Target Configuration Group
+        target_group = QGroupBox("🎯 Target Configuration")
+        target_layout = QFormLayout(target_group)
+
+        self.program_combo = QComboBox()
+        self.program_combo.addItems(["Select Target Program...", "Manual Execution", "Custom Script"])
+        # Add detected programs
+        for program_key in self.detected_programs.keys():
+            self.program_combo.addItem(program_key)
+        self.program_combo.currentTextChanged.connect(self.on_program_changed)
+        target_layout.addRow("Target Program *:", self.program_combo)
+
+        self.file_edit = QLineEdit()
+        self.file_edit.setPlaceholderText("Select file to execute (optional)")
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.file_edit)
+
+        browse_file_btn = QPushButton("Browse")
+        browse_file_btn.clicked.connect(self.browse_file)
+        browse_file_btn.setMaximumWidth(80)
+        file_layout.addWidget(browse_file_btn)
+        target_layout.addRow("Execution File:", file_layout)
+
+        # Software category
+        self.category_combo = QComboBox()
+        self.category_combo.addItems([
+            "Data Processing", "Simulation", "Analysis", "Reporting",
+            "Quality Control", "Model Building", "System Integration"
+        ])
+        target_layout.addRow("Category:", self.category_combo)
+
+        # Difficulty level
+        self.difficulty_combo = QComboBox()
+        self.difficulty_combo.addItems(["Beginner", "Intermediate", "Advanced", "Expert"])
+        target_layout.addRow("Difficulty Level:", self.difficulty_combo)
+
+
+        content_layout.addWidget(target_group)
+
+        # Advanced Options Group
+        advanced_group = QGroupBox("⚙️ Advanced Options")
+        advanced_layout = QFormLayout(advanced_group)
+
+        self.error_handling_check = QCheckBox("Enable error handling and recovery")
+        self.error_handling_check.setChecked(True)
+        advanced_layout.addRow("", self.error_handling_check)
+
+        self.retry_count_spin = QSpinBox()
+        self.retry_count_spin.setRange(0, 10)
+        self.retry_count_spin.setValue(3)
+        advanced_layout.addRow("Retry Count:", self.retry_count_spin)
+
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(30, 3600)
+        self.timeout_spin.setValue(300)
+        self.timeout_spin.setSuffix(" seconds")
+        advanced_layout.addRow("Step Timeout:", self.timeout_spin)
+
+        content_layout.addWidget(advanced_group)
+
+        layout.addWidget(content_widget)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        self.template_btn = QPushButton("📚 Use Template")
+        self.template_btn.clicked.connect(self.load_template)
+        self.template_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; font-weight: bold; padding: 8px; border-radius: 5px; }")
+        button_layout.addWidget(self.template_btn)
+
+        button_layout.addStretch()
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        self.cancel_btn.setStyleSheet("QPushButton { padding: 8px; border-radius: 5px; }")
+        button_layout.addWidget(self.cancel_btn)
+
+        self.create_btn = QPushButton("🚀 Create Workflow")
+        self.create_btn.clicked.connect(self.create_workflow)
+        self.create_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 8px; border-radius: 5px; }")
+        self.create_btn.setDefault(True)
+        button_layout.addWidget(self.create_btn)
+
+        layout.addLayout(button_layout)
+
+        # Status label
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 5px;")
+        layout.addWidget(self.status_label)
+
+    def on_program_changed(self, program_name):
+        """Handle program selection change"""
+        if program_name not in ["Select Target Program...", "Manual Execution", "Custom Script"]:
+            # Auto-fill category based on program
+            if "Petrel" in program_name:
+                self.category_combo.setCurrentText("Model Building")
+            elif "Harmony" in program_name:
+                self.category_combo.setCurrentText("Analysis")
+            elif "Kappa" in program_name:
+                self.category_combo.setCurrentText("Analysis")
+            elif "CMG" in program_name:
+                self.category_combo.setCurrentText("Simulation")
+            else:
+                self.category_combo.setCurrentText("Data Processing")
+
+    def browse_file(self):
+        """Browse for a file to execute"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select File to Execute", "", "All Files (*.*)"
+        )
+        if file_path:
+            self.file_edit.setText(file_path)
+
+    def validate_inputs(self):
+        """Validate the form inputs"""
+        errors = []
+
+        if not self.name_edit.text().strip():
+            errors.append("Workflow name is required")
+
+        if not self.desc_edit.text().strip():
+            errors.append("Description is required")
+
+        if self.program_combo.currentText() == "Select Target Program...":
+            errors.append("Please select a target program")
+
+        if errors:
+            self.status_label.setText("❌ " + "; ".join(errors))
+            return False
+
+        self.status_label.setText("")
+        return True
+
+    def create_workflow(self):
+        """Create the workflow with current settings"""
+        if not self.validate_inputs():
+            return
+
+        # Collect workflow data
+        self.workflow_data = {
+            'name': self.name_edit.text().strip(),
+            'description': self.desc_edit.text().strip(),
+            'author': self.author_edit.text().strip(),
+            'target_program': self.program_combo.currentText(),
+            'execution_file': self.file_edit.text().strip(),
+            'category': self.category_combo.currentText(),
+            'difficulty': self.difficulty_combo.currentText(),
+            'error_handling': self.error_handling_check.isChecked(),
+            'retry_count': self.retry_count_spin.value(),
+            'timeout': self.timeout_spin.value(),
+            'created_date': datetime.now().isoformat()
+        }
+
+        self.accept()
+
+    def load_template(self):
+        """Load a workflow template"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Load Workflow Template")
+        dialog.setMinimumWidth(500)
+        dialog.setMinimumHeight(400)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Select a template to get started:"))
+
+        template_list = QListWidget()
+        templates = [
+            {
+                'name': 'Petrel: New Project Setup',
+                'description': 'Create a new Petrel project with basic settings',
+                'difficulty': 'Beginner',
+                'category': 'Model Building'
+            },
+            {
+                'name': 'Petrel: Seismic Data Import',
+                'description': 'Import and process seismic data in Petrel',
+                'difficulty': 'Intermediate',
+                'category': 'Data Processing'
+            },
+            {
+                'name': 'Harmony: Production Analysis',
+                'description': 'Analyze production data using Harmony Enterprise',
+                'difficulty': 'Beginner',
+                'category': 'Analysis'
+            },
+            {
+                'name': 'Kappa: Well Test Analysis',
+                'description': 'Set up well test analysis in Kappa Saphir',
+                'difficulty': 'Advanced',
+                'category': 'Analysis'
+            },
+            {
+                'name': 'CMG: Reservoir Simulation',
+                'description': 'Set up and run reservoir simulation in CMG',
+                'difficulty': 'Expert',
+                'category': 'Simulation'
+            },
+            {
+                'name': 'Daily Report Generation',
+                'description': 'Generate daily reports automatically',
+                'difficulty': 'Beginner',
+                'category': 'Reporting'
+            }
+        ]
+
+        for template in templates:
+            item = QListWidgetItem(f"📋 {template['name']}\n   {template['description']}\n   Difficulty: {template['difficulty']}")
+            item.setData(Qt.UserRole, template)
+            template_list.addItem(item)
+
+        layout.addWidget(template_list)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() == QDialog.Accepted and template_list.currentItem():
+            template = template_list.currentItem().data(Qt.UserRole)
+
+            # Apply template data
+            self.name_edit.setText(template['name'])
+            self.desc_edit.setText(template['description'])
+            self.category_combo.setCurrentText(template['category'])
+            self.difficulty_combo.setCurrentText(template['difficulty'])
+
+            # Set target program based on template
+            if "Petrel" in template['name']:
+                for i in range(self.program_combo.count()):
+                    if "Petrel" in self.program_combo.itemText(i):
+                        self.program_combo.setCurrentIndex(i)
+                        break
+            elif "Harmony" in template['name']:
+                for i in range(self.program_combo.count()):
+                    if "Harmony" in self.program_combo.itemText(i):
+                        self.program_combo.setCurrentIndex(i)
+                        break
+            elif "Kappa" in template['name']:
+                for i in range(self.program_combo.count()):
+                    if "Kappa" in self.program_combo.itemText(i):
+                        self.program_combo.setCurrentIndex(i)
+                        break
+            elif "CMG" in template['name']:
+                for i in range(self.program_combo.count()):
+                    if "CMG" in self.program_combo.itemText(i):
+                        self.program_combo.setCurrentIndex(i)
+                        break
+
+
 class PetroleumLauncherWidget(QWidget):
     """Main widget for the Petroleum Program Launcher module"""
 
@@ -2570,7 +3070,7 @@ class PetroleumLauncherWidget(QWidget):
         self.detected_programs: Dict[str, ProgramInfo] = {}
         self.workflows: Dict[str, Workflow] = {}
         self.automation_engine: Optional[AutomationEngine] = None
-        self.screen_recorder = ScreenRecorder()
+        # Remove screen recorder - not needed anymore
 
         # Initialize configuration manager
         self.config_manager = PetroleumProgramConfigManager()
@@ -2604,12 +3104,12 @@ class PetroleumLauncherWidget(QWidget):
         left_panel = self.create_left_panel()
         splitter.addWidget(left_panel)
 
-        # Right panel - Details and Controls
-        right_panel = self.create_right_panel()
-        splitter.addWidget(right_panel)
+        # Right panel - Details and Controls (HIDDEN for more workspace)
+        # right_panel = self.create_right_panel()
+        # splitter.addWidget(right_panel)
 
-        # Set splitter proportions
-        splitter.setSizes([400, 600])
+        # Set splitter proportions - give full width to left panel
+        splitter.setSizes([1000, 0])
 
         # Set window properties
         self.setWindowTitle("Petroleum Program Launcher")
@@ -2641,12 +3141,12 @@ class PetroleumLauncherWidget(QWidget):
 
         layout.addLayout(status_layout)
 
-        # Set stretch factors for responsive layout
-        splitter.setStretchFactor(0, 1)  # Left panel
-        splitter.setStretchFactor(1, 2)  # Right panel
+        # Set stretch factors for responsive layout (Right panel hidden)
+        splitter.setStretchFactor(0, 1)  # Left panel - full width
+        splitter.setStretchFactor(1, 0)  # Right panel - hidden
 
         # Store original splitter sizes for proportional resizing
-        self.splitter_original_sizes = [400, 600]
+        self.splitter_original_sizes = [1000, 0]  # All space to left panel
         self.splitter = splitter  # Store reference for resize handling
 
     def create_left_panel(self) -> QWidget:
@@ -2666,15 +3166,9 @@ class PetroleumLauncherWidget(QWidget):
         workflows_tab = self.create_workflows_tab()
         self.tab_widget.addTab(workflows_tab, "Workflows")
 
-        # Recording tab
-        if SCREEN_RECORDING_SUPPORT:
-            recording_tab = self.create_recording_tab()
-            self.tab_widget.addTab(recording_tab, "Recording")
-
-        # Workflow Studio tab - Integrated creation experience
-        if SCREEN_RECORDING_SUPPORT:
-            workflow_studio_tab = self.create_workflow_studio_tab()
-            self.tab_widget.addTab(workflow_studio_tab, "Workflow Studio")
+        # Workflow Studio tab - Enhanced workflow creation experience
+        workflow_studio_tab = self.create_workflow_studio_tab()
+        self.tab_widget.addTab(workflow_studio_tab, "Workflow Studio")
 
         return left_panel
 
@@ -2802,391 +3296,3651 @@ class PetroleumLauncherWidget(QWidget):
 
         return workflows_tab
 
-    def create_recording_tab(self) -> QWidget:
-        """Create the recording tab"""
-        recording_tab = QWidget()
-        layout = QVBoxLayout(recording_tab)
-
-        # Recording status
-        status_group = QGroupBox("Recording Status")
-        status_layout = QVBoxLayout(status_group)
-
-        self.recording_status_label = QLabel("Not Recording")
-        self.recording_status_label.setStyleSheet("color: red; font-weight: bold;")
-        status_layout.addWidget(self.recording_status_label)
-
-        self.recording_session_label = QLabel("No active session")
-        status_layout.addWidget(self.recording_session_label)
-
-        layout.addWidget(status_group)
-
-        # Recording controls
-        controls_group = QGroupBox("Recording Controls")
-        controls_layout = QVBoxLayout(controls_group)
-
-        # Session description
-        desc_layout = QHBoxLayout()
-        desc_layout.addWidget(QLabel("Session Description:"))
-        self.recording_description_edit = QLineEdit()
-        self.recording_description_edit.setPlaceholderText("Enter description for this recording session")
-        desc_layout.addWidget(self.recording_description_edit)
-        controls_layout.addLayout(desc_layout)
-
-        # Recording mode selection
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("Recording Mode:"))
-
-        self.recording_mode_combo = QComboBox()
-        self.recording_mode_combo.addItems(["Manual Screenshots", "Automation Recording"])
-        self.recording_mode_combo.currentTextChanged.connect(self.on_recording_mode_changed)
-        mode_layout.addWidget(self.recording_mode_combo)
-
-        controls_layout.addLayout(mode_layout)
-
-        # Control buttons
-        buttons_layout = QHBoxLayout()
-
-        self.start_recording_btn = QPushButton("Start Recording")
-        self.start_recording_btn.clicked.connect(self.start_recording)
-        buttons_layout.addWidget(self.start_recording_btn)
-
-        self.stop_recording_btn = QPushButton("Stop Recording")
-        self.stop_recording_btn.clicked.connect(self.stop_recording)
-        self.stop_recording_btn.setEnabled(False)
-        buttons_layout.addWidget(self.stop_recording_btn)
-
-        self.test_script_btn = QPushButton("Test Script")
-        self.test_script_btn.clicked.connect(self.test_automation_script)
-        self.test_script_btn.setEnabled(False)
-        buttons_layout.addWidget(self.test_script_btn)
-
-        self.export_script_btn = QPushButton("Export Script")
-        self.export_script_btn.clicked.connect(self.export_automation_script)
-        self.export_script_btn.setEnabled(False)
-        buttons_layout.addWidget(self.export_script_btn)
-
-        # Drag and drop recording button
-        self.drag_drop_recorder_btn = QPushButton("Drag & Drop Record")
-        self.drag_drop_recorder_btn.clicked.connect(self.open_drag_drop_recorder)
-        self.drag_drop_recorder_btn.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; font-weight: bold; }")
-        buttons_layout.addWidget(self.drag_drop_recorder_btn)
-
-        # Conditional recording button
-        self.conditional_recorder_btn = QPushButton("Conditional Logic")
-        self.conditional_recorder_btn.clicked.connect(self.open_conditional_recorder)
-        self.conditional_recorder_btn.setStyleSheet("QPushButton { background-color: #6f42c1; color: white; font-weight: bold; }")
-        buttons_layout.addWidget(self.conditional_recorder_btn)
-
-        controls_layout.addLayout(buttons_layout)
-
-        # Auto-capture buttons setting
-        self.auto_capture_check = QCheckBox("Auto-capture screenshots on button clicks")
-        self.auto_capture_check.setChecked(True)
-        controls_layout.addWidget(self.auto_capture_check)
-
-        layout.addWidget(controls_group)
-
-        # Sessions list
-        sessions_group = QGroupBox("Recording Sessions")
-        sessions_layout = QVBoxLayout(sessions_group)
-
-        self.sessions_tree = QTreeWidget()
-        self.sessions_tree.setHeaderLabels(["Session", "Date", "Screenshots", "Video"])
-        self.sessions_tree.itemDoubleClicked.connect(self.on_session_double_click)
-
-        # Set column widths
-        self.sessions_tree.setColumnWidth(0, 150)  # Session ID
-        self.sessions_tree.setColumnWidth(1, 120)  # Date
-        self.sessions_tree.setColumnWidth(2, 80)   # Screenshots
-        self.sessions_tree.setColumnWidth(3, 60)   # Video
-
-        self.sessions_tree.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.sessions_tree.header().setStretchLastSection(True)
-
-        sessions_layout.addWidget(self.sessions_tree)
-
-        # Session actions
-        session_actions_layout = QHBoxLayout()
-
-        self.review_session_btn = QPushButton("Review Session")
-        self.review_session_btn.clicked.connect(self.review_selected_session)
-        session_actions_layout.addWidget(self.review_session_btn)
-
-        self.play_video_btn = QPushButton("Play Video")
-        self.play_video_btn.clicked.connect(self.play_session_video)
-        session_actions_layout.addWidget(self.play_video_btn)
-
-        self.delete_session_btn = QPushButton("Delete Session")
-        self.delete_session_btn.clicked.connect(self.delete_selected_session)
-        session_actions_layout.addWidget(self.delete_session_btn)
-
-        self.cleanup_btn = QPushButton("Cleanup Old")
-        self.cleanup_btn.clicked.connect(self.cleanup_old_sessions)
-        session_actions_layout.addWidget(self.cleanup_btn)
-
-        self.convert_to_workflow_btn = QPushButton("Convert to Workflow")
-        self.convert_to_workflow_btn.clicked.connect(self.convert_session_to_workflow)
-        session_actions_layout.addWidget(self.convert_to_workflow_btn)
-
-        sessions_layout.addLayout(session_actions_layout)
-
-        layout.addWidget(sessions_group)
-
-        # Update sessions list
-        self.update_sessions_ui()
-
-        return recording_tab
+    # Recording tab removed - functionality moved to enhanced Workflow Studio
 
     def create_workflow_studio_tab(self) -> QWidget:
-        """Create the integrated workflow studio tab"""
+        """Create the enhanced workflow studio tab with user-friendly builder interface"""
         studio_tab = QWidget()
         layout = QVBoxLayout(studio_tab)
 
-        # Header with title and description
+        # Welcome screen or current workflow display
+        self.workflow_studio_welcome_widget = self.create_welcome_screen()
+        self.workflow_studio_builder_widget = None  # Will be created when workflow is set up
+        layout.addWidget(self.workflow_studio_welcome_widget)
+
+        return studio_tab
+
+    def create_welcome_screen(self) -> QWidget:
+        """Create the welcome screen for workflow studio"""
+        welcome_widget = QWidget()
+        layout = QVBoxLayout(welcome_widget)
+
+        # Header
         header_layout = QHBoxLayout()
-
-        title_label = QLabel("🎯 Workflow Studio")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+        title_label = QLabel("🚀 Workflow Studio")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2c3e50;")
         header_layout.addWidget(title_label)
-
         header_layout.addStretch()
-
-        # Mode selector
-        mode_label = QLabel("Creation Mode:")
-        header_layout.addWidget(mode_label)
-
-        self.creation_mode_combo = QComboBox()
-        self.creation_mode_combo.addItems([
-            "Manual Builder",
-            "Screen Recording",
-            "Drag & Drop",
-            "Conditional Logic",
-            "Hybrid Mode"
-        ])
-        self.creation_mode_combo.currentTextChanged.connect(self.on_creation_mode_changed)
-        header_layout.addWidget(self.creation_mode_combo)
-
         layout.addLayout(header_layout)
 
-        # Description
+        # Welcome description
         desc_label = QLabel(
-            "Integrated workflow creation studio. Combine manual building with intelligent recording capabilities "
-            "to create powerful, adaptive automation workflows for petroleum software."
+            "Welcome to the Workflow Studio! Create powerful automation workflows with our intuitive visual builder. "
+            "Design step-by-step processes for petroleum software without any coding required."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #6c757d; font-style: italic; margin-bottom: 15px;")
+        desc_label.setStyleSheet("color: #6c757d; font-style: italic; margin-bottom: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; font-size: 14px;")
         layout.addWidget(desc_label)
+
+        # Main action buttons
+        actions_layout = QVBoxLayout()
+        actions_layout.setSpacing(20)
+
+        # New Workflow Button
+        new_workflow_btn = QPushButton("🆕 Create New Workflow")
+        new_workflow_btn.clicked.connect(self.start_new_workflow_setup)
+        new_workflow_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                font-weight: bold;
+                font-size: 16px;
+                padding: 20px;
+                border-radius: 10px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+        """)
+        new_workflow_btn.setMinimumHeight(80)
+        actions_layout.addWidget(new_workflow_btn)
+
+        # Load Workflow Button
+        load_workflow_btn = QPushButton("📂 Load Existing Workflow")
+        load_workflow_btn.clicked.connect(self.load_existing_workflow)
+        load_workflow_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 15px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #545b62;
+            }
+        """)
+        load_workflow_btn.setMinimumHeight(60)
+        actions_layout.addWidget(load_workflow_btn)
+
+        # Recent Workflows (if any)
+        if self.workflows:
+            recent_group = QGroupBox("📚 Recent Workflows")
+            recent_layout = QVBoxLayout(recent_group)
+
+            recent_list = QListWidget()
+            recent_list.setMaximumHeight(200)
+            for workflow_name in list(self.workflows.keys())[-5:]:  # Show last 5 workflows
+                item = QListWidgetItem(f"📄 {workflow_name}")
+                item.setData(Qt.UserRole, workflow_name)
+                recent_list.addItem(item)
+
+            recent_list.itemDoubleClicked.connect(self.quick_load_workflow)
+            recent_layout.addWidget(recent_list)
+
+            recent_label = QLabel("Double-click to load a workflow")
+            recent_label.setStyleSheet("color: #6c757d; font-style: italic; font-size: 12px;")
+            recent_layout.addWidget(recent_label)
+
+            actions_layout.addWidget(recent_group)
+
+        layout.addLayout(actions_layout)
+        layout.addStretch()
+
+        # Quick tips
+        tips_group = QGroupBox("💡 Quick Tips")
+        tips_layout = QVBoxLayout(tips_group)
+
+        tips = [
+            "• Start with a template for common petroleum software workflows",
+            "• Use the visual builder to add steps without coding",
+            "• Test your workflow before executing to ensure it works correctly",
+            "• Enable error handling for robust automation"
+        ]
+
+        for tip in tips:
+            tip_label = QLabel(tip)
+            tip_label.setStyleSheet("color: #495057; font-size: 12px; margin: 2px;")
+            tips_layout.addWidget(tip_label)
+
+        layout.addWidget(tips_group)
+
+        return welcome_widget
+
+    def start_new_workflow_setup(self):
+        """Start the workflow setup process"""
+        dialog = WorkflowSetupDialog(self, self.detected_programs)
+        if dialog.exec_() == QDialog.Accepted:
+            self.workflow_setup_data = dialog.workflow_data
+            self.show_workflow_builder()
+
+    def load_existing_workflow(self):
+        """Load an existing workflow"""
+        if not self.workflows:
+            QMessageBox.information(self, "No Workflows", "No saved workflows found. Create a new workflow first.")
+            return
+
+        # Create selection dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Load Workflow")
+        dialog.setMinimumWidth(500)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Select workflow to load:"))
+
+        workflow_list = QListWidget()
+        for name in self.workflows.keys():
+            workflow = self.workflows[name]
+            item = QListWidgetItem(f"📄 {name}\n   {workflow.description}\n   Category: {getattr(workflow, 'category', 'Unknown')}")
+            item.setData(Qt.UserRole, name)
+            workflow_list.addItem(item)
+
+        layout.addWidget(workflow_list)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() == QDialog.Accepted and workflow_list.currentItem():
+            workflow_name = workflow_list.currentItem().data(Qt.UserRole)
+            workflow = self.workflows[workflow_name]
+
+            # Create setup data from loaded workflow
+            self.workflow_setup_data = {
+                'name': workflow.name,
+                'description': workflow.description,
+                'author': getattr(workflow, 'author', 'User'),
+                'target_program': getattr(workflow, 'software', 'Manual Execution'),
+                'execution_file': '',
+                'category': getattr(workflow, 'category', 'General'),
+                'difficulty': getattr(workflow, 'difficulty', 'Beginner'),
+                'error_handling': getattr(workflow, 'error_handling', True),
+                'retry_count': getattr(workflow, 'retry_count', 3),
+                'timeout': getattr(workflow, 'timeout', 300),
+                'created_date': workflow.created_date
+            }
+
+            # Load workflow steps
+            self.current_workflow_steps = [step for step in workflow.steps]
+
+            self.show_workflow_builder()
+
+    def quick_load_workflow(self, item):
+        """Quick load workflow from recent list"""
+        workflow_name = item.data(Qt.UserRole)
+        workflow = self.workflows[workflow_name]
+
+        # Create setup data from loaded workflow
+        self.workflow_setup_data = {
+            'name': workflow.name,
+            'description': workflow.description,
+            'author': getattr(workflow, 'author', 'User'),
+            'target_program': getattr(workflow, 'software', 'Manual Execution'),
+            'execution_file': '',
+            'category': getattr(workflow, 'category', 'General'),
+            'difficulty': getattr(workflow, 'difficulty', 'Beginner'),
+            'error_handling': getattr(workflow, 'error_handling', True),
+            'retry_count': getattr(workflow, 'retry_count', 3),
+            'timeout': getattr(workflow, 'timeout', 300),
+            'created_date': workflow.created_date
+        }
+
+        # Load workflow steps
+        self.current_workflow_steps = [step for step in workflow.steps]
+
+        self.show_workflow_builder()
+
+    def show_workflow_builder(self):
+        """Show the workflow builder interface"""
+        if not self.workflow_setup_data:
+            return
+
+        # Hide welcome widget
+        self.workflow_studio_welcome_widget.hide()
+
+        # Create builder widget if not exists
+        if not self.workflow_studio_builder_widget:
+            self.workflow_studio_builder_widget = self.create_workflow_builder_widget()
+            self.workflow_studio_welcome_widget.parent().layout().addWidget(self.workflow_studio_builder_widget)
+
+        # Update builder with workflow data
+        self.update_builder_with_setup_data()
+
+        # Show builder widget
+        self.workflow_studio_builder_widget.show()
+
+    def create_workflow_builder_widget(self) -> QWidget:
+        """Create the workflow builder interface"""
+        builder_widget = QWidget()
+        layout = QVBoxLayout(builder_widget)
+
+        # Header with workflow info
+        header_layout = QHBoxLayout()
+
+        # Workflow info
+        info_layout = QVBoxLayout()
+        self.workflow_title_label = QLabel("Workflow: Not Set")
+        self.workflow_title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+        info_layout.addWidget(self.workflow_title_label)
+
+        self.workflow_subtitle_label = QLabel("Description: Not Set")
+        self.workflow_subtitle_label.setStyleSheet("color: #6c757d; font-size: 12px;")
+        info_layout.addWidget(self.workflow_subtitle_label)
+
+        header_layout.addLayout(info_layout)
+        header_layout.addStretch()
+
+        # Back button
+        back_btn = QPushButton("← Back to Welcome")
+        back_btn.clicked.connect(self.back_to_welcome)
+        back_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; padding: 8px; border-radius: 5px; }")
+        header_layout.addWidget(back_btn)
+
+        layout.addLayout(header_layout)
 
         # Main content area with splitter
         main_splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(main_splitter)
 
-        # Left panel - Creation tools
+              # Left panel - Step Builder
         left_panel = QWidget()
-        left_panel.setMaximumWidth(400)
+        left_panel.setMaximumWidth(450)
         left_layout = QVBoxLayout(left_panel)
 
-        # Creation tools group
-        tools_group = QGroupBox("Creation Tools")
-        tools_layout = QVBoxLayout(tools_group)
-
-        # Recording controls
-        recording_controls_layout = QHBoxLayout()
-        recording_controls_layout.addWidget(QLabel("Recording:"))
-
-        self.start_studio_recording_btn = QPushButton("Start Recording")
-        self.start_studio_recording_btn.clicked.connect(self.start_studio_recording)
-        self.start_studio_recording_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 5px; }")
-        recording_controls_layout.addWidget(self.start_studio_recording_btn)
-
-        self.stop_studio_recording_btn = QPushButton("Stop")
-        self.stop_studio_recording_btn.clicked.connect(self.stop_studio_recording)
-        self.stop_studio_recording_btn.setEnabled(False)
-        self.stop_studio_recording_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-weight: bold; padding: 5px; }")
-        recording_controls_layout.addWidget(self.stop_studio_recording_btn)
-
-        tools_layout.addLayout(recording_controls_layout)
-
-        # Advanced recording options
-        advanced_layout = QHBoxLayout()
-
-        self.drag_drop_studio_btn = QPushButton("Drag & Drop")
-        self.drag_drop_studio_btn.clicked.connect(self.open_studio_drag_drop)
-        self.drag_drop_studio_btn.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; font-weight: bold; padding: 5px; }")
-        advanced_layout.addWidget(self.drag_drop_studio_btn)
-
-        self.conditional_studio_btn = QPushButton("Conditional")
-        self.conditional_studio_btn.clicked.connect(self.open_studio_conditional)
-        self.conditional_studio_btn.setStyleSheet("QPushButton { background-color: #6f42c1; color: white; font-weight: bold; padding: 5px; }")
-        advanced_layout.addWidget(self.conditional_studio_btn)
-
-        tools_layout.addLayout(advanced_layout)
-
-        # Manual step creation
-        manual_group = QGroupBox("Manual Step Creation")
-        manual_layout = QVBoxLayout(manual_group)
+        # Step Builder Group
+        builder_group = QGroupBox("🔧 Step Builder")
+        builder_layout = QVBoxLayout(builder_group)
 
         # Step type selector
         step_type_layout = QHBoxLayout()
-        step_type_layout.addWidget(QLabel("Step Type:"))
+        step_type_layout.addWidget(QLabel("Action Type:"))
 
-        self.studio_step_type_combo = QComboBox()
-        self.studio_step_type_combo.addItems([
-            "Click", "Input Text", "Wait", "Launch Program",
-            "Screenshot", "Conditional", "Loop", "Custom Script"
-        ])
-        step_type_layout.addWidget(self.studio_step_type_combo)
-        manual_layout.addLayout(step_type_layout)
+        self.step_type_combo = QComboBox()
+        # Get available step types based on dependencies
+        available_step_types = self._get_available_step_types()
+        self.step_type_combo.addItems(available_step_types)
+        self.step_type_combo.currentTextChanged.connect(self.on_step_type_changed)
+
+        step_type_layout.addWidget(self.step_type_combo)
+        builder_layout.addLayout(step_type_layout)
+
+        # Dependency status indicator
+        if not SCREEN_RECORDING_SUPPORT:
+            self._add_dependency_status_widget(builder_layout)
+
+        # Dynamic parameters area
+        self.step_params_widget = QWidget()
+        self.step_params_layout = QVBoxLayout(self.step_params_widget)
+        builder_layout.addWidget(self.step_params_widget)
 
         # Add step button
-        self.add_manual_step_btn = QPushButton("+ Add Step")
-        self.add_manual_step_btn.clicked.connect(self.add_manual_studio_step)
-        self.add_manual_step_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 8px; }")
-        manual_layout.addWidget(self.add_manual_step_btn)
+        add_step_btn = QPushButton("➕ Add Step to Workflow")
+        add_step_btn.clicked.connect(self.add_workflow_step)
+        add_step_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 10px; border-radius: 5px; }")
+        builder_layout.addWidget(add_step_btn)
 
-        tools_layout.addWidget(manual_group)
-        left_layout.addWidget(tools_group)
+        left_layout.addWidget(builder_group)
 
-        # Workflow preview
-        preview_group = QGroupBox("Workflow Preview")
-        preview_layout = QVBoxLayout(preview_group)
+        # Quick Templates Group
+        templates_group = QGroupBox("📚 Quick Templates")
+        templates_layout = QVBoxLayout(templates_group)
 
-        self.studio_workflow_list = QListWidget()
-        self.studio_workflow_list.setMinimumHeight(200)
-        self.studio_workflow_list.itemSelectionChanged.connect(self.on_studio_step_selection_changed)
-        preview_layout.addWidget(self.studio_workflow_list)
+        self.template_list = QListWidget()
+        self.template_list.setMaximumHeight(120)
+        templates_layout.addWidget(self.template_list)
+
+        load_template_btn = QPushButton("Load Template")
+        load_template_btn.clicked.connect(self.load_workflow_template)
+        templates_layout.addWidget(load_template_btn)
+
+        left_layout.addWidget(templates_group)
+        left_layout.addStretch()
+
+        main_splitter.addWidget(left_panel)
+
+        # Right panel - Workflow Preview and Control
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+
+        # Workflow Steps Preview
+        steps_group = QGroupBox("🎯 Workflow Steps Preview")
+        steps_layout = QVBoxLayout(steps_group)
+
+        # Steps list with better visualization
+        self.workflow_steps_list = QListWidget()
+        self.workflow_steps_list.setStyleSheet("""
+            QListWidget {
+                border: 2px solid #dee2e6;
+                border-radius: 5px;
+                padding: 5px;
+                font-size: 12px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                margin: 2px;
+                border: 1px solid #e9ecef;
+                border-radius: 3px;
+                background-color: #f8f9fa;
+            }
+            QListWidget::item:selected {
+                background-color: #007bff;
+                color: white;
+            }
+        """)
+        steps_layout.addWidget(self.workflow_steps_list)
 
         # Step actions
         step_actions_layout = QHBoxLayout()
 
-        self.edit_studio_step_btn = QPushButton("Edit")
-        self.edit_studio_step_btn.clicked.connect(self.edit_studio_step)
-        self.edit_studio_step_btn.setEnabled(False)
-        step_actions_layout.addWidget(self.edit_studio_step_btn)
+        edit_step_btn = QPushButton("✏️ Edit")
+        edit_step_btn.clicked.connect(self.edit_selected_step)
+        step_actions_layout.addWidget(edit_step_btn)
 
-        self.remove_studio_step_btn = QPushButton("Remove")
-        self.remove_studio_step_btn.clicked.connect(self.remove_studio_step)
-        self.remove_studio_step_btn.setEnabled(False)
-        step_actions_layout.addWidget(self.remove_studio_step_btn)
+        delete_step_btn = QPushButton("🗑️ Delete")
+        delete_step_btn.clicked.connect(self.delete_selected_step)
+        step_actions_layout.addWidget(delete_step_btn)
 
-        step_actions_layout.addStretch()
-        preview_layout.addLayout(step_actions_layout)
+        move_up_btn = QPushButton("⬆️ Up")
+        move_up_btn.clicked.connect(self.move_step_up)
+        step_actions_layout.addWidget(move_up_btn)
 
-        left_layout.addWidget(preview_group)
+        move_down_btn = QPushButton("⬇️ Down")
+        move_down_btn.clicked.connect(self.move_step_down)
+        step_actions_layout.addWidget(move_down_btn)
 
-        left_panel.setLayout(left_layout)
-        main_splitter.addWidget(left_panel)
+        clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.clicked.connect(self.clear_all_steps)
+        clear_all_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; }")
+        step_actions_layout.addWidget(clear_all_btn)
 
-        # Right panel - Workflow details and configuration
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
+        steps_layout.addLayout(step_actions_layout)
+        right_layout.addWidget(steps_group)
 
-        # Workflow configuration
-        config_group = QGroupBox("Workflow Configuration")
-        config_layout = QFormLayout(config_group)
+        # Control Panel
+        control_group = QGroupBox("⚙️ Workflow Control")
+        control_layout = QVBoxLayout(control_group)
 
-        self.studio_workflow_name_edit = QLineEdit()
-        self.studio_workflow_name_edit.setPlaceholderText("Enter workflow name...")
-        config_layout.addRow("Workflow Name:", self.studio_workflow_name_edit)
+        # Workflow execution options
+        options_layout = QHBoxLayout()
+        self.save_workflow_btn = QPushButton("💾 Save Workflow")
+        self.save_workflow_btn.clicked.connect(self.save_studio_workflow)
+        self.save_workflow_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 8px; border-radius: 5px; }")
+        options_layout.addWidget(self.save_workflow_btn)
 
-        self.studio_workflow_desc_edit = QTextEdit()
-        self.studio_workflow_desc_edit.setMaximumHeight(60)
-        self.studio_workflow_desc_edit.setPlaceholderText("Enter workflow description...")
-        config_layout.addRow("Description:", self.studio_workflow_desc_edit)
+        self.load_workflow_btn = QPushButton("📂 Load Workflow")
+        self.load_workflow_btn.clicked.connect(self.load_studio_workflow)
+        self.load_workflow_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; font-weight: bold; padding: 8px; border-radius: 5px; }")
+        options_layout.addWidget(self.load_workflow_btn)
 
-        # Software selector
-        software_layout = QHBoxLayout()
-        self.studio_software_combo = QComboBox()
-        self.studio_software_combo.addItems([
-            "Petrel", "Harmony Enterprise", "Kappa", "CMG",
-            "Petroleum Experts", "TNavigator", "Multiple"
-        ])
-        software_layout.addWidget(self.studio_software_combo)
+        control_layout.addLayout(options_layout)
 
-        self.studio_difficulty_combo = QComboBox()
-        self.studio_difficulty_combo.addItems(["Beginner", "Intermediate", "Advanced"])
-        software_layout.addWidget(self.studio_difficulty_combo)
+        # Execute buttons
+        execute_layout = QHBoxLayout()
 
-        config_layout.addRow("Target Software:", software_layout)
+        test_workflow_btn = QPushButton("🧪 Test Workflow")
+        test_workflow_btn.clicked.connect(self.test_studio_workflow)
+        test_workflow_btn.setStyleSheet("QPushButton { background-color: #ffc107; color: black; font-weight: bold; padding: 10px; border-radius: 5px; }")
+        execute_layout.addWidget(test_workflow_btn)
 
-        right_layout.addWidget(config_group)
+        deploy_workflow_btn = QPushButton("🚀 Execute Workflow")
+        deploy_workflow_btn.clicked.connect(self.execute_studio_workflow)
+        deploy_workflow_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 10px; border-radius: 5px; }")
+        execute_layout.addWidget(deploy_workflow_btn)
 
-        # Intelligent suggestions
-        suggestions_group = QGroupBox("Intelligent Suggestions")
-        suggestions_layout = QVBoxLayout(suggestions_group)
+        control_layout.addLayout(execute_layout)
 
-        self.studio_suggestions_list = QListWidget()
-        self.studio_suggestions_list.setMaximumHeight(120)
-        suggestions_layout.addWidget(self.studio_suggestions_list)
+        right_layout.addWidget(control_group)
 
-        self.apply_suggestion_btn = QPushButton("Apply Selected Suggestion")
-        self.apply_suggestion_btn.clicked.connect(self.apply_studio_suggestion)
-        suggestions_layout.addWidget(self.apply_suggestion_btn)
-
-        right_layout.addWidget(suggestions_group)
-
-        # Recording status
-        status_group = QGroupBox("Recording Status")
+        # Status and Feedback
+        status_group = QGroupBox("📊 Status & Feedback")
         status_layout = QVBoxLayout(status_group)
 
-        self.studio_status_label = QLabel("Status: Ready to create workflow")
-        self.studio_status_label.setStyleSheet("font-weight: bold; padding: 5px; background-color: #f8f9fa; border: 1px solid #dee2e6;")
+        self.studio_status_label = QLabel("✅ Ready to create workflow")
+        self.studio_status_label.setStyleSheet("color: #28a745; font-weight: bold; font-size: 14px; padding: 8px; background-color: #d4edda; border-radius: 5px; text-align: center;")
         status_layout.addWidget(self.studio_status_label)
 
-        self.studio_recording_indicator = QLabel("⏸ Not Recording")
-        self.studio_recording_indicator.setStyleSheet("color: #6c757d; font-weight: bold; font-size: 14px; padding: 10px; background-color: #e9ecef; border-radius: 5px; text-align: center;")
-        self.studio_recording_indicator.setAlignment(Qt.AlignCenter)
-        status_layout.addWidget(self.studio_recording_indicator)
+        self.studio_feedback_text = QTextEdit()
+        self.studio_feedback_text.setMaximumHeight(80)
+        self.studio_feedback_text.setPlaceholderText("Tips and feedback will appear here as you build your workflow...")
+        self.studio_feedback_text.setStyleSheet("QTextEdit { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; }")
+        status_layout.addWidget(self.studio_feedback_text)
 
         right_layout.addWidget(status_group)
 
-        # Workflow actions
-        actions_group = QGroupBox("Workflow Actions")
+        main_splitter.addWidget(right_panel)
+        main_splitter.setSizes([450, 750])
+
+        return builder_widget
+
+    def back_to_welcome(self):
+        """Go back to the welcome screen"""
+        if self.workflow_studio_builder_widget:
+            self.workflow_studio_builder_widget.hide()
+        self.workflow_studio_welcome_widget.show()
+
+    def update_builder_with_setup_data(self):
+        """Update the builder interface with workflow setup data"""
+        if not self.workflow_setup_data:
+            return
+
+        # Update header labels
+        self.workflow_title_label.setText(f"📋 {self.workflow_setup_data['name']}")
+        self.workflow_subtitle_label.setText(
+            f"Target: {self.workflow_setup_data['target_program']} | "
+            f"Category: {self.workflow_setup_data['category']} | "
+            f"Difficulty: {self.workflow_setup_data['difficulty']}"
+        )
+
+        # Initialize workflow steps if empty
+        if not hasattr(self, 'current_workflow_steps'):
+            self.current_workflow_steps = []
+
+        # Update steps list
+        self.update_workflow_steps_list()
+
+        # Populate templates and programs
+        self.populate_templates()
+        self.populate_programs()
+
+        # Initialize step type
+        self.on_step_type_changed(self.step_type_combo.currentText())
+
+        # Update status
+        self.update_feedback(f"Loaded workflow: {self.workflow_setup_data['name']}")
+        self.studio_status_label.setText(f"✅ Workflow '{self.workflow_setup_data['name']}' ready for editing")
+
+    # Enhanced Workflow Studio Methods
+    def on_step_type_changed(self, step_type: str):
+        """Handle step type change and update dynamic parameters"""
+        # Clear existing parameter widgets properly
+        while self.step_params_layout.count():
+            child = self.step_params_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+            elif child.layout():
+                # Clear nested layouts
+                while child.layout().count():
+                    sub_child = child.layout().takeAt(0)
+                    if sub_child.widget():
+                        sub_child.widget().deleteLater()
+
+        if step_type == "Launch Program":
+            # Program selection - pre-select the target program from setup
+            program_layout = QHBoxLayout()
+            program_layout.addWidget(QLabel("Program:"))
+            program_combo = QComboBox()
+
+            # Add programs to dropdown
+            program_combo.addItems(["Select Program...", "Petrel", "Harmony", "Kappa", "CMG", "Custom"])
+
+            # Add detected programs
+            for program_key in self.detected_programs.keys():
+                if program_key not in ["Petrel", "Harmony", "Kappa", "CMG", "Custom"]:
+                    program_combo.addItem(program_key)
+
+            # Pre-select the target program from workflow setup
+            if hasattr(self, 'workflow_setup_data') and self.workflow_setup_data:
+                target_program = self.workflow_setup_data.get('target_program', '')
+                if target_program and target_program != "Manual Execution" and target_program != "Custom Script":
+                    # Find and select the target program
+                    for i in range(program_combo.count()):
+                        if program_combo.itemText(i) == target_program:
+                            program_combo.setCurrentIndex(i)
+                            break
+
+            # Make the dropdown read-only if a specific program was selected in setup
+            if (hasattr(self, 'workflow_setup_data') and self.workflow_setup_data and
+                self.workflow_setup_data.get('target_program', '') not in ["", "Manual Execution", "Custom Script"]):
+                program_combo.setEnabled(False)
+                # Add a label to show this is pre-selected
+                preset_label = QLabel(f"Pre-selected from workflow setup")
+                preset_label.setStyleSheet("color: #6c757d; font-style: italic; font-size: 10px;")
+                program_layout.addWidget(preset_label)
+
+            program_layout.addWidget(program_combo)
+            self.step_params_layout.addLayout(program_layout)
+
+            # Parameters
+            params_layout = QHBoxLayout()
+            params_layout.addWidget(QLabel("Parameters:"))
+            params_edit = QLineEdit()
+            params_edit.setPlaceholderText("e.g., -project myproject")
+            params_layout.addWidget(params_edit)
+            self.step_params_layout.addLayout(params_layout)
+
+        elif step_type == "Open File":
+            file_layout = QHBoxLayout()
+            file_layout.addWidget(QLabel("File Path:"))
+            file_edit = QLineEdit()
+            file_edit.setPlaceholderText("Select file to open...")
+            file_layout.addWidget(file_edit)
+            browse_btn = QPushButton("Browse")
+            browse_btn.setMaximumWidth(80)
+            file_layout.addWidget(browse_btn)
+            self.step_params_layout.addLayout(file_layout)
+
+        elif step_type == "Wait for Time":
+            wait_layout = QHBoxLayout()
+            wait_layout.addWidget(QLabel("Seconds:"))
+            wait_spin = QSpinBox()
+            wait_spin.setRange(1, 3600)
+            wait_spin.setValue(5)
+            wait_layout.addWidget(wait_spin)
+            self.step_params_layout.addLayout(wait_layout)
+
+        elif step_type == "🎯 Visual Click (OpenCV)" or step_type == "🖱️ Smart Click (AutoPyGUI)":
+            # Visual click with screen capture and positioning
+            visual_layout = QVBoxLayout()
+
+            # Position input
+            pos_layout = QFormLayout()
+            x_spin = QSpinBox()
+            x_spin.setRange(0, 5000)
+            x_spin.setValue(100)
+            y_spin = QSpinBox()
+            y_spin.setRange(0, 5000)
+            y_spin.setValue(100)
+            pos_layout.addRow("Target X:", x_spin)
+            pos_layout.addRow("Target Y:", y_spin)
+            visual_layout.addLayout(pos_layout)
+
+            # Visual options
+            options_layout = QHBoxLayout()
+            capture_btn = QPushButton("📸 Capture Screen Region")
+            capture_btn.clicked.connect(lambda: self.capture_screen_region(step_type))
+            options_layout.addWidget(capture_btn)
+
+            self.visual_preview_btn = QPushButton("👁️ Preview Target")
+            self.visual_preview_btn.clicked.connect(lambda: self.preview_click_position(step_type))
+            options_layout.addWidget(self.visual_preview_btn)
+
+            visual_layout.addLayout(options_layout)
+
+            # Info label
+            info_label = QLabel("Click 'Capture Screen Region' to select target area visually")
+            info_label.setStyleSheet("color: #6c757d; font-style: italic; font-size: 11px;")
+            visual_layout.addWidget(info_label)
+
+            self.step_params_layout.addLayout(visual_layout)
+
+        elif step_type == "📸 Visual Find & Click (Image Recognition)":
+            # Image recognition based clicking
+            image_layout = QVBoxLayout()
+
+            # Image selection
+            img_select_layout = QHBoxLayout()
+            self.image_path_edit = QLineEdit()
+            self.image_path_edit.setPlaceholderText("Select template image...")
+            img_select_layout.addWidget(self.image_path_edit)
+
+            browse_btn = QPushButton("Browse")
+            browse_btn.clicked.connect(self.browse_template_image)
+            img_select_layout.addWidget(browse_btn)
+            image_layout.addLayout(img_select_layout)
+
+            # Capture template button
+            capture_template_btn = QPushButton("📸 Capture Template from Screen")
+            capture_template_btn.clicked.connect(self.capture_template_from_screen)
+            image_layout.addWidget(capture_template_btn)
+
+            # Recognition settings
+            settings_layout = QFormLayout()
+            confidence_spin = QDoubleSpinBox()
+            confidence_spin.setRange(0.1, 1.0)
+            confidence_spin.setValue(0.8)
+            confidence_spin.setSingleStep(0.1)
+            confidence_spin.setDecimals(1)
+            settings_layout.addRow("Confidence:", confidence_spin)
+
+            timeout_spin = QSpinBox()
+            timeout_spin.setRange(1, 60)
+            timeout_spin.setValue(10)
+            settings_layout.addRow("Timeout (seconds):", timeout_spin)
+
+            image_layout.addLayout(settings_layout)
+            self.step_params_layout.addLayout(image_layout)
+
+        elif step_type == "📷 Screenshot with Analysis":
+            # Enhanced screenshot with OpenCV analysis
+            screenshot_layout = QVBoxLayout()
+
+            desc_layout = QHBoxLayout()
+            desc_layout.addWidget(QLabel("Description:"))
+            self.screenshot_desc_edit = QLineEdit()
+            self.screenshot_desc_edit.setPlaceholderText("What this screenshot captures...")
+            desc_layout.addWidget(self.screenshot_desc_edit)
+            screenshot_layout.addLayout(desc_layout)
+
+            # Analysis options
+            analysis_layout = QFormLayout()
+
+            self.detect_elements_check = QCheckBox("Detect UI elements and buttons")
+            self.detect_elements_check.setChecked(True)
+            analysis_layout.addRow("", self.detect_elements_check)
+
+            self.analyze_colors_check = QCheckBox("Analyze color scheme")
+            analysis_layout.addRow("", self.analyze_colors_check)
+
+            self.save_regions_check = QCheckBox("Save detected regions")
+            analysis_layout.addRow("", self.save_regions_check)
+
+            screenshot_layout.addLayout(analysis_layout)
+            self.step_params_layout.addLayout(screenshot_layout)
+
+        elif step_type == "👁️ Visual Wait (Element Detection)":
+            # Wait for visual element to appear
+            wait_layout = QVBoxLayout()
+
+            element_layout = QFormLayout()
+            self.element_name_edit = QLineEdit()
+            self.element_name_edit.setPlaceholderText("e.g., 'Next button', 'Save dialog'")
+            element_layout.addRow("Element to detect:", self.element_name_edit)
+
+            timeout_spin = QSpinBox()
+            timeout_spin.setRange(1, 300)
+            timeout_spin.setValue(30)
+            element_layout.addRow("Timeout (seconds):", timeout_spin)
+
+            check_interval_spin = QSpinBox()
+            check_interval_spin.setRange(0.5, 10)
+            check_interval_spin.setValue(2)
+            check_interval_spin.setSingleStep(0.5)
+            check_interval_spin.setDecimals(1)
+            element_layout.addRow("Check interval:", check_interval_spin)
+
+            wait_layout.addLayout(element_layout)
+
+            # Detection method
+            method_layout = QHBoxLayout()
+            method_layout.addWidget(QLabel("Detection method:"))
+            self.detection_method_combo = QComboBox()
+            self.detection_method_combo.addItems(["Text Recognition", "Image Template", "Window Title", "Process List"])
+            method_layout.addWidget(self.detection_method_combo)
+            wait_layout.addLayout(method_layout)
+
+            self.step_params_layout.addLayout(wait_layout)
+
+        elif step_type == "🔍 Image Analysis (OpenCV)":
+            # Advanced OpenCV image analysis
+            analysis_layout = QVBoxLayout()
+
+            # Image selection
+            img_select_layout = QHBoxLayout()
+            self.analysis_image_edit = QLineEdit()
+            self.analysis_image_edit.setPlaceholderText("Select image to analyze...")
+            img_select_layout.addWidget(self.analysis_image_edit)
+
+            browse_btn = QPushButton("Browse")
+            browse_btn.clicked.connect(self.browse_analysis_image)
+            img_select_layout.addWidget(browse_btn)
+            analysis_layout.addLayout(img_select_layout)
+
+            # Analysis options
+            options_layout = QFormLayout()
+
+            analysis_type_combo = QComboBox()
+            analysis_type_combo.addItems(["Object Detection", "Color Analysis", "Text Recognition", "Edge Detection", "Contour Analysis"])
+            options_layout.addRow("Analysis Type:", analysis_type_combo)
+
+            save_results_check = QCheckBox("Save analysis results")
+            save_results_check.setChecked(True)
+            options_layout.addRow("", save_results_check)
+
+            analysis_layout.addLayout(options_layout)
+            self.step_params_layout.addLayout(analysis_layout)
+
+        elif step_type == "🧠 Conditional Logic (Advanced)":
+            # Enhanced conditional logic with OpenCV
+            self.open_advanced_conditional_builder()
+
+        elif step_type == "Type Text":
+            text_layout = QHBoxLayout()
+            text_layout.addWidget(QLabel("Text:"))
+            text_edit = QLineEdit()
+            text_edit.setPlaceholderText("Text to type...")
+            text_layout.addWidget(text_edit)
+            self.step_params_layout.addLayout(text_layout)
+
+        elif step_type == "Take Screenshot":
+            desc_layout = QHBoxLayout()
+            desc_layout.addWidget(QLabel("Description:"))
+            desc_edit = QLineEdit()
+            desc_edit.setPlaceholderText("Screenshot description...")
+            desc_layout.addWidget(desc_edit)
+            self.step_params_layout.addLayout(desc_layout)
+
+        elif step_type == "Run Command":
+            cmd_layout = QHBoxLayout()
+            cmd_layout.addWidget(QLabel("Command:"))
+            cmd_edit = QLineEdit()
+            cmd_edit.setPlaceholderText("Command to execute...")
+            cmd_layout.addWidget(cmd_edit)
+            self.step_params_layout.addLayout(cmd_layout)
+
+        elif step_type == "Conditional Logic":
+            # This will open the conditional builder dialog
+            cond_layout = QVBoxLayout()
+            cond_label = QLabel("Click 'Add Step' to open Conditional Logic Builder")
+            cond_label.setStyleSheet("color: #6c757d; font-style: italic;")
+            cond_layout.addWidget(cond_label)
+            self.step_params_layout.addLayout(cond_layout)
+
+        elif step_type == "Loop Actions":
+            loop_layout = QFormLayout()
+            loop_count = QSpinBox()
+            loop_count.setRange(1, 100)
+            loop_count.setValue(3)
+            loop_layout.addRow("Loop Count:", loop_count)
+            self.step_params_layout.addLayout(loop_layout)
+
+    def _get_available_step_types(self) -> list:
+        """Get step types filtered by dependency availability"""
+        all_step_types = [
+            "Launch Program",
+            "Open File",
+            "Wait for Time",
+            "⌨️ Type Text",
+            "💻 Run Command",
+            "🧠 Conditional Logic (Advanced)",
+            "🔄 Loop Actions"
+        ]
+
+        # Add visual step types if dependencies are available
+        if SCREEN_RECORDING_SUPPORT:
+            visual_step_types = [
+                "🎯 Visual Click (OpenCV)",
+                "📸 Visual Find & Click (Image Recognition)",
+                "🖱️ Smart Click (AutoPyGUI)",
+                "📷 Screenshot with Analysis",
+                "👁️ Visual Wait (Element Detection)",
+                "🔍 Image Analysis (OpenCV)"
+            ]
+            all_step_types.extend(visual_step_types)
+        else:
+            # Add limited visual features with warnings
+            if VISUAL_FEATURES_STATUS['pyautogui']:
+                basic_visual_types = [
+                    "🖱️ Smart Click (AutoPyGUI) - Limited",
+                    "📷 Screenshot with Analysis - Limited"
+                ]
+                all_step_types.extend(basic_visual_types)
+
+        return all_step_types
+
+    def _add_dependency_status_widget(self, parent_layout):
+        """Add dependency status indicator widget"""
+        try:
+            status_widget = QWidget()
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(5, 5, 5, 5)
+
+            # Warning icon and message
+            warning_label = QLabel("⚠️")
+            warning_label.setStyleSheet("color: #ff6b35; font-size: 16px; font-weight: bold;")
+            status_layout.addWidget(warning_label)
+
+            message_label = QLabel("Visual features limited: Dependencies missing")
+            message_label.setStyleSheet("color: #ff6b35; font-weight: bold;")
+            status_layout.addWidget(message_label)
+
+            status_layout.addStretch()
+
+            # Fix button
+            fix_btn = QPushButton("🔧 Fix Dependencies")
+            fix_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 5px 10px; }")
+            fix_btn.clicked.connect(self._show_dependency_fix_dialog)
+            status_layout.addWidget(fix_btn)
+
+            # Style the widget
+            status_widget.setStyleSheet("""
+                QWidget {
+                    background-color: #fff3cd;
+                    border: 1px solid #ffeaa7;
+                    border-radius: 5px;
+                    margin: 5px 0px;
+                }
+            """)
+
+            parent_layout.addWidget(status_widget)
+
+        except Exception as e:
+            logger.error(f"Error adding dependency status widget: {e}")
+
+    def _show_dependency_fix_dialog(self):
+        """Show dialog to fix missing dependencies"""
+        try:
+            if show_dependency_dialog(self):
+                # User chose to install dependencies
+                self.update_feedback("Dependencies installation completed. Please restart the application.")
+            else:
+                # User chose to continue without visual features
+                self.update_feedback("Continuing without visual features. Some functionality will be limited.")
+
+        except Exception as e:
+            logger.error(f"Error showing dependency fix dialog: {e}")
+            self.update_feedback("Error opening dependency dialog")
+
+    def add_workflow_step(self):
+        """Add a new step to the workflow"""
+        step_type = self.step_type_combo.currentText()
+        step_data = self.collect_step_data(step_type)
+
+        if step_data:
+            # Create a user-friendly description
+            description = self.create_step_description(step_type, step_data)
+
+            # Add to workflow steps
+            step = {
+                'type': step_type,
+                'data': step_data,
+                'description': description
+            }
+            self.current_workflow_steps.append(step)
+
+            # Update UI
+            self.update_workflow_steps_list()
+            self.update_feedback(f"Added step: {description}")
+            self.studio_status_label.setText(f"✅ Workflow has {len(self.current_workflow_steps)} step(s)")
+
+    def collect_step_data(self, step_type: str) -> dict:
+        """Collect data for the current step type"""
+        data = {}
+
+        try:
+            if step_type == "Launch Program":
+                # Get program and parameters from the dynamic widgets
+                program_combo = self.step_params_widget.findChild(QComboBox)
+                params_edit = self.step_params_widget.findChild(QLineEdit)
+
+                selected_program = None
+                if program_combo:
+                    selected_program = program_combo.currentText()
+
+                # Use the workflow setup program if no program is selected in the dropdown
+                if (selected_program == "Select Program..." or not selected_program) and hasattr(self, 'workflow_setup_data'):
+                    target_program = self.workflow_setup_data.get('target_program', '')
+                    if target_program and target_program not in ["Manual Execution", "Custom Script"]:
+                        selected_program = target_program
+
+                if selected_program and selected_program != "Select Program...":
+                    data['program'] = selected_program
+                    data['parameters'] = params_edit.text() if params_edit else ""
+                else:
+                    QMessageBox.warning(self, "Missing Data", "Please select a program to launch.")
+                    return None
+
+            elif step_type == "Open File":
+                file_edit = self.step_params_widget.findChild(QLineEdit)
+                if file_edit and file_edit.text():
+                    data['file_path'] = file_edit.text()
+                else:
+                    QMessageBox.warning(self, "Missing Data", "Please select a file to open.")
+                    return None
+
+            elif step_type == "Wait for Time":
+                wait_spin = self.step_params_widget.findChild(QSpinBox)
+                if wait_spin:
+                    data['seconds'] = wait_spin.value()
+
+            elif step_type == "Click Position":
+                spins = self.step_params_widget.findChildren(QSpinBox)
+                if len(spins) >= 2:
+                    data['x'] = spins[0].value()
+                    data['y'] = spins[1].value()
+
+            elif step_type == "Type Text":
+                text_edit = self.step_params_widget.findChild(QLineEdit)
+                if text_edit and text_edit.text():
+                    data['text'] = text_edit.text()
+                else:
+                    QMessageBox.warning(self, "Missing Data", "Please enter text to type.")
+                    return None
+
+            elif step_type == "Take Screenshot":
+                desc_edit = self.step_params_widget.findChild(QLineEdit)
+                data['description'] = desc_edit.text() if desc_edit else "Screenshot"
+
+            elif step_type == "Run Command":
+                cmd_edit = self.step_params_widget.findChild(QLineEdit)
+                if cmd_edit and cmd_edit.text():
+                    data['command'] = cmd_edit.text()
+                else:
+                    QMessageBox.warning(self, "Missing Data", "Please enter a command to execute.")
+                    return None
+
+            elif step_type == "Conditional Logic":
+                # Open conditional logic builder dialog
+                data = self.open_conditional_builder()
+                if not data:
+                    return None
+
+            elif step_type == "Loop Actions":
+                loop_spin = self.step_params_widget.findChild(QSpinBox)
+                if loop_spin:
+                    data['count'] = loop_spin.value()
+
+        except Exception as e:
+            logger.error(f"Error collecting step data: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to collect step data: {e}")
+            return None
+
+        return data
+
+    def create_step_description(self, step_type: str, data: dict) -> str:
+        """Create a user-friendly description for the step"""
+        if step_type == "Launch Program":
+            return f"🚀 Launch {data.get('program', 'Unknown')}"
+        elif step_type == "Open File":
+            return f"📂 Open {os.path.basename(data.get('file_path', 'Unknown'))}"
+        elif step_type == "Wait for Time":
+            return f"⏱️ Wait {data.get('seconds', 0)} seconds"
+        elif step_type == "Click Position":
+            return f"👆 Click at ({data.get('x', 0)}, {data.get('y', 0)})"
+        elif step_type == "Type Text":
+            text = data.get('text', '')
+            return f"⌨️ Type: {text[:30]}{'...' if len(text) > 30 else ''}"
+        elif step_type == "Take Screenshot":
+            return f"📸 Screenshot: {data.get('description', 'No description')}"
+        elif step_type == "Run Command":
+            return f"💻 Run: {data.get('command', '')[:30]}{'...' if len(data.get('command', '')) > 30 else ''}"
+        elif step_type == "Conditional Logic":
+            return f"🔀 Conditional: {data.get('condition', 'Unknown condition')}"
+        elif step_type == "Loop Actions":
+            return f"🔄 Loop {data.get('count', 0)} times"
+        else:
+            return f"❓ {step_type}"
+
+    def update_workflow_steps_list(self):
+        """Update the workflow steps list display"""
+        self.workflow_steps_list.clear()
+
+        for i, step in enumerate(self.current_workflow_steps):
+            item = QListWidgetItem(f"{i+1}. {step['description']}")
+            item.setData(Qt.UserRole, i)  # Store step index
+            self.workflow_steps_list.addItem(item)
+
+    def update_feedback(self, message: str):
+        """Update the feedback text with a new message"""
+        current_text = self.studio_feedback_text.toPlainText()
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        new_text = f"[{timestamp}] {message}\n{current_text}"
+
+        # Keep only last 5 messages
+        lines = new_text.split('\n')[:6]
+        self.studio_feedback_text.setPlainText('\n'.join(lines))
+
+    def browse_workflow_file(self):
+        """Browse for a file to execute"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select File to Execute", "", "All Files (*.*)"
+        )
+        if file_path:
+            self.workflow_file_edit.setText(file_path)
+
+    def edit_selected_step(self):
+        """Edit the selected workflow step with comprehensive editor"""
+        current_row = self.workflow_steps_list.currentRow()
+        if current_row >= 0:
+            step = self.current_workflow_steps[current_row]
+            dialog = StepEditDialog(step, self)
+            if dialog.exec_() == QDialog.Accepted:
+                # Update the step with edited data
+                updated_step = dialog.get_step_data()
+                self.current_workflow_steps[current_row] = updated_step
+                self.update_workflow_steps_list()
+                self.update_feedback(f"Updated step {current_row + 1}: {updated_step['description']}")
+                self.studio_status_label.setText(f"✅ Workflow has {len(self.current_workflow_steps)} step(s)")
+
+    def delete_selected_step(self):
+        """Delete the selected workflow step"""
+        current_row = self.workflow_steps_list.currentRow()
+        if current_row >= 0:
+            del self.current_workflow_steps[current_row]
+            self.update_workflow_steps_list()
+            self.update_feedback(f"Deleted step {current_row + 1}")
+            self.studio_status_label.setText(f"✅ Workflow has {len(self.current_workflow_steps)} step(s)")
+
+    def move_step_up(self):
+        """Move the selected step up in the workflow"""
+        current_row = self.workflow_steps_list.currentRow()
+        if current_row > 0:
+            # Swap steps
+            self.current_workflow_steps[current_row], self.current_workflow_steps[current_row - 1] = \
+                self.current_workflow_steps[current_row - 1], self.current_workflow_steps[current_row]
+            self.update_workflow_steps_list()
+            self.workflow_steps_list.setCurrentRow(current_row - 1)
+
+    def move_step_down(self):
+        """Move the selected step down in the workflow"""
+        current_row = self.workflow_steps_list.currentRow()
+        if current_row < len(self.current_workflow_steps) - 1:
+            # Swap steps
+            self.current_workflow_steps[current_row], self.current_workflow_steps[current_row + 1] = \
+                self.current_workflow_steps[current_row + 1], self.current_workflow_steps[current_row]
+            self.update_workflow_steps_list()
+            self.workflow_steps_list.setCurrentRow(current_row + 1)
+
+    def clear_all_steps(self):
+        """Clear all workflow steps"""
+        reply = QMessageBox.question(self, "Clear All Steps",
+            "Are you sure you want to clear all workflow steps?",
+            QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.current_workflow_steps.clear()
+            self.update_workflow_steps_list()
+            self.update_feedback("Cleared all workflow steps")
+            self.studio_status_label.setText("✅ Ready to create workflow")
+
+    def save_studio_workflow(self):
+        """Save the current workflow"""
+        if not self.workflow_setup_data:
+            QMessageBox.warning(self, "No Setup", "Please complete the workflow setup first.")
+            return
+
+        name = self.workflow_setup_data['name']
+        description = self.workflow_setup_data['description']
+
+        if not self.current_workflow_steps:
+            reply = QMessageBox.question(self, "No Steps",
+                "This workflow has no steps yet. Do you want to save it anyway?",
+                QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
+        # Create workflow object with setup data
+        workflow = Workflow(
+            name=name,
+            description=description,
+            steps=self.current_workflow_steps.copy(),
+            created_date=self.workflow_setup_data.get('created_date', datetime.now().isoformat()),
+            modified_date=datetime.now().isoformat(),
+            author=self.workflow_setup_data.get('author', 'User'),
+            version="1.0",
+            software=self.workflow_setup_data.get('target_program', ''),
+            category=self.workflow_setup_data.get('category', ''),
+            difficulty=self.workflow_setup_data.get('difficulty', ''),
+            error_handling=self.workflow_setup_data.get('error_handling', True),
+            retry_count=self.workflow_setup_data.get('retry_count', 3),
+            timeout=self.workflow_setup_data.get('timeout', 60)
+        )
+
+        # Save to workflows dictionary
+        self.workflows[name] = workflow
+
+        # Update UI
+        self.update_feedback(f"💾 Saved workflow: {name}")
+        QMessageBox.information(self, "Success", f"Workflow '{name}' saved successfully!")
+
+        # Update workflows tab
+        self.update_workflows_tab()
+
+        # Update welcome screen if exists
+        if hasattr(self, 'workflow_studio_welcome_widget'):
+            self.workflow_studio_welcome_widget.hide()
+            new_welcome = self.create_welcome_screen()
+            self.workflow_studio_welcome_widget.parent().layout().replaceWidget(
+                self.workflow_studio_welcome_widget, new_welcome
+            )
+            self.workflow_studio_welcome_widget.deleteLater()
+            self.workflow_studio_welcome_widget = new_welcome
+
+    def load_studio_workflow(self):
+        """Load an existing workflow"""
+        if not self.workflows:
+            QMessageBox.information(self, "No Workflows", "No saved workflows found.")
+            return
+
+        # Create selection dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Load Workflow")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Select workflow to load:"))
+
+        workflow_list = QListWidget()
+        for name in self.workflows.keys():
+            workflow_list.addItem(name)
+        layout.addWidget(workflow_list)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() == QDialog.Accepted and workflow_list.currentItem():
+            workflow_name = workflow_list.currentItem().text()
+            workflow = self.workflows[workflow_name]
+
+            # Load workflow data
+            self.workflow_name_edit.setText(workflow.name)
+            self.workflow_desc_edit.setText(workflow.description)
+            self.current_workflow_steps = [step for step in workflow.steps]
+
+            # Update UI
+            self.update_workflow_steps_list()
+            self.update_feedback(f"Loaded workflow: {workflow_name}")
+            self.studio_status_label.setText(f"✅ Loaded workflow '{workflow_name}' with {len(self.current_workflow_steps)} steps")
+
+    def test_studio_workflow(self):
+        """Test the current workflow (dry run)"""
+        if not self.current_workflow_steps:
+            QMessageBox.warning(self, "No Steps", "Please add steps to the workflow before testing.")
+            return
+
+        reply = QMessageBox.question(self, "Test Workflow",
+            "This will run a dry run of the workflow without executing actual programs. Continue?",
+            QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.update_feedback("Starting workflow test (dry run)...")
+            # Simulate workflow execution
+            self.simulate_workflow_execution()
+
+    def execute_studio_workflow(self):
+        """Execute the current workflow"""
+        if not self.current_workflow_steps:
+            QMessageBox.warning(self, "No Steps", "Please add steps to the workflow before executing.")
+            return
+
+        reply = QMessageBox.question(self, "Execute Workflow",
+            "This will execute the actual workflow. Make sure all programs are ready. Continue?",
+            QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.update_feedback("Starting workflow execution...")
+            # Execute workflow
+            self.execute_workflow_real()
+
+    def simulate_workflow_execution(self):
+        """Simulate workflow execution for testing"""
+        def update_simulation(step_index, total_steps):
+            if step_index < total_steps:
+                step = self.current_workflow_steps[step_index]
+                self.update_feedback(f"[TEST] Step {step_index + 1}/{total_steps}: {step['description']}")
+                self.studio_status_label.setText(f"🧪 Testing step {step_index + 1}/{total_steps}")
+
+                # Schedule next step
+                QTimer.singleShot(1000, lambda: update_simulation(step_index + 1, total_steps))
+            else:
+                self.update_feedback("✅ Workflow test completed successfully!")
+                self.studio_status_label.setText("✅ Test completed")
+                QMessageBox.information(self, "Test Complete", "Workflow test completed successfully!")
+
+        update_simulation(0, len(self.current_workflow_steps))
+
+    def execute_workflow_real(self):
+        """Execute the workflow in real mode"""
+        def execute_step(step_index, total_steps):
+            if step_index < total_steps:
+                step = self.current_workflow_steps[step_index]
+                self.update_feedback(f"[EXEC] Step {step_index + 1}/{total_steps}: {step['description']}")
+                self.studio_status_label.setText(f"🚀 Executing step {step_index + 1}/{total_steps}")
+
+                # Execute the actual step
+                try:
+                    self.execute_single_step(step)
+                    # Schedule next step
+                    QTimer.singleShot(2000, lambda: execute_step(step_index + 1, total_steps))
+                except Exception as e:
+                    logger.error(f"Error executing step {step_index + 1}: {e}")
+                    self.update_feedback(f"❌ Error in step {step_index + 1}: {e}")
+                    self.studio_status_label.setText("❌ Execution failed")
+                    QMessageBox.critical(self, "Execution Error", f"Failed to execute step {step_index + 1}: {e}")
+            else:
+                self.update_feedback("✅ Workflow execution completed successfully!")
+                self.studio_status_label.setText("✅ Execution completed")
+                QMessageBox.information(self, "Execution Complete", "Workflow executed successfully!")
+
+        execute_step(0, len(self.current_workflow_steps))
+
+    def execute_single_step(self, step: dict):
+        """Execute a single workflow step"""
+        step_type = step['type']
+        data = step['data']
+
+        if step_type == "Launch Program":
+            program = data.get('program', '')
+            if program in self.detected_programs:
+                self.launch_program_by_key(program)
+
+        elif step_type == "Open File":
+            file_path = data.get('file_path', '')
+            if os.path.exists(file_path):
+                os.startfile(file_path)  # Windows specific
+
+        elif step_type == "Wait for Time":
+            time.sleep(data.get('seconds', 1))
+
+        elif step_type == "Click Position":
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                x, y = data.get('x', 0), data.get('y', 0)
+                pyautogui.click(x, y)
+
+        elif step_type == "Type Text":
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                text = data.get('text', '')
+                pyautogui.write(text)
+
+        elif step_type == "Take Screenshot":
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"workflow_screenshot_{timestamp}.png"
+                pyautogui.screenshot(filename)
+                self.update_feedback(f"📸 Screenshot saved: {filename}")
+
+        elif step_type == "Run Command":
+            command = data.get('command', '')
+            if command:
+                subprocess.Popen(command, shell=True)
+
+        # Visual step types with OpenCV integration
+        elif step_type == "🎯 Visual Click (OpenCV)":
+            self.perform_visual_click(data)
+
+        elif step_type == "📸 Visual Find & Click (Image Recognition)":
+            self.perform_image_recognition(data)
+
+        elif step_type == "🖱️ Smart Click (AutoPyGUI)":
+            self.perform_smart_click(data)
+
+        elif step_type == "📷 Screenshot with Analysis":
+            self.perform_screenshot_analysis(data)
+
+        elif step_type == "👁️ Visual Wait (Element Detection)":
+            self.perform_visual_wait(data)
+
+        elif step_type == "🔍 Image Analysis (OpenCV)":
+            self.perform_image_analysis(data)
+
+        elif step_type == "🧠 Conditional Logic (Advanced)":
+            self.perform_advanced_conditional(data)
+
+        elif step_type == "🔄 Loop Actions":
+            self.perform_loop_actions(data)
+
+    # Visual Step Execution Methods
+
+    def perform_visual_click(self, data: dict):
+        """Perform visual click using OpenCV precision"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ OpenCV not available for visual click")
+                return
+
+            import pyautogui
+            import cv2
+            import numpy as np
+
+            x = data.get('x', 0)
+            y = data.get('y', 0)
+
+            # Get confidence for visual click
+            confidence = data.get('confidence', 80) / 100.0
+
+            # Perform pre-click visual verification if confidence is set
+            if confidence > 0.5:
+                screenshot = pyautogui.screenshot()
+                screenshot_array = np.array(screenshot)
+                screenshot_gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+
+                # Create a small region around target point
+                region_size = 50
+                x1, y1 = max(0, x - region_size), max(0, y - region_size)
+                x2, y2 = min(screenshot_gray.shape[1], x + region_size), min(screenshot_gray.shape[0], y + region_size)
+                target_region = screenshot_gray[y1:y2, x1:x2]
+
+                # Check if target area has sufficient contrast (indicating something to click)
+                contrast = np.std(target_region)
+                if contrast < 10:  # Low contrast might mean empty area
+                    self.update_feedback(f"⚠️ Low contrast at target point ({x}, {y}) - proceeding with click")
+
+            # Perform the click with human-like movement
+            pyautogui.moveTo(x, y, duration=0.5)
+            pyautogui.click()
+
+            self.update_feedback(f"🎯 Visual click performed at ({x}, {y})")
+
+            # Optional post-click screenshot for verification
+            if data.get('verify_after_click', False):
+                time.sleep(1)  # Wait for any UI changes
+                verify_screenshot = pyautogui.screenshot()
+                verify_filename = f"verify_click_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                verify_screenshot.save(verify_filename)
+                self.update_feedback(f"📸 Post-click verification saved: {verify_filename}")
+
+        except Exception as e:
+            logger.error(f"Error in visual click: {e}")
+            self.update_feedback(f"❌ Visual click failed: {e}")
+
+    def perform_image_recognition(self, data: dict):
+        """Perform image recognition and click"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Image recognition not available")
+                return
+
+            import pyautogui
+            import cv2
+            import numpy as np
+
+            template_path = data.get('template_path', '')
+            if not template_path or not os.path.exists(template_path):
+                self.update_feedback("❌ Template image not found")
+                return
+
+            confidence = data.get('confidence', 80) / 100.0
+
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            screenshot_array = np.array(screenshot)
+            screenshot_gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+
+            # Load template
+            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                self.update_feedback(f"❌ Could not load template: {template_path}")
+                return
+
+            # Perform template matching
+            result = cv2.matchTemplate(screenshot_gray, template, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+            if max_val >= confidence:
+                # Calculate center of found template
+                h, w = template.shape
+                center_x = max_loc[0] + w // 2
+                center_y = max_loc[1] + h // 2
+
+                # Perform click with visual feedback
+                pyautogui.moveTo(center_x, center_y, duration=0.3)
+                pyautogui.click()
+
+                self.update_feedback(f"🎯 Template found with {max_val:.2f} confidence, clicked at ({center_x}, {center_y})")
+
+                # Draw rectangle on screenshot for verification
+                if data.get('save_detection', False):
+                    output_screenshot = screenshot_array.copy()
+                    cv2.rectangle(output_screenshot, max_loc, (max_loc[0] + w, max_loc[1] + h), (0, 255, 0), 2)
+                    cv2.putText(output_screenshot, f"Confidence: {max_val:.2f}",
+                               (max_loc[0], max_loc[1] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                               0.5, (0, 255, 0), 2)
+
+                    detection_filename = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                    cv2.imwrite(detection_filename, cv2.cvtColor(output_screenshot, cv2.COLOR_RGB2BGR))
+                    self.update_feedback(f"📸 Detection saved: {detection_filename}")
+            else:
+                self.update_feedback(f"❌ Template not found (best match: {max_val:.2f} < {confidence})")
+
+        except Exception as e:
+            logger.error(f"Error in image recognition: {e}")
+            self.update_feedback(f"❌ Image recognition failed: {e}")
+
+    def perform_smart_click(self, data: dict):
+        """Perform smart click with AutoPyGUI advanced features"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ AutoPyGUI not available")
+                return
+
+            import pyautogui
+            import random
+
+            x = data.get('x', 0)
+            y = data.get('y', 0)
+
+            # Add human-like randomization
+            if data.get('humanize', False):
+                # Small random offset to mimic human imprecision
+                offset_x = random.randint(-3, 3)
+                offset_y = random.randint(-3, 3)
+                x += offset_x
+                y += offset_y
+
+                # Variable movement speed
+                duration = random.uniform(0.2, 0.8)
+            else:
+                duration = 0.5
+
+            # Perform the click
+            pyautogui.moveTo(x, y, duration=duration)
+
+            # Double click if specified
+            if data.get('double_click', False):
+                pyautogui.doubleClick()
+                self.update_feedback(f"🖱️ Smart double-click at ({x}, {y})")
+            else:
+                pyautogui.click()
+                self.update_feedback(f"🖱️ Smart click at ({x}, {y})")
+
+            # Right click if specified
+            if data.get('right_click', False):
+                pyautogui.rightClick()
+                self.update_feedback(f"🖱️ Smart right-click at ({x}, {y})")
+
+        except Exception as e:
+            logger.error(f"Error in smart click: {e}")
+            self.update_feedback(f"❌ Smart click failed: {e}")
+
+    def perform_screenshot_analysis(self, data: dict):
+        """Take screenshot with OpenCV analysis"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Screenshot analysis not available")
+                return
+
+            import pyautogui
+            import cv2
+            import numpy as np
+
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            screenshot_array = np.array(screenshot)
+
+            # Basic analysis options
+            analysis_type = data.get('analysis_type', 'basic')
+
+            if analysis_type == 'edge_detection':
+                gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+                edges = cv2.Canny(gray, 100, 200)
+                result_filename = f"edges_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                cv2.imwrite(result_filename, edges)
+                self.update_feedback(f"📷 Edge detection saved: {result_filename}")
+
+            elif analysis_type == 'color_analysis':
+                # Analyze dominant colors
+                pixels = screenshot_array.reshape(-1, 3)
+                unique_colors, counts = np.unique(pixels, axis=0, return_counts=True)
+                top_colors = unique_colors[np.argsort(counts)[-5:]]  # Top 5 colors
+
+                self.update_feedback("📷 Dominant colors detected:")
+                for i, color in enumerate(top_colors):
+                    self.update_feedback(f"  Color {i+1}: RGB({color[0]}, {color[1]}, {color[2]})")
+
+                # Save original screenshot
+                filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                screenshot.save(filename)
+                self.update_feedback(f"📷 Screenshot saved: {filename}")
+
+            else:  # basic
+                filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                screenshot.save(filename)
+                self.update_feedback(f"📷 Screenshot saved: {filename}")
+
+        except Exception as e:
+            logger.error(f"Error in screenshot analysis: {e}")
+            self.update_feedback(f"❌ Screenshot analysis failed: {e}")
+
+    def perform_visual_wait(self, data: dict):
+        """Wait for visual element to appear"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Visual wait not available")
+                return
+
+            import pyautogui
+            import cv2
+            import numpy as np
+            import time
+
+            wait_type = data.get('wait_type', 'time')
+            timeout = data.get('timeout', 30)
+            start_time = time.time()
+
+            if wait_type == 'image':
+                template_path = data.get('template_path', '')
+                if not template_path or not os.path.exists(template_path):
+                    self.update_feedback("❌ Template image not found for visual wait")
+                    return
+
+                confidence = data.get('confidence', 80) / 100.0
+                template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+
+                self.update_feedback(f"👁️ Waiting for image to appear: {template_path}")
+
+                while time.time() - start_time < timeout:
+                    screenshot = pyautogui.screenshot()
+                    screenshot_array = np.array(screenshot)
+                    screenshot_gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+
+                    result = cv2.matchTemplate(screenshot_gray, template, cv2.TM_CCOEFF_NORMED)
+                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+                    if max_val >= confidence:
+                        elapsed = time.time() - start_time
+                        self.update_feedback(f"✅ Image found after {elapsed:.1f} seconds (confidence: {max_val:.2f})")
+                        return
+
+                    time.sleep(1)  # Check every second
+
+                self.update_feedback(f"❌ Timeout: Image not found after {timeout} seconds")
+
+            elif wait_type == 'color':
+                target_color = data.get('target_color', [0, 0, 0])
+                target_x = data.get('x', 0)
+                target_y = data.get('y', 0)
+                tolerance = data.get('tolerance', 30)
+
+                self.update_feedback(f"👁️ Waiting for color RGB({target_color[0]}, {target_color[1]}, {target_color[2]}) at ({target_x}, {target_y})")
+
+                while time.time() - start_time < timeout:
+                    screenshot = pyautogui.screenshot()
+                    pixel_color = screenshot.getpixel((target_x, target_y))
+
+                    # Check color similarity within tolerance
+                    color_diff = sum(abs(pixel_color[i] - target_color[i]) for i in range(3))
+                    if color_diff <= tolerance * 3:
+                        elapsed = time.time() - start_time
+                        self.update_feedback(f"✅ Color found after {elapsed:.1f} seconds")
+                        return
+
+                    time.sleep(0.5)
+
+                self.update_feedback(f"❌ Timeout: Color not found after {timeout} seconds")
+
+            else:  # time
+                wait_seconds = data.get('seconds', 5)
+                self.update_feedback(f"⏱️ Waiting {wait_seconds} seconds")
+                time.sleep(wait_seconds)
+
+        except Exception as e:
+            logger.error(f"Error in visual wait: {e}")
+            self.update_feedback(f"❌ Visual wait failed: {e}")
+
+    def perform_image_analysis(self, data: dict):
+        """Perform advanced image analysis with OpenCV"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Image analysis not available")
+                return
+
+            import pyautogui
+            import cv2
+            import numpy as np
+
+            analysis_type = data.get('analysis_type', 'objects')
+
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            screenshot_array = np.array(screenshot)
+
+            if analysis_type == 'objects':
+                # Simple object detection using contour analysis
+                gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+                blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+                edges = cv2.Canny(blurred, 50, 150)
+                contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                # Filter significant contours
+                significant_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 100]
+
+                # Draw contours on image
+                output_screenshot = screenshot_array.copy()
+                cv2.drawContours(output_screenshot, significant_contours, -1, (0, 255, 0), 2)
+
+                self.update_feedback(f"🔍 Found {len(significant_contours)} significant objects")
+
+                # Save analysis result
+                analysis_filename = f"object_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                cv2.imwrite(analysis_filename, cv2.cvtColor(output_screenshot, cv2.COLOR_RGB2BGR))
+                self.update_feedback(f"📸 Object analysis saved: {analysis_filename}")
+
+            elif analysis_type == 'text':
+                # Basic text region detection (requires pytesseract for full OCR)
+                gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+
+                # Apply threshold to get binary image
+                _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+                # Find text-like contours
+                contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                text_regions = []
+
+                for cnt in contours:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    aspect_ratio = w / h
+                    if 0.1 < aspect_ratio < 20 and cv2.contourArea(cnt) > 50:
+                        text_regions.append((x, y, w, h))
+
+                # Draw text regions
+                output_screenshot = screenshot_array.copy()
+                for (x, y, w, h) in text_regions:
+                    cv2.rectangle(output_screenshot, (x, y), (x + w, y + h), (255, 0, 0), 2)
+
+                self.update_feedback(f"🔍 Found {len(text_regions)} potential text regions")
+
+                # Save analysis result
+                analysis_filename = f"text_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                cv2.imwrite(analysis_filename, cv2.cvtColor(output_screenshot, cv2.COLOR_RGB2BGR))
+                self.update_feedback(f"📸 Text analysis saved: {analysis_filename}")
+
+            else:
+                self.update_feedback(f"❌ Unknown analysis type: {analysis_type}")
+
+        except Exception as e:
+            logger.error(f"Error in image analysis: {e}")
+            self.update_feedback(f"❌ Image analysis failed: {e}")
+
+    def perform_advanced_conditional(self, data: dict):
+        """Execute advanced conditional logic with OpenCV integration"""
+        try:
+            condition_data = data.get('condition', {})
+            true_actions = data.get('true_actions', [])
+            false_actions = data.get('false_actions', [])
+
+            if not condition_data:
+                self.update_feedback("❌ No condition data provided")
+                return
+
+            condition_type = condition_data.get('type', '')
+            condition_description = condition_data.get('description', '')
+
+            self.update_feedback(f"🧠 Evaluating condition: {condition_description}")
+
+            # Evaluate the condition
+            result = self._evaluate_condition(condition_data)
+
+            if result:
+                self.update_feedback(f"✅ Condition TRUE: {condition_description}")
+                self._execute_action_branch(true_actions, "TRUE")
+            else:
+                self.update_feedback(f"❌ Condition FALSE: {condition_description}")
+                self._execute_action_branch(false_actions, "FALSE")
+
+        except Exception as e:
+            logger.error(f"Error in advanced conditional: {e}")
+            self.update_feedback(f"❌ Advanced conditional failed: {e}")
+
+    def _evaluate_condition(self, condition_data: dict) -> bool:
+        """Evaluate a single condition"""
+        try:
+            condition_type = condition_data.get('type', '')
+
+            if condition_type == 'image_recognition':
+                return self._evaluate_image_condition(condition_data)
+
+            elif condition_type == 'file_exists':
+                return self._evaluate_file_condition(condition_data)
+
+            elif condition_type == 'window_detection':
+                return self._evaluate_window_condition(condition_data)
+
+            elif condition_type == 'time_range':
+                return self._evaluate_time_condition(condition_data)
+
+            elif condition_type == 'color_detection':
+                return self._evaluate_color_condition(condition_data)
+
+            elif condition_type == 'text_detection':
+                return self._evaluate_text_condition(condition_data)
+
+            elif condition_type == 'program_running':
+                return self._evaluate_program_condition(condition_data)
+
+            elif condition_type == 'and':
+                return self._evaluate_compound_condition(condition_data, 'and')
+
+            elif condition_type == 'or':
+                return self._evaluate_compound_condition(condition_data, 'or')
+
+            else:
+                self.update_feedback(f"❌ Unknown condition type: {condition_type}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error evaluating condition: {e}")
+            return False
+
+    def _evaluate_image_condition(self, condition_data: dict) -> bool:
+        """Evaluate image recognition condition"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Image recognition not available")
+                return False
+
+            import pyautogui
+            import cv2
+            import numpy as np
+
+            template_path = condition_data.get('template_path', '')
+            if not template_path or not os.path.exists(template_path):
+                self.update_feedback("❌ Template image not found")
+                return False
+
+            confidence = condition_data.get('confidence', 80) / 100.0
+            search_area = condition_data.get('search_area', 'full_screen')
+
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            screenshot_array = np.array(screenshot)
+
+            # Apply search area if specified
+            if search_area != 'full_screen':
+                area = condition_data.get('area_coords', {})
+                x = area.get('x', 0)
+                y = area.get('y', 0)
+                w = area.get('width', screenshot_array.shape[1])
+                h = area.get('height', screenshot_array.shape[0])
+
+                # Crop to search area
+                screenshot_array = screenshot_array[y:y+h, x:x+w]
+
+            # Convert to grayscale
+            screenshot_gray = cv2.cvtColor(screenshot_array, cv2.COLOR_RGB2GRAY)
+
+            # Load template
+            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                self.update_feedback(f"❌ Could not load template: {template_path}")
+                return False
+
+            # Perform template matching
+            result = cv2.matchTemplate(screenshot_gray, template, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+            self.update_feedback(f"🔍 Image recognition: best match {max_val:.3f} (required: {confidence:.3f})")
+
+            return max_val >= confidence
+
+        except Exception as e:
+            logger.error(f"Error in image condition: {e}")
+            return False
+
+    def _evaluate_file_condition(self, condition_data: dict) -> bool:
+        """Evaluate file existence condition"""
+        try:
+            file_path = condition_data.get('file_path', '')
+            if not file_path:
+                return False
+
+            exists = os.path.exists(file_path)
+            size_check = condition_data.get('check_size', False)
+
+            if exists and size_check:
+                min_size = condition_data.get('min_size_bytes', 0)
+                file_size = os.path.getsize(file_path)
+                exists = file_size >= min_size
+                self.update_feedback(f"📁 File check: {file_path} (size: {file_size} bytes)")
+
+            else:
+                self.update_feedback(f"📁 File check: {file_path} - {'Exists' if exists else 'Not found'}")
+
+            return exists
+
+        except Exception as e:
+            logger.error(f"Error in file condition: {e}")
+            return False
+
+    def _evaluate_window_condition(self, condition_data: dict) -> bool:
+        """Evaluate window detection condition"""
+        try:
+            window_title = condition_data.get('window_title', '')
+            if not window_title:
+                return False
+
+            import psutil
+
+            found = False
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    # Check if window title contains our search text
+                    if window_title.lower() in proc.info['name'].lower():
+                        found = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            self.update_feedback(f"🪟 Window check: '{window_title}' - {'Found' if found else 'Not found'}")
+            return found
+
+        except Exception as e:
+            logger.error(f"Error in window condition: {e}")
+            return False
+
+    def _evaluate_time_condition(self, condition_data: dict) -> bool:
+        """Evaluate time range condition"""
+        try:
+            start_time = condition_data.get('start_time', '')
+            end_time = condition_data.get('end_time', '')
+            current_time = datetime.now().strftime('%H:%M')
+
+            if start_time <= current_time <= end_time:
+                self.update_feedback(f"⏰ Time check: {current_time} in range [{start_time}-{end_time}]")
+                return True
+            else:
+                self.update_feedback(f"⏰ Time check: {current_time} NOT in range [{start_time}-{end_time}]")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in time condition: {e}")
+            return False
+
+    def _evaluate_color_condition(self, condition_data: dict) -> bool:
+        """Evaluate color detection condition"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                self.update_feedback("❌ Color detection not available")
+                return False
+
+            import pyautogui
+
+            target_color = condition_data.get('target_color', [0, 0, 0])
+            x = condition_data.get('x', 0)
+            y = condition_data.get('y', 0)
+            tolerance = condition_data.get('tolerance', 30)
+
+            # Take screenshot and check pixel color
+            screenshot = pyautogui.screenshot()
+            pixel_color = screenshot.getpixel((x, y))
+
+            # Calculate color difference
+            color_diff = sum(abs(pixel_color[i] - target_color[i]) for i in range(3))
+            matches = color_diff <= tolerance * 3
+
+            self.update_feedback(f"🎨 Color check at ({x},{y}): RGB{pixel_color} vs RGB{target_color} - {'Match' if matches else 'No match'}")
+            return matches
+
+        except Exception as e:
+            logger.error(f"Error in color condition: {e}")
+            return False
+
+    def _evaluate_text_condition(self, condition_data: dict) -> bool:
+        """Evaluate text detection condition"""
+        try:
+            # Basic text detection using clipboard or window titles
+            # Full OCR would require pytesseract
+            search_text = condition_data.get('search_text', '')
+            if not search_text:
+                return False
+
+            # For now, check window titles
+            import psutil
+            found = False
+
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if search_text.lower() in proc.info['name'].lower():
+                        found = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            self.update_feedback(f"📝 Text check: '{search_text}' - {'Found' if found else 'Not found'}")
+            return found
+
+        except Exception as e:
+            logger.error(f"Error in text condition: {e}")
+            return False
+
+    def _evaluate_program_condition(self, condition_data: dict) -> bool:
+        """Evaluate program running condition"""
+        try:
+            program_name = condition_data.get('program_name', '')
+            if not program_name:
+                return False
+
+            import psutil
+
+            found = False
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if program_name.lower() in proc.info['name'].lower():
+                        found = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            self.update_feedback(f"💻 Program check: '{program_name}' - {'Running' if found else 'Not running'}")
+            return found
+
+        except Exception as e:
+            logger.error(f"Error in program condition: {e}")
+            return False
+
+    def _evaluate_compound_condition(self, condition_data: dict, operator: str) -> bool:
+        """Evaluate compound (AND/OR) conditions"""
+        try:
+            sub_conditions = condition_data.get('conditions', [])
+            if not sub_conditions:
+                return False
+
+            results = []
+            for sub_condition in sub_conditions:
+                result = self._evaluate_condition(sub_condition)
+                results.append(result)
+                self.update_feedback(f"   Sub-condition result: {result}")
+
+            if operator == 'and':
+                final_result = all(results)
+                self.update_feedback(f"🧮 AND condition: {final_result} (all {len(results)} conditions must be true)")
+            else:  # or
+                final_result = any(results)
+                self.update_feedback(f"🧮 OR condition: {final_result} (at least one of {len(results)} conditions true)")
+
+            return final_result
+
+        except Exception as e:
+            logger.error(f"Error in compound condition: {e}")
+            return False
+
+    def _execute_action_branch(self, actions: list, branch_name: str):
+        """Execute a branch of conditional actions"""
+        try:
+            if not actions:
+                self.update_feedback(f"📋 No actions defined for {branch_name} branch")
+                return
+
+            self.update_feedback(f"🚀 Executing {branch_name} branch ({len(actions)} actions)")
+
+            for i, action in enumerate(actions):
+                self.update_feedback(f"   Action {i+1}/{len(actions)}: {action.get('description', 'Unknown')}")
+                self.execute_single_step(action)
+
+                # Small delay between actions
+                import time
+                time.sleep(0.5)
+
+            self.update_feedback(f"✅ {branch_name} branch completed")
+
+        except Exception as e:
+            logger.error(f"Error executing {branch_name} branch: {e}")
+            self.update_feedback(f"❌ {branch_name} branch failed: {e}")
+
+    def perform_loop_actions(self, data: dict):
+        """Execute loop actions"""
+        try:
+            loop_type = data.get('loop_type', 'count')
+            iterations = data.get('iterations', 3)
+            loop_actions = data.get('actions', [])
+
+            self.update_feedback(f"🔄 Starting {loop_type} loop for {iterations} iterations")
+
+            if loop_type == 'count':
+                for i in range(iterations):
+                    self.update_feedback(f"🔄 Loop iteration {i + 1}/{iterations}")
+                    for action in loop_actions:
+                        self.execute_single_step(action)
+
+            elif loop_type == 'time':
+                duration = data.get('duration_seconds', 60)
+                start_time = time.time()
+                iteration = 0
+
+                while time.time() - start_time < duration:
+                    iteration += 1
+                    self.update_feedback(f"🔄 Time-based loop iteration {iteration}")
+                    for action in loop_actions:
+                        self.execute_single_step(action)
+
+                    # Prevent CPU overload
+                    time.sleep(1)
+
+            self.update_feedback(f"✅ Loop completed after {iterations} iterations")
+
+        except Exception as e:
+            logger.error(f"Error in loop actions: {e}")
+            self.update_feedback(f"❌ Loop actions failed: {e}")
+
+    def open_conditional_builder(self) -> dict:
+        """Open the conditional logic builder dialog"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Conditional Logic Builder")
+        dialog.setMinimumWidth(600)
+        dialog.setMinimumHeight(400)
+        layout = QVBoxLayout(dialog)
+
+        # Condition type
+        condition_layout = QHBoxLayout()
+        condition_layout.addWidget(QLabel("Condition Type:"))
+        condition_combo = QComboBox()
+        condition_combo.addItems([
+            "If File Exists",
+            "If Window Contains",
+            "If Text Found",
+            "If Program Running",
+            "If Time Range"
+        ])
+        condition_layout.addWidget(condition_combo)
+        layout.addLayout(condition_layout)
+
+        # Condition parameters
+        params_group = QGroupBox("Condition Parameters")
+        params_layout = QFormLayout(params_group)
+
+        target_edit = QLineEdit()
+        target_edit.setPlaceholderText("Enter target (file path, window title, etc.)")
+        params_layout.addRow("Target:", target_edit)
+
+        value_edit = QLineEdit()
+        value_edit.setPlaceholderText("Enter value to match (optional)")
+        params_layout.addRow("Value:", value_edit)
+
+        layout.addWidget(params_group)
+
+        # Actions
+        actions_group = QGroupBox("Actions")
         actions_layout = QVBoxLayout(actions_group)
 
-        actions_buttons_layout1 = QHBoxLayout()
+        # True actions
+        true_layout = QHBoxLayout()
+        true_layout.addWidget(QLabel("If True:"))
+        true_combo = QComboBox()
+        true_combo.addItems(["Continue", "Stop Workflow", "Go to Step", "Run Command"])
+        true_layout.addWidget(true_combo)
+        actions_layout.addLayout(true_layout)
 
-        self.preview_workflow_btn = QPushButton("Preview Workflow")
-        self.preview_workflow_btn.clicked.connect(self.preview_studio_workflow)
-        actions_buttons_layout1.addWidget(self.preview_workflow_btn)
+        # False actions
+        false_layout = QHBoxLayout()
+        false_layout.addWidget(QLabel("If False:"))
+        false_combo = QComboBox()
+        false_combo.addItems(["Continue", "Stop Workflow", "Go to Step", "Run Command"])
+        false_layout.addWidget(false_combo)
+        actions_layout.addLayout(false_layout)
 
-        self.test_workflow_btn = QPushButton("Test Workflow")
-        self.test_workflow_btn.clicked.connect(self.test_studio_workflow)
-        actions_buttons_layout1.addWidget(self.test_workflow_btn)
+        layout.addWidget(actions_group)
 
-        actions_layout.addLayout(actions_buttons_layout1)
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
 
-        actions_buttons_layout2 = QHBoxLayout()
+        if dialog.exec_() == QDialog.Accepted:
+            return {
+                'condition_type': condition_combo.currentText(),
+                'target': target_edit.text(),
+                'value': value_edit.text(),
+                'true_action': true_combo.currentText(),
+                'false_action': false_combo.currentText()
+            }
 
-        self.save_workflow_btn = QPushButton("💾 Save Workflow")
-        self.save_workflow_btn.clicked.connect(self.save_studio_workflow)
-        self.save_workflow_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 8px; }")
-        actions_buttons_layout2.addWidget(self.save_workflow_btn)
+        return None
 
-        self.export_workflow_btn = QPushButton("📤 Export")
-        self.export_workflow_btn.clicked.connect(self.export_studio_workflow)
-        actions_buttons_layout2.addWidget(self.export_workflow_btn)
+    def populate_templates(self):
+        """Populate the workflow templates list"""
+        templates = [
+            "Petrel: New Project Setup",
+            "Petrel: Seismic Data Import",
+            "Harmony: Production Analysis",
+            "Kappa: Well Test Analysis",
+            "CMG: Reservoir Simulation",
+            "Custom: Daily Report Generation"
+        ]
 
-        actions_layout.addLayout(actions_buttons_layout2)
+        self.template_list.clear()
+        for template in templates:
+            self.template_list.addItem(template)
 
-        right_layout.addWidget(actions_group)
+    def populate_programs(self):
+        """Populate the programs combo box with detected programs"""
+        # This method is no longer needed since programs are handled in setup dialog
+        pass
 
-        right_panel.setLayout(right_layout)
-        main_splitter.addWidget(right_panel)
+    def load_workflow_template(self):
+        """Load a selected workflow template"""
+        current_item = self.template_list.currentItem()
+        if not current_item:
+            return
 
-        # Set splitter proportions
-        main_splitter.setSizes([400, 600])
+        template_name = current_item.text()
 
-        # Initialize studio data
-        self.studio_workflow_steps = []
-        self.studio_recording_mode = None
-        self.studio_active_recorders = {}
+        # Basic template implementations
+        if "Petrel" in template_name:
+            # Update setup data
+            if hasattr(self, 'workflow_setup_data'):
+                self.workflow_setup_data['name'] = "Petrel Daily Workflow"
+                self.workflow_setup_data['description'] = "Automated Petrel workflow for daily tasks"
+                self.workflow_setup_data['target_program'] = "Petrel"
+                self.update_builder_with_setup_data()
 
-        return studio_tab
+            # Add basic steps
+            self.current_workflow_steps = [
+                {
+                    'type': 'Launch Program',
+                    'data': {'program': 'Petrel', 'parameters': ''},
+                    'description': '🚀 Launch Petrel'
+                },
+                {
+                    'type': 'Wait for Time',
+                    'data': {'seconds': 10},
+                    'description': '⏱️ Wait 10 seconds'
+                }
+            ]
 
-    # Workflow Studio Methods
-    def on_creation_mode_changed(self, mode: str):
-        """Handle creation mode change"""
+        elif "Harmony" in template_name:
+            # Update setup data
+            if hasattr(self, 'workflow_setup_data'):
+                self.workflow_setup_data['name'] = "Harmony Production Analysis"
+                self.workflow_setup_data['description'] = "Analyze production data using Harmony"
+                self.workflow_setup_data['target_program'] = "Harmony"
+                self.update_builder_with_setup_data()
+
+            self.current_workflow_steps = [
+                {
+                    'type': 'Launch Program',
+                    'data': {'program': 'Harmony', 'parameters': ''},
+                    'description': '🚀 Launch Harmony'
+                },
+                {
+                    'type': 'Wait for Time',
+                    'data': {'seconds': 8},
+                    'description': '⏱️ Wait 8 seconds'
+                }
+            ]
+
+        elif "Custom" in template_name or "Report" in template_name:
+            # Update setup data
+            if hasattr(self, 'workflow_setup_data'):
+                self.workflow_setup_data['name'] = "Daily Report Workflow"
+                self.workflow_setup_data['description'] = "Generate daily reports automatically"
+                self.workflow_setup_data['target_program'] = "Manual Execution"
+                self.update_builder_with_setup_data()
+
+            self.current_workflow_steps = [
+                {
+                    'type': 'Open File',
+                    'data': {'file_path': 'C:\\Reports\\template.xlsx'},
+                    'description': '📂 Open report template'
+                },
+                {
+                    'type': 'Wait for Time',
+                    'data': {'seconds': 3},
+                    'description': '⏱️ Wait 3 seconds'
+                }
+            ]
+
+        # Update UI
+        self.update_workflow_steps_list()
+        self.update_feedback(f"Loaded template: {template_name}")
+        if hasattr(self, 'studio_status_label'):
+            self.studio_status_label.setText(f"✅ Template loaded with {len(self.current_workflow_steps)} steps")
+
+    def update_workflows_tab(self):
+        """Update the workflows tab with current workflows"""
+        # This would update the workflows tab if it exists
+        pass
+
+    def launch_program_by_key(self, program_key: str):
+        """Launch a program by its key using detected program information"""
+        if program_key not in self.detected_programs:
+            logger.error(f"Program {program_key} not found in detected programs")
+            return False
+
+        program_info = self.detected_programs[program_key]
+        try:
+            if program_info.executable_path and os.path.exists(program_info.executable_path):
+                subprocess.Popen([program_info.executable_path], shell=True)
+                logger.info(f"Launched {program_key} from {program_info.executable_path}")
+                return True
+            else:
+                # Try to find executable path
+                exe_path = WindowsUtils.find_executable_path(program_key)
+                if exe_path and os.path.exists(exe_path):
+                    subprocess.Popen([exe_path], shell=True)
+                    logger.info(f"Launched {program_key} from {exe_path}")
+                    return True
+                else:
+                    logger.error(f"Could not find executable for {program_key}")
+                    return False
+        except Exception as e:
+            logger.error(f"Error launching {program_key}: {e}")
+            return False
+
+    # Visual Step Builder Methods with OpenCV Integration
+    def capture_screen_region(self, step_type: str):
+        """Capture screen region for visual positioning"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                QMessageBox.warning(self, "Visual Features Not Available",
+                    "Screen capture features require PyAutoGUI and OpenCV.")
+                return
+
+            # Minimize window temporarily
+            self.showMinimized()
+            QTimer.singleShot(500, self._start_region_capture)
+
+            self.update_feedback("Screen minimized - select region in 3 seconds...")
+
+        except Exception as e:
+            logger.error(f"Error starting screen capture: {e}")
+            QMessageBox.critical(self, "Capture Error", f"Failed to start screen capture: {e}")
+
+    def _start_region_capture(self):
+        """Start the region capture process"""
+        try:
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                import time
+
+                # Give user time to prepare
+                time.sleep(2)
+
+                # Capture screen and show region selector
+                screenshot = pyautogui.screenshot()
+
+                # Show region selector dialog
+                region_dialog = RegionSelectorDialog(screenshot, self)
+                if region_dialog.exec_() == QDialog.Accepted:
+                    region = region_dialog.get_selected_region()
+                    if region:
+                        x, y, w, h = region
+                        # Update the step parameter fields
+                        self._update_step_position_fields(x, y, w, h)
+
+                        # Show preview
+                        self.preview_selected_region(region)
+
+                        self.update_feedback(f"Region selected: ({x}, {y}, {w}x{h})")
+
+                self.showNormal()  # Restore window
+
+        except Exception as e:
+            logger.error(f"Error in region capture: {e}")
+            self.showNormal()
+            QMessageBox.critical(self, "Capture Error", f"Failed to capture region: {e}")
+
+    def _update_step_position_fields(self, x: int, y: int, w: int = 0, h: int = 0):
+        """Update position fields in the step builder"""
+        try:
+            # Find spin boxes in the step parameters
+            spin_boxes = self.step_params_widget.findChildren(QSpinBox)
+            if len(spin_boxes) >= 2:
+                spin_boxes[0].setValue(x)  # X position
+                spin_boxes[1].setValue(y)  # Y position
+        except Exception as e:
+            logger.error(f"Error updating position fields: {e}")
+
+    def preview_click_position(self, step_type: str):
+        """Preview the click position on screen"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                QMessageBox.warning(self, "Preview Not Available",
+                    "Preview requires PyAutoGUI.")
+                return
+
+            # Get current position from step parameters
+            spin_boxes = self.step_params_widget.findChildren(QSpinBox)
+            if len(spin_boxes) >= 2:
+                x = spin_boxes[0].value()
+                y = spin_boxes[1].value()
+
+                # Show visual indicator
+                self.show_position_indicator(x, y)
+                self.update_feedback(f"Previewing position: ({x}, {y})")
+
+        except Exception as e:
+            logger.error(f"Error previewing position: {e}")
+
+    def show_position_indicator(self, x: int, y: int):
+        """Show visual indicator at specified position"""
+        try:
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                import time
+
+                # Create a temporary visual indicator
+                original_position = pyautogui.position()
+
+                # Move to target position and highlight
+                pyautogui.moveTo(x, y, duration=0.5)
+
+                # Show indicator by moving in a small circle
+                positions = [
+                    (x-10, y), (x, y-10), (x+10, y), (x, y+10), (x-10, y)
+                ]
+                for pos in positions:
+                    pyautogui.moveTo(pos[0], pos[1], duration=0.1)
+                    time.sleep(0.05)
+
+                # Return to original position
+                pyautogui.moveTo(original_position)
+
+        except Exception as e:
+            logger.error(f"Error showing position indicator: {e}")
+
+    def preview_selected_region(self, region):
+        """Preview the selected screen region"""
+        try:
+            x, y, w, h = region
+
+            # Create preview dialog
+            preview_dialog = RegionPreviewDialog(region, self)
+            preview_dialog.exec_()
+
+        except Exception as e:
+            logger.error(f"Error previewing region: {e}")
+
+    def browse_template_image(self):
+        """Browse for template image"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Template Image", "",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.tiff)"
+        )
+        if file_path and hasattr(self, 'image_path_edit'):
+            self.image_path_edit.setText(file_path)
+
+    def browse_analysis_image(self):
+        """Browse for analysis image"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Analysis Image", "",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.tiff)"
+        )
+        if file_path and hasattr(self, 'analysis_image_edit'):
+            self.analysis_image_edit.setText(file_path)
+
+    def capture_template_from_screen(self):
+        """Capture template image from screen"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                QMessageBox.warning(self, "Capture Not Available",
+                    "Screen capture requires PyAutoGUI.")
+                return
+
+            # Minimize and capture
+            self.showMinimized()
+            QTimer.singleShot(500, self._start_template_capture)
+
+        except Exception as e:
+            logger.error(f"Error starting template capture: {e}")
+
+    def _start_template_capture(self):
+        """Start template capture process"""
+        try:
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                import time
+
+                time.sleep(2)
+                screenshot = pyautogui.screenshot()
+
+                # Show template capture dialog
+                template_dialog = TemplateCaptureDialog(screenshot, self)
+                if template_dialog.exec_() == QDialog.Accepted:
+                    template_image = template_dialog.get_captured_image()
+                    if template_image and hasattr(self, 'image_path_edit'):
+                        # Save template image
+                        import tempfile
+                        temp_dir = tempfile.gettempdir()
+                        template_path = os.path.join(temp_dir, f"template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                        template_image.save(template_path)
+                        self.image_path_edit.setText(template_path)
+
+                        self.update_feedback(f"Template captured: {os.path.basename(template_path)}")
+
+                self.showNormal()
+
+        except Exception as e:
+            logger.error(f"Error in template capture: {e}")
+            self.showNormal()
+
+    def open_advanced_conditional_builder(self):
+        """Open advanced conditional logic builder with OpenCV integration"""
+        try:
+            dialog = AdvancedConditionalBuilderDialog(self, self.detected_programs)
+            if dialog.exec_() == QDialog.Accepted:
+                # Store the conditional data
+                if not hasattr(self, 'advanced_conditional_data'):
+                    self.advanced_conditional_data = []
+
+                conditional_data = dialog.get_conditional_data()
+                self.advanced_conditional_data.append(conditional_data)
+
+                self.update_feedback(f"Added advanced conditional logic: {conditional_data.get('description', 'Unknown')}")
+
+        except Exception as e:
+            logger.error(f"Error opening conditional builder: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open conditional builder: {e}")
+
+
+class StepEditDialog(QDialog):
+    """Comprehensive step editor dialog with visual parameter support"""
+
+    def __init__(self, step_data: dict, parent=None):
+        super().__init__(parent)
+        self.step_data = step_data.copy()  # Work with a copy
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle(f"✏️ Edit Step: {self.step_data.get('type', 'Unknown')}")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(500)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # Step type (read-only)
+        type_group = QGroupBox("Step Type")
+        type_layout = QFormLayout(type_group)
+        type_label = QLabel(self.step_data.get('type', 'Unknown'))
+        type_label.setStyleSheet("font-weight: bold; color: #007bff;")
+        type_layout.addRow("Type:", type_label)
+        layout.addWidget(type_group)
+
+        # Description
+        desc_group = QGroupBox("Description")
+        desc_layout = QFormLayout(desc_group)
+        self.desc_edit = QLineEdit(self.step_data.get('description', ''))
+        self.desc_edit.setPlaceholderText("Enter step description...")
+        desc_layout.addRow("Description:", self.desc_edit)
+        layout.addWidget(desc_group)
+
+        # Dynamic parameters based on step type
+        params_group = QGroupBox("Step Parameters")
+        self.params_layout = QFormLayout(params_group)
+        self.create_parameter_fields()
+        layout.addWidget(params_group)
+
+        # Visual options for supported step types
+        if self.supports_visual_options():
+            visual_group = QGroupBox("Visual Options")
+            visual_layout = QFormLayout(visual_group)
+            self.create_visual_fields(visual_layout)
+            layout.addWidget(visual_group)
+
+        # Advanced options
+        advanced_group = QGroupBox("Advanced Options")
+        advanced_layout = QFormLayout(advanced_group)
+        self.create_advanced_fields(advanced_layout)
+        layout.addWidget(advanced_group)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        test_btn = QPushButton("🧪 Test Step")
+        test_btn.clicked.connect(self.test_step)
+        test_btn.setStyleSheet("QPushButton { background-color: #ffc107; color: black; font-weight: bold; }")
+        button_layout.addWidget(test_btn)
+
+        button_layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        save_btn = QPushButton("💾 Save Changes")
+        save_btn.clicked.connect(self.save_changes)
+        save_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; }")
+        button_layout.addWidget(save_btn)
+
+        layout.addLayout(button_layout)
+
+    def supports_visual_options(self) -> bool:
+        """Check if step type supports visual options"""
+        step_type = self.step_data.get('type', '')
+        visual_types = [
+            "🎯 Visual Click (OpenCV)",
+            "📸 Visual Find & Click (Image Recognition)",
+            "🖱️ Smart Click (AutoPyGUI)",
+            "📷 Screenshot with Analysis",
+            "👁️ Visual Wait (Element Detection)",
+            "🔍 Image Analysis (OpenCV)"
+        ]
+        return step_type in visual_types
+
+    def create_parameter_fields(self):
+        """Create parameter fields based on step type"""
+        step_type = self.step_data.get('type', '')
+        data = self.step_data.get('data', {})
+
+        if step_type in ["🎯 Visual Click (OpenCV)", "🖱️ Smart Click (AutoPyGUI)", "Click Position"]:
+            # Position fields
+            pos_layout = QHBoxLayout()
+            self.x_spin = QSpinBox()
+            self.x_spin.setRange(0, 5000)
+            self.x_spin.setValue(data.get('x', 100))
+            self.y_spin = QSpinBox()
+            self.y_spin.setRange(0, 5000)
+            self.y_spin.setValue(data.get('y', 100))
+            pos_layout.addWidget(QLabel("X:"))
+            pos_layout.addWidget(self.x_spin)
+            pos_layout.addWidget(QLabel("Y:"))
+            pos_layout.addWidget(self.y_spin)
+            pos_layout.addStretch()
+
+            capture_btn = QPushButton("📸 Capture Region")
+            capture_btn.clicked.connect(self.capture_region)
+            pos_layout.addWidget(capture_btn)
+
+            self.params_layout.addRow("Position:", pos_layout)
+
+        elif step_type == "📸 Visual Find & Click (Image Recognition)":
+            # Template path
+            template_layout = QHBoxLayout()
+            self.template_path_edit = QLineEdit(data.get('template_path', ''))
+            self.template_path_edit.setPlaceholderText("Path to template image...")
+            browse_btn = QPushButton("📁 Browse")
+            browse_btn.clicked.connect(self.browse_template)
+            capture_btn = QPushButton("📸 Capture")
+            capture_btn.clicked.connect(self.capture_template)
+            template_layout.addWidget(self.template_path_edit)
+            template_layout.addWidget(browse_btn)
+            template_layout.addWidget(capture_btn)
+            self.params_layout.addRow("Template Image:", template_layout)
+
+            # Confidence
+            self.confidence_spin = QSpinBox()
+            self.confidence_spin.setRange(0, 100)
+            self.confidence_spin.setValue(data.get('confidence', 80))
+            self.confidence_spin.setSuffix("%")
+            self.params_layout.addRow("Match Confidence:", self.confidence_spin)
+
+        elif step_type in ["⌨️ Type Text", "Type Text"]:
+            self.text_edit = QLineEdit(data.get('text', ''))
+            self.text_edit.setPlaceholderText("Enter text to type...")
+            self.params_layout.addRow("Text:", self.text_edit)
+
+        elif step_type in ["💻 Run Command", "Run Command"]:
+            self.command_edit = QLineEdit(data.get('command', ''))
+            self.command_edit.setPlaceholderText("Enter command to execute...")
+            self.params_layout.addRow("Command:", self.command_edit)
+
+        elif step_type == "👁️ Visual Wait (Element Detection)":
+            # Wait type
+            self.wait_type_combo = QComboBox()
+            self.wait_type_combo.addItems(["time", "image", "color"])
+            self.wait_type_combo.setCurrentText(data.get('wait_type', 'time'))
+            self.params_layout.addRow("Wait Type:", self.wait_type_combo)
+
+            # Wait time
+            self.wait_time_spin = QSpinBox()
+            self.wait_time_spin.setRange(1, 300)
+            self.wait_time_spin.setValue(data.get('seconds', 5))
+            self.params_layout.addRow("Wait Time (seconds):", self.wait_time_spin)
+
+        elif step_type == "🔍 Image Analysis (OpenCV)":
+            # Analysis type
+            self.analysis_type_combo = QComboBox()
+            self.analysis_type_combo.addItems(["objects", "text", "edges", "colors"])
+            self.analysis_type_combo.setCurrentText(data.get('analysis_type', 'objects'))
+            self.params_layout.addRow("Analysis Type:", self.analysis_type_combo)
+
+    def create_visual_fields(self, layout):
+        """Create visual option fields"""
+        data = self.step_data.get('data', {})
+
+        # Save screenshots/detections
+        self.save_screenshots_check = QCheckBox("Save screenshots for verification")
+        self.save_screenshots_check.setChecked(data.get('save_screenshots', False))
+        layout.addRow("", self.save_screenshots_check)
+
+        # Human-like movement
+        self.humanize_check = QCheckBox("Add human-like randomization")
+        self.humanize_check.setChecked(data.get('humanize', False))
+        layout.addRow("", self.humanize_check)
+
+        # Click type (for click steps)
+        if self.step_data.get('type') in ["🎯 Visual Click (OpenCV)", "🖱️ Smart Click (AutoPyGUI)"]:
+            self.double_click_check = QCheckBox("Double click")
+            self.double_click_check.setChecked(data.get('double_click', False))
+            layout.addRow("", self.double_click_check)
+
+            self.right_click_check = QCheckBox("Right click")
+            self.right_click_check.setChecked(data.get('right_click', False))
+            layout.addRow("", self.right_click_check)
+
+    def create_advanced_fields(self, layout):
+        """Create advanced option fields"""
+        data = self.step_data.get('data', {})
+
+        # Retry options
+        self.retry_spin = QSpinBox()
+        self.retry_spin.setRange(0, 10)
+        self.retry_spin.setValue(data.get('retry_count', 0))
+        layout.addRow("Retry Count:", self.retry_spin)
+
+        # Delay between retries
+        self.retry_delay_spin = QSpinBox()
+        self.retry_delay_spin.setRange(0, 60)
+        self.retry_delay_spin.setValue(data.get('retry_delay', 1))
+        self.retry_delay_spin.setSuffix(" seconds")
+        layout.addRow("Retry Delay:", self.retry_delay_spin)
+
+        # Step timeout
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(5, 300)
+        self.timeout_spin.setValue(data.get('timeout', 30))
+        self.timeout_spin.setSuffix(" seconds")
+        layout.addRow("Step Timeout:", self.timeout_spin)
+
+    def browse_template(self):
+        """Browse for template image file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Template Image", "",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
+        )
+        if file_path:
+            self.template_path_edit.setText(file_path)
+
+    def capture_template(self):
+        """Capture template from screen"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                QMessageBox.warning(self, "Feature Not Available",
+                    "Screen capture requires PyAutoGUI and OpenCV.")
+                return
+
+            # Minimize dialog temporarily
+            self.showMinimized()
+            QTimer.singleShot(500, self._perform_template_capture)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Capture Error", f"Failed to start capture: {e}")
+
+    def _perform_template_capture(self):
+        """Perform the actual template capture"""
+        try:
+            import pyautogui
+            import time
+
+            time.sleep(2)  # Give user time to prepare
+
+            # Show region selector
+            screenshot = pyautogui.screenshot()
+            region_dialog = RegionSelectorDialog(screenshot, self)
+            if region_dialog.exec_() == QDialog.Accepted:
+                region = region_dialog.get_selected_region()
+                if region:
+                    x, y, w, h = region
+                    # Crop the selected region
+                    template = screenshot.crop((x, y, x + w, y + h))
+
+                    # Save template file
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    template_filename = f"template_{timestamp}.png"
+                    template.save(template_filename)
+
+                    # Update the template path field
+                    self.template_path_edit.setText(os.path.abspath(template_filename))
+
+            self.showNormal()
+
+        except Exception as e:
+            self.showNormal()
+            QMessageBox.critical(self, "Capture Error", f"Failed to capture template: {e}")
+
+    def capture_region(self):
+        """Capture screen region for position"""
+        try:
+            if not SCREEN_RECORDING_SUPPORT:
+                QMessageBox.warning(self, "Feature Not Available",
+                    "Screen capture requires PyAutoGUI and OpenCV.")
+                return
+
+            self.showMinimized()
+            QTimer.singleShot(500, self._perform_region_capture)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Capture Error", f"Failed to start capture: {e}")
+
+    def _perform_region_capture(self):
+        """Perform region capture for position"""
+        try:
+            import pyautogui
+            import time
+
+            time.sleep(2)
+            screenshot = pyautogui.screenshot()
+            region_dialog = RegionSelectorDialog(screenshot, self)
+            if region_dialog.exec_() == QDialog.Accepted:
+                region = region_dialog.get_selected_region()
+                if region:
+                    x, y, w, h = region
+                    # Set position to center of selected region
+                    center_x = x + w // 2
+                    center_y = y + h // 2
+                    self.x_spin.setValue(center_x)
+                    self.y_spin.setValue(center_y)
+
+            self.showNormal()
+
+        except Exception as e:
+            self.showNormal()
+            QMessageBox.critical(self, "Capture Error", f"Failed to capture region: {e}")
+
+    def test_step(self):
+        """Test the current step configuration"""
+        try:
+            step_data = self.get_step_data()
+            QMessageBox.information(self, "Test Step",
+                f"Testing step: {step_data['description']}\n\n"
+                f"Note: Step testing will be implemented with actual execution.\n"
+                f"For now, this validates the step configuration.")
+
+            # Basic validation
+            step_type = step_data.get('type', '')
+            data = step_data.get('data', {})
+
+            if step_type in ["🎯 Visual Click (OpenCV)", "🖱️ Smart Click (AutoPyGUI)"]:
+                if data.get('x', 0) <= 0 or data.get('y', 0) <= 0:
+                    QMessageBox.warning(self, "Validation Error",
+                        "Please set valid X and Y coordinates.")
+                    return
+            elif step_type == "📸 Visual Find & Click (Image Recognition)":
+                template_path = data.get('template_path', '')
+                if not template_path or not os.path.exists(template_path):
+                    QMessageBox.warning(self, "Validation Error",
+                        "Please select a valid template image.")
+                    return
+
+            QMessageBox.information(self, "Test Successful",
+                "Step configuration appears to be valid!")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Test Error", f"Step test failed: {e}")
+
+    def save_changes(self):
+        """Save the edited step data"""
+        try:
+            # Basic validation
+            if not self.desc_edit.text().strip():
+                QMessageBox.warning(self, "Validation Error",
+                    "Please enter a step description.")
+                return
+
+            # Accept the dialog and return updated data
+            self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save step: {e}")
+
+    def get_step_data(self) -> dict:
+        """Get the updated step data"""
+        updated_step = self.step_data.copy()
+        updated_step['description'] = self.desc_edit.text().strip()
+
+        # Update data based on step type
+        step_type = updated_step.get('type', '')
+        data = updated_step.get('data', {}).copy()
+
+        if step_type in ["🎯 Visual Click (OpenCV)", "🖱️ Smart Click (AutoPyGUI)", "Click Position"]:
+            data['x'] = self.x_spin.value()
+            data['y'] = self.y_spin.value()
+
+        elif step_type == "📸 Visual Find & Click (Image Recognition)":
+            data['template_path'] = self.template_path_edit.text()
+            data['confidence'] = self.confidence_spin.value()
+
+        elif step_type in ["⌨️ Type Text", "Type Text"]:
+            data['text'] = self.text_edit.text()
+
+        elif step_type in ["💻 Run Command", "Run Command"]:
+            data['command'] = self.command_edit.text()
+
+        elif step_type == "👁️ Visual Wait (Element Detection)":
+            data['wait_type'] = self.wait_type_combo.currentText()
+            data['seconds'] = self.wait_time_spin.value()
+
+        elif step_type == "🔍 Image Analysis (OpenCV)":
+            data['analysis_type'] = self.analysis_type_combo.currentText()
+
+        # Visual options
+        if self.supports_visual_options():
+            data['save_screenshots'] = self.save_screenshots_check.isChecked()
+            data['humanize'] = self.humanize_check.isChecked()
+
+            if step_type in ["🎯 Visual Click (OpenCV)", "🖱️ Smart Click (AutoPyGUI)"]:
+                data['double_click'] = self.double_click_check.isChecked()
+                data['right_click'] = self.right_click_check.isChecked()
+
+        # Advanced options
+        data['retry_count'] = self.retry_spin.value()
+        data['retry_delay'] = self.retry_delay_spin.value()
+        data['timeout'] = self.timeout_spin.value()
+
+        updated_step['data'] = data
+        return updated_step
+
+
+class RegionSelectorDialog(QDialog):
+    """Dialog for selecting screen regions"""
+
+    def __init__(self, screenshot, parent=None):
+        super().__init__(parent)
+        self.screenshot = screenshot
+        self.selected_region = None
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("Select Screen Region")
+        self.setModal(True)
+        self.setFixedSize(800, 600)
+
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        instructions = QLabel("Click and drag to select a region. Right-click to confirm.")
+        instructions.setStyleSheet("color: #6c757d; font-style: italic; padding: 10px;")
+        layout.addWidget(instructions)
+
+        # Screenshot display
+        self.screenshot_label = QLabel()
+
+        # Convert screenshot to QPixmap
+        from PyQt5.QtGui import QPixmap
+        import numpy as np
+
+        # Convert numpy array to PIL Image then to QPixmap
+        if isinstance(self.screenshot, np.ndarray):
+            # Convert RGB numpy array to PIL Image
+            height, width, channel = self.screenshot.shape
+            bytes_per_line = 3 * width
+            from PyQt5.QtGui import QImage
+            qimage = QImage(self.screenshot.data, width, height, bytes_per_line, QImage.Format_RGB888)
+            qpixmap = QPixmap.fromImage(qimage)
+        else:
+            # If it's already a PIL Image
+            qpixmap = QPixmap.fromImage(self.screenshot)
+
+        # Scale to fit dialog
+        scaled_pixmap = qpixmap.scaled(780, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.screenshot_label.setPixmap(scaled_pixmap)
+        self.screenshot_label.mousePressEvent = self.on_mouse_press
+        self.screenshot_label.mouseMoveEvent = self.on_mouse_move
+        self.screenshot_label.mouseReleaseEvent = self.on_mouse_release
+
+        layout.addWidget(self.screenshot_label)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        confirm_btn = QPushButton("Confirm Region")
+        confirm_btn.clicked.connect(self.accept)
+        confirm_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; }")
+        button_layout.addWidget(confirm_btn)
+
+        layout.addLayout(button_layout)
+
+    def on_mouse_press(self, event):
+        """Handle mouse press for region selection"""
+        self.selection_start = (event.x(), event.y())
+        self.selection_end = self.selection_start
+
+        # Update overlay
+        self.update_selection_overlay()
+
+    def on_mouse_move(self, event):
+        """Handle mouse move for region selection"""
+        if event.buttons() & Qt.LeftButton:
+            self.selection_end = (event.x(), event.y())
+            self.update_selection_overlay()
+
+    def on_mouse_release(self, event):
+        """Handle mouse release for region selection"""
+        if event.button() == Qt.LeftButton:
+            self.update_selection_overlay()
+
+    def update_selection_overlay(self):
+        """Update the visual selection overlay"""
+        if hasattr(self, 'selection_start') and hasattr(self, 'selection_end'):
+            # Create overlay
+            # Convert numpy array to QPixmap properly
+            import numpy as np
+            if isinstance(self.screenshot, np.ndarray):
+                height, width, channel = self.screenshot.shape
+                bytes_per_line = 3 * width
+                from PyQt5.QtGui import QImage
+                qimage = QImage(self.screenshot.data, width, height, bytes_per_line, QImage.Format_RGB888)
+                qpixmap = QPixmap.fromImage(qimage)
+            else:
+                qpixmap = QPixmap.fromImage(self.screenshot)
+
+            # Draw selection rectangle
+            from PIL import ImageDraw
+            from PyQt5.QtGui import QPainter, QPen, QColor
+
+            painter = QPainter(qpixmap)
+            pen = QPen(QColor(255, 0, 0), 2, Qt.DashLine)
+            painter.setPen(pen)
+
+            x1, y1 = self.selection_start
+            x2, y2 = self.selection_end
+
+            painter.drawRect(min(x1, x2), min(y1, y2), abs(x2-x1), abs(y2-y1))
+            painter.end()
+
+            self.screenshot_label.setPixmap(qpixmap)
+
+    def get_selected_region(self):
+        """Get the selected screen region"""
+        if hasattr(self, 'selection_start') and hasattr(self, 'selection_end'):
+            x1, y1 = self.selection_start
+            x2, y2 = self.selection_end
+            return (min(x1, x2), min(y1, y2), abs(x2-x1), abs(y2-y1))
+        return None
+
+
+class RegionPreviewDialog(QDialog):
+    """Dialog for previewing selected regions"""
+
+    def __init__(self, region, parent=None):
+        super().__init__(parent)
+        self.region = region
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("Region Preview")
+        self.setModal(True)
+        self.setFixedSize(400, 300)
+
+        layout = QVBoxLayout(self)
+
+        # Region info
+        x, y, w, h = self.region
+        info_label = QLabel(f"Selected Region:\nPosition: ({x}, {y})\nSize: {w} x {h} pixels")
+        info_label.setStyleSheet("font-size: 14px; padding: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px;")
+        layout.addWidget(info_label)
+
+        # Preview button
+        preview_btn = QPushButton("📸 Preview Region")
+        preview_btn.clicked.connect(self.preview_region)
+        preview_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 10px; }")
+        layout.addWidget(preview_btn)
+
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+    def preview_region(self):
+        """Preview the selected region on screen"""
+        try:
+            if SCREEN_RECORDING_SUPPORT:
+                import pyautogui
+                import time
+
+                x, y, w, h = self.region
+
+                # Move mouse to region
+                pyautogui.moveTo(x, y, duration=0.5)
+                time.sleep(0.5)
+
+                # Highlight region by moving around its border
+                border_points = [
+                    (x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)
+                ]
+
+                for point in border_points:
+                    pyautogui.moveTo(point[0], point[1], duration=0.2)
+                    time.sleep(0.1)
+
+        except Exception as e:
+            logger.error(f"Error previewing region: {e}")
+
+
+class TemplateCaptureDialog(QDialog):
+    """Dialog for capturing template images"""
+
+    def __init__(self, screenshot, parent=None):
+        super().__init__(parent)
+        self.screenshot = screenshot
+        self.captured_image = None
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("Capture Template")
+        self.setModal(True)
+        self.setFixedSize(800, 600)
+
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        instructions = QLabel("Click and drag to select template area. Right-click to capture.")
+        instructions.setStyleSheet("color: #6c757d; font-style: italic; padding: 10px;")
+        layout.addWidget(instructions)
+
+        # Screenshot display
+        self.screenshot_label = QLabel()
+
+        from PyQt5.QtGui import QPixmap
+        import numpy as np
+
+        # Convert numpy array to QPixmap properly
+        if isinstance(self.screenshot, np.ndarray):
+            height, width, channel = self.screenshot.shape
+            bytes_per_line = 3 * width
+            from PyQt5.QtGui import QImage
+            qimage = QImage(self.screenshot.data, width, height, bytes_per_line, QImage.Format_RGB888)
+            qpixmap = QPixmap.fromImage(qimage)
+        else:
+            qpixmap = QPixmap.fromImage(self.screenshot)
+        scaled_pixmap = qpixmap.scaled(780, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.screenshot_label.setPixmap(scaled_pixmap)
+
+        self.screenshot_label.mousePressEvent = self.on_mouse_press
+        self.screenshot_label.mouseMoveEvent = self.on_mouse_move
+        self.screenshot_label.mouseReleaseEvent = self.on_mouse_release
+
+        layout.addWidget(self.screenshot_label)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        capture_btn = QPushButton("Capture Template")
+        capture_btn.clicked.connect(self.capture_template)
+        capture_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; }")
+        button_layout.addWidget(capture_btn)
+
+        layout.addLayout(button_layout)
+
+    def on_mouse_press(self, event):
+        """Handle mouse press for template selection"""
+        self.template_start = (event.x(), event.y())
+        self.template_end = self.template_start
+        self.update_template_overlay()
+
+    def on_mouse_move(self, event):
+        """Handle mouse move for template selection"""
+        if event.buttons() & Qt.LeftButton:
+            self.template_end = (event.x(), event.y())
+            self.update_template_overlay()
+
+    def on_mouse_release(self, event):
+        """Handle mouse release for template selection"""
+        if event.button() == Qt.LeftButton:
+            self.update_template_overlay()
+
+    def update_template_overlay(self):
+        """Update the visual template selection overlay"""
+        if hasattr(self, 'template_start') and hasattr(self, 'template_end'):
+            # Create overlay
+            # Convert numpy array to QPixmap properly
+            import numpy as np
+            if isinstance(self.screenshot, np.ndarray):
+                height, width, channel = self.screenshot.shape
+                bytes_per_line = 3 * width
+                from PyQt5.QtGui import QImage
+                qimage = QImage(self.screenshot.data, width, height, bytes_per_line, QImage.Format_RGB888)
+                qpixmap = QPixmap.fromImage(qimage)
+            else:
+                qpixmap = QPixmap.fromImage(self.screenshot)
+
+            from PIL import ImageDraw
+            from PyQt5.QtGui import QPainter, QPen, QColor
+
+            painter = QPainter(qpixmap)
+            pen = QPen(QColor(0, 255, 0), 2, Qt.DashLine)
+            painter.setPen(pen)
+
+            x1, y1 = self.template_start
+            x2, y2 = self.template_end
+
+            painter.drawRect(min(x1, x2), min(y1, y2), abs(x2-x1), abs(y2-y1))
+            painter.end()
+
+            self.screenshot_label.setPixmap(qpixmap)
+
+    def capture_template(self):
+        """Capture the selected template area"""
+        if hasattr(self, 'template_start') and hasattr(self, 'template_end'):
+            x1, y1 = self.template_start
+            x2, y2 = self.template_end
+
+            # Extract template from screenshot
+            x, y = min(x1, x2), min(y1, y2)
+            w, h = abs(x2-x1), abs(y2-y1)
+
+            template_image = self.screenshot.crop((x, y, x + w, y + h))
+            self.captured_image = template_image
+
+            self.accept()
+
+    def get_captured_image(self):
+        """Get the captured template image"""
+        return self.captured_image
+
+
+class AdvancedConditionalBuilderDialog(QDialog):
+    """Advanced conditional logic builder with OpenCV integration"""
+
+    def __init__(self, parent=None, detected_programs=None):
+        super().__init__(parent)
+        self.detected_programs = detected_programs or {}
+        self.conditional_data = {}
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("🧠 Advanced Conditional Logic Builder")
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(600)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # Header
+        header_label = QLabel("Advanced Conditional Logic with Computer Vision")
+        header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
+        layout.addWidget(header_label)
+
+        # Description
+        desc_label = QLabel(
+            "Create sophisticated conditional logic using computer vision, image recognition, and system monitoring. "
+            "Perfect for robust petroleum software automation."
+        )
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #6c757d; font-style: italic; margin-bottom: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;")
+        layout.addWidget(desc_label)
+
+        # Conditional Type Selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Condition Type:"))
+
+        self.condition_type_combo = QComboBox()
+        self.condition_type_combo.addItems([
+            "Visual Element Detection",
+            "Image Recognition (Template Match)",
+            "Window State Monitor",
+            "Process Status Check",
+            "File System Monitor",
+            "Color Pattern Detection",
+            "Text Recognition (OCR)",
+            "Time-based Condition",
+            "Multi-criteria Logic"
+        ])
+        self.condition_type_combo.currentTextChanged.connect(self.on_condition_type_changed)
+        type_layout.addWidget(self.condition_type_combo)
+
+        layout.addLayout(type_layout)
+
+        # Dynamic parameters area
+        self.params_scroll = QScrollArea()
+        self.params_widget = QWidget()
+        self.params_layout = QVBoxLayout(self.params_widget)
+        self.params_scroll.setWidget(self.params_widget)
+        self.params_scroll.setWidgetResizable(True)
+        layout.addWidget(self.params_scroll)
+
+        # Actions
+        actions_group = QGroupBox("Actions")
+        actions_layout = QVBoxLayout(actions_group)
+
+        # True actions
+        true_group = QGroupBox("If Condition is TRUE")
+        true_layout = QHBoxLayout()
+
+        self.true_action_combo = QComboBox()
+        self.true_action_combo.addItems([
+            "Continue Workflow",
+            "Execute Steps",
+            "Go to Step",
+            "Stop Workflow",
+            "Run Custom Script",
+            "Take Screenshot",
+            "Show Message"
+        ])
+        true_layout.addWidget(self.true_action_combo)
+
+        true_steps_btn = QPushButton("Configure Steps...")
+        true_steps_btn.clicked.connect(lambda: self.configure_actions("true"))
+        true_layout.addWidget(true_steps_btn)
+
+        true_layout.addStretch()
+        actions_layout.addLayout(true_layout)
+
+        # False actions
+        false_group = QGroupBox("If Condition is FALSE")
+        false_layout = QHBoxLayout()
+
+        self.false_action_combo = QComboBox()
+        self.false_action_combo.addItems([
+            "Continue Workflow",
+            "Execute Steps",
+            "Go to Step",
+            "Stop Workflow",
+            "Run Custom Script",
+            "Take Screenshot",
+            "Show Message"
+        ])
+        false_layout.addWidget(self.false_action_combo)
+
+        false_steps_btn = QPushButton("Configure Steps...")
+        false_steps_btn.clicked.connect(lambda: self.configure_actions("false"))
+        false_layout.addWidget(false_steps_btn)
+
+        false_layout.addStretch()
+        actions_layout.addLayout(false_layout)
+
+        layout.addWidget(actions_group)
+
+        # Description
+        desc_edit = QLineEdit()
+        desc_edit.setPlaceholderText("Describe this conditional logic...")
+        layout.addWidget(QLabel("Description:"))
+        layout.addWidget(desc_edit)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        test_btn = QPushButton("🧪 Test Condition")
+        test_btn.clicked.connect(self.test_condition)
+        test_btn.setStyleSheet("QPushButton { background-color: #ffc107; color: black; font-weight: bold; }")
+        button_layout.addWidget(test_btn)
+
+        button_layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        create_btn = QPushButton("✅ Create Conditional")
+        create_btn.clicked.connect(self.create_conditional)
+        create_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; }")
+        button_layout.addWidget(create_btn)
+
+        layout.addLayout(button_layout)
+
+        # Initialize with visual detection
+        self.on_condition_type_changed("Visual Element Detection")
+
+    def on_condition_type_changed(self, condition_type):
+        """Handle condition type change"""
+        # Clear existing parameters
+        while self.params_layout.count():
+            child = self.params_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+            elif child.layout():
+                while child.layout().count():
+                    sub_child = child.layout().takeAt(0)
+                    if sub_child.widget():
+                        sub_child.widget().deleteLater()
+
+        # Add parameters based on condition type
+        if condition_type == "Visual Element Detection":
+            self.add_visual_detection_params()
+        elif condition_type == "Image Recognition (Template Match)":
+            self.add_image_recognition_params()
+        elif condition_type == "Window State Monitor":
+            self.add_window_monitor_params()
+        elif condition_type == "Process Status Check":
+            self.add_process_monitor_params()
+        elif condition_type == "File System Monitor":
+            self.add_file_monitor_params()
+        elif condition_type == "Color Pattern Detection":
+            self.add_color_detection_params()
+        elif condition_type == "Text Recognition (OCR)":
+            self.add_ocr_params()
+        elif condition_type == "Time-based Condition":
+            self.add_time_condition_params()
+        elif condition_type == "Multi-criteria Logic":
+            self.add_multi_criteria_params()
+
+    def add_visual_detection_params(self):
+        """Add parameters for visual element detection"""
+        layout = QFormLayout()
+
+        element_edit = QLineEdit()
+        element_edit.setPlaceholderText("e.g., 'Submit button', 'OK button', 'Next button'")
+        layout.addRow("Element Text:", element_edit)
+
+        detection_method_combo = QComboBox()
+        detection_method_combo.addItems(["Text Recognition", "Button Shape", "Color Analysis", "Position Based"])
+        layout.addRow("Detection Method:", detection_method_combo)
+
+        confidence_spin = QDoubleSpinBox()
+        confidence_spin.setRange(0.1, 1.0)
+        confidence_spin.setValue(0.8)
+        confidence_spin.setSingleStep(0.1)
+        confidence_spin.setDecimals(1)
+        layout.addRow("Confidence:", confidence_spin)
+
+        region_layout = QHBoxLayout()
+        region_check = QCheckBox("Limit to Region")
+        region_check.setChecked(False)
+        region_layout.addWidget(region_check)
+
+        region_btn = QPushButton("Select Region")
+        region_btn.clicked.connect(self.select_detection_region)
+        region_layout.addWidget(region_btn)
+        layout.addRow("Region:", region_layout)
+
+        self.params_layout.addLayout(layout)
+
+    def add_image_recognition_params(self):
+        """Add parameters for image recognition"""
+        layout = QFormLayout()
+
+        # Template image
+        template_layout = QHBoxLayout()
+        self.template_path_edit = QLineEdit()
+        template_path_edit.setPlaceholderText("Select or capture template image...")
+        template_layout.addWidget(self.template_path_edit)
+
+        browse_btn = QPushButton("Browse")
+        browse_btn.clicked.connect(self.browse_template_image)
+        template_layout.addWidget(browse_btn)
+
+        capture_btn = QPushButton("📸 Capture")
+        capture_btn.clicked.connect(self.capture_template_from_screen)
+        template_layout.addWidget(capture_btn)
+
+        layout.addRow("Template Image:", template_layout)
+
+        # Recognition settings
+        confidence_spin = QDoubleSpinBox()
+        confidence_spin.setRange(0.1, 1.0)
+        confidence_spin.setValue(0.8)
+        confidence_spin.setSingleStep(0.1)
+        confidence_spin.setDecimals(1)
+        layout.addRow("Match Confidence:", confidence_spin)
+
+        threshold_spin = QSpinBox()
+        threshold_spin.setRange(1, 255)
+        threshold_spin.setValue(127)
+        layout.addRow("Image Threshold:", threshold_spin)
+
+        search_area_combo = QComboBox()
+        search_area_combo.addItems(["Entire Screen", "Active Window", "Custom Region"])
+        layout.addRow("Search Area:", search_area_combo)
+
+        self.params_layout.addLayout(layout)
+
+    def select_detection_region(self):
+        """Select detection region for visual element detection"""
+        # Implement region selection similar to screen region capture
+        QMessageBox.information(self, "Region Selection",
+            "Region selection feature coming soon!")
+
+    def browse_template_image(self):
+        """Browse for template image"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Template Image", "",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.tiff)"
+        )
+        if file_path and hasattr(self, 'template_path_edit'):
+            self.template_path_edit.setText(file_path)
+
+    def capture_template_from_screen(self):
+        """Capture template image from screen"""
+        QMessageBox.information(self, "Template Capture",
+            "Template capture feature coming soon!")
+
+    def add_window_monitor_params(self):
+        """Add parameters for window state monitoring"""
+        layout = QFormLayout()
+
+        window_title_edit = QLineEdit()
+        window_title_edit.setPlaceholderText("e.g., 'Petrel', 'Save As', 'Processing Complete'")
+        layout.addRow("Window Title:", window_title_edit)
+
+        state_combo = QComboBox()
+        state_combo.addItems(["Window Exists", "Window is Active", "Window is Visible", "Window is Minimized", "Window is Maximized"])
+        layout.addRow("Window State:", state_combo)
+
+        process_combo = QComboBox()
+        process_combo.addItems(["Any Process", "Specific Process"])
+        layout.addRow("Process Filter:", process_combo)
+
+        timeout_spin = QSpinBox()
+        timeout_spin.setRange(1, 300)
+        timeout_spin.setValue(30)
+        layout.addRow("Timeout (seconds):", timeout_spin)
+
+        self.params_layout.addLayout(layout)
+
+    def add_process_monitor_params(self):
+        """Add parameters for process status monitoring"""
+        layout = QFormLayout()
+
+        process_name_edit = QLineEdit()
+        process_name_edit.setPlaceholderText("e.g., 'petrel.exe', 'excel.exe'")
+        layout.addRow("Process Name:", process_name_edit)
+
+        status_combo = QComboBox()
+        status_combo.addItems(["Running", "Not Running", "High CPU Usage", "High Memory Usage"])
+        layout.addRow("Status Condition:", status_combo)
+
+        threshold_spin = QSpinBox()
+        threshold_spin.setRange(1, 100)
+        threshold_spin.setValue(50)
+        layout.addRow("Threshold (%):", threshold_spin)
+
+        self.params_layout.addLayout(layout)
+
+    def add_file_monitor_params(self):
+        """Add parameters for file system monitoring"""
+        layout = QFormLayout()
+
+        file_path_edit = QLineEdit()
+        file_path_edit.setPlaceholderText("e.g., C:\\Data\\output.txt")
+        layout.addRow("File Path:", file_path_edit)
+
+        condition_combo = QComboBox()
+        condition_combo.addItems(["File Exists", "File Modified", "File Created", "File Deleted", "File Size Changed"])
+        layout.addRow("Condition:", condition_combo)
+
+        size_spin = QSpinBox()
+        size_spin.setRange(0, 1000000)
+        size_spin.setValue(1024)  # 1KB
+        size_spin.setSuffix(" bytes")
+        layout.addRow("Size Threshold:", size_spin)
+
+        self.params_layout.addLayout(layout)
+
+    def add_color_detection_params(self):
+        """Add parameters for color pattern detection"""
+        layout = QFormLayout()
+
+        color_btn = QPushButton("🎨 Select Color")
+        color_btn.clicked.connect(self.select_color)
+        layout.addRow("Target Color:", color_btn)
+
+        tolerance_spin = QSpinBox()
+        tolerance_spin.setRange(0, 255)
+        tolerance_spin.setValue(30)
+        layout.addRow("Tolerance:", tolerance_spin)
+
+        region_combo = QComboBox()
+        region_combo.addItems("Screen Center", "Active Window", "Custom Region")
+        layout.addRow("Detection Region:", region_combo)
+
+        self.params_layout.addLayout(layout)
+
+    def add_ocr_params(self):
+        """Add parameters for text recognition (OCR)"""
+        layout = QFormLayout()
+
+        search_text_edit = QLineEdit()
+        search_text_edit.setPlaceholderText("e.g., 'Complete', 'Error', 'Success'")
+        layout.addRow("Text to Find:", search_text_edit)
+
+        match_type_combo = QComboBox()
+        match_type_combo.addItems(["Exact Match", "Contains", "Starts With", "Ends With", "Regex Pattern"])
+        layout.addRow("Match Type:", match_type_combo)
+
+        case_sensitive_check = QCheckBox("Case Sensitive")
+        case_sensitive_check.setChecked(True)
+        layout.addRow("", case_sensitive_check)
+
+        region_combo = QComboBox()
+        region_combo.addItems(["Active Window", "Entire Screen", "Custom Region"])
+        layout.addRow("Search Region:", region_combo)
+
+        self.params_layout.addLayout(layout)
+
+    def add_time_condition_params(self):
+        """Add parameters for time-based conditions"""
+        layout = QFormLayout()
+
+        time_type_combo = QComboBox()
+        time_type_combo.addItems(["Specific Time", "Time Range", "Duration", "Interval"])
+        layout.addRow("Time Type:", time_type_combo)
+
+        # Time inputs will be dynamically added based on selection
+        self.time_inputs_widget = QWidget()
+        self.time_inputs_layout = QVBoxLayout(self.time_inputs_widget)
+        layout.addRow("Time Settings:", self.time_inputs_widget)
+
+        self.params_layout.addLayout(layout)
+
+        # Connect time type change
+        time_type_combo.currentTextChanged.connect(self.update_time_inputs)
+        self.update_time_inputs("Specific Time")
+
+    def add_multi_criteria_params(self):
+        """Add parameters for multi-criteria logic"""
+        layout = QVBoxLayout()
+
+        criteria_label = QLabel("Add multiple criteria (all must be true for condition to be true):")
+        layout.addWidget(criteria_label)
+
+        # Add first criterion
+        self.add_criterion_row(layout)
+
+        # Add more criteria button
+        add_criteria_btn = QPushButton("+ Add Another Criterion")
+        add_criteria_btn.clicked.connect(lambda: self.add_criterion_row(layout))
+        layout.addWidget(add_criteria_btn)
+
+        self.params_layout.addLayout(layout)
+
+    def add_criterion_row(self, layout):
+        """Add a criterion row to multi-criteria logic"""
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+
+        # Criterion type
+        type_combo = QComboBox()
+        type_combo.addItems([
+            "Visual Element", "Image Recognition", "Window State",
+            "Process Status", "File System", "Time-based"
+        ])
+        row_layout.addWidget(QLabel("Type:"))
+        row_layout.addWidget(type_combo)
+
+        # Logic operator
+        logic_combo = QComboBox()
+        logic_combo.addItems(["AND", "OR"])
+        row_layout.addWidget(QLabel("Logic:"))
+        row_layout.addWidget(logic_combo)
+
+        # Remove button
+        remove_btn = QPushButton("❌")
+        remove_btn.clicked.connect(lambda: self.remove_criterion_row(layout, row_widget))
+        row_layout.addWidget(remove_btn)
+
+        layout.addWidget(row_widget)
+
+    def remove_criterion_row(self, layout, row_widget):
+        """Remove a criterion row"""
+        layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+    def update_time_inputs(self, time_type):
+        """Update time input widgets based on time type"""
+        # Clear existing time inputs
+        while self.time_inputs_layout.count():
+            child = self.time_inputs_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Add appropriate time inputs
+        if time_type == "Specific Time":
+            time_edit = QLineEdit()
+            time_edit.setPlaceholderText("HH:MM:SS")
+            self.time_inputs_layout.addWidget(time_edit)
+
+        elif time_type == "Time Range":
+            start_edit = QLineEdit()
+            start_edit.setPlaceholderText("Start time (HH:MM:SS)")
+            end_edit = QLineEdit()
+            end_edit.setPlaceholderText("End time (HH:MM:SS)")
+            self.time_inputs_layout.addWidget(QLabel("From:"))
+            self.time_inputs_layout.addWidget(start_edit)
+            self.time_inputs_layout.addWidget(QLabel("To:"))
+            self.time_inputs_layout.addWidget(end_edit)
+
+        elif time_type == "Duration":
+            duration_spin = QSpinBox()
+            duration_spin.setRange(1, 3600)
+            duration_spin.setSuffix(" seconds")
+            self.time_inputs_layout.addWidget(duration_spin)
+
+        elif time_type == "Interval":
+            interval_spin = QSpinBox()
+            interval_spin.setRange(1, 300)
+            interval_spin.setSuffix(" seconds")
+            self.time_inputs_layout.addWidget(interval_spin)
+
+    def select_color(self):
+        """Select target color for detection"""
+        color = QColorDialog.getColor()
+        if color.isValid():
+            # Store color and update display
+            pass  # Store the color value
+
+    def configure_actions(self, action_type):
+        """Configure actions for true/false conditions"""
+        QMessageBox.information(self, "Action Configuration",
+            f"Action configuration for '{action_type}' condition coming soon!")
+
+    def test_condition(self):
+        """Test the current condition setup"""
+        QMessageBox.information(self, "Condition Test",
+            "Condition testing feature coming soon!")
+
+    def create_conditional(self):
+        """Create the conditional logic"""
+        # Collect all parameter data
+        self.conditional_data = {
+            'condition_type': self.condition_type_combo.currentText(),
+            'description': self.findChild(QLineEdit).text() if self.findChild(QLineEdit) else "",
+            'parameters': self.collect_conditional_parameters(),
+            'true_action': self.true_action_combo.currentText(),
+            'false_action': self.false_action_combo.currentText(),
+            'created_date': datetime.now().isoformat()
+        }
+
+        self.accept()
+
+    def collect_conditional_parameters(self):
+        """Collect parameters based on current condition type"""
+        params = {}
+
+        condition_type = self.condition_type_combo.currentText()
+
+        if condition_type == "Visual Element Detection":
+            params['element_text'] = self.findChild(QLineEdit).text() if self.findChild(QLineEdit) else ""
+            params['detection_method'] = self.findChild(QComboBox).currentText() if self.findChild(QComboBox) else ""
+
+        elif condition_type == "Image Recognition (Template Match)":
+            params['template_path'] = self.template_path_edit.text() if hasattr(self, 'template_path_edit') else ""
+            params['confidence'] = 0.8
+            params['threshold'] = 127
+            params['search_area'] = "Entire Screen"
+
+        # Add more parameter collection for other types
+
+        return params
+
+    def get_conditional_data(self):
+        """Get the complete conditional data"""
+        return self.conditional_data
         try:
             self.studio_recording_mode = mode
             self.studio_status_label.setText(f"Status: Mode changed to {mode}")
@@ -6692,7 +10446,6 @@ class PetroleumLauncherWidget(QWidget):
             logger.error(f"Error adding program from uninstaller data: {e}")
             QMessageBox.critical(self, "Error", f"Failed to add program: {str(e)}")
 
-    
     def handle_config_action(self, index):
         """Handle configuration dropdown actions"""
         try:
