@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(temp_test.py)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

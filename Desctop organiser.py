@@ -7,6 +7,10 @@ import platform
 import psutil
 import re
 import copy
+import json
+import zipfile
+import tempfile
+import hashlib
 from datetime import datetime, timedelta, time
 from typing import Optional
 from PyQt5.QtWidgets import (
@@ -204,17 +208,17 @@ class PackageMessageFormatter:
     @staticmethod
     def package_uninstall_succeeded(package_name: str) -> str:
         """Format message for successful package uninstallation"""
-        return f"✅ Uninstalled {package_name}"
+        return f"Uninstalled {package_name}"
 
     @staticmethod
     def package_uninstalling(package_name: str) -> str:
         """Format message for package uninstallation in progress"""
-        return f"🗑️ Uninstalling {package_name}"
+        return f"Uninstalling {package_name}"
 
     @staticmethod
     def package_uninstalling_no_longer_needed(package_name: str) -> str:
         """Format message for package no longer needed"""
-        return f"🗑️ Uninstalling {package_name} (no longer needed)..."
+        return f"Uninstalling {package_name} (no longer needed)..."
 
     @staticmethod
     def module_dependency_repair_failed(module_name: str) -> str:
@@ -446,16 +450,24 @@ def add_splash_message(message):
 # --- Module Management System ---
 
 class ModuleInfo:
-    """Module information with embedded manifest"""
+    """Module information with embedded manifest (supports single files and directories)"""
 
     def __init__(self, module_path: str):
         self.module_path = module_path
-        self.module_dir = os.path.dirname(module_path)
         self.valid = False
         self.error = None
-        self.module_name = os.path.splitext(os.path.basename(module_path))[0]
+        self.is_directory = os.path.isdir(module_path)
 
-        # Extract embedded manifest from module file
+        if self.is_directory:
+            self.module_dir = module_path
+            self.module_name = os.path.basename(module_path)
+            self.entry_point = os.path.join(module_path, "main.py")
+        else:
+            self.module_dir = os.path.dirname(module_path)
+            self.module_name = os.path.splitext(os.path.basename(module_path))[0]
+            self.entry_point = module_path
+
+        # Extract manifest from file or directory
         try:
             self.manifest = self._extract_manifest()
             self._validate_manifest()
@@ -465,32 +477,60 @@ class ModuleInfo:
             self.manifest = {}
 
     def _extract_manifest(self) -> dict:
-        """Extract embedded manifest"""
+        """Extract embedded manifest from file or directory"""
         try:
-            with open(self.module_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            if self.is_directory:
+                # For directory modules, try to find manifest in main.py first
+                main_file = self.entry_point
+                if os.path.exists(main_file):
+                    manifest = self._extract_from_file(main_file)
+                    if manifest:
+                        return manifest
 
-            # Look for embedded manifest between special markers
-            start_marker = '"""MODULE_MANIFEST_START'
-            end_marker = 'MODULE_MANIFEST_END"""'
+                # If not found in main.py, look for separate manifest.json
+                manifest_file = os.path.join(self.module_dir, "manifest.json")
+                if os.path.exists(manifest_file):
+                    with open(manifest_file, 'r', encoding='utf-8') as f:
+                        return json.load(f)
 
-            start_idx = content.find(start_marker)
-            if start_idx == -1:
-                raise ValueError("Маніфест модуля не знайдено у файлі")
-
-            start_idx += len(start_marker)
-            end_idx = content.find(end_marker, start_idx)
-            if end_idx == -1:
-                raise ValueError("Кінцевий маркер маніфеста модуля не знайдено")
-
-            manifest_json = content[start_idx:end_idx].strip()
-            manifest = json.loads(manifest_json)
-            return manifest
+                raise ValueError("Маніфест модуля не знайдено в директорії")
+            else:
+                # Single file module - extract from file
+                manifest = self._extract_from_file(self.module_path)
+                if manifest:
+                    return manifest
+                else:
+                    raise ValueError("Маніфест модуля не знайдено у файлі")
 
         except json.JSONDecodeError as e:
             raise ValueError(f"Некоректний JSON у маніфесті: {e}")
         except Exception as e:
-            raise ValueError(f"Помилка читання файлу модуля: {e}")
+            raise ValueError(f"Помилка читання модуля: {e}")
+
+    def _extract_from_file(self, file_path: str) -> dict:
+        """Extract manifest from a Python file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Look for embedded manifest between special markers
+            start_marker = 'MODULE_MANIFEST_START'
+            end_marker = 'MODULE_MANIFEST_END'
+
+            start_idx = content.find(start_marker)
+            if start_idx == -1:
+                return None
+
+            start_idx += len(start_marker)
+            end_idx = content.find(end_marker, start_idx)
+            if end_idx == -1:
+                return None
+
+            manifest_json = content[start_idx:end_idx].strip()
+            return json.loads(manifest_json)
+
+        except Exception:
+            return None
 
     def _validate_manifest(self):
         """Validate manifest fields"""
@@ -1402,6 +1442,271 @@ class SharedVirtualEnvironmentManager:
             return False
 
 
+class NGITPackageInstaller:
+    """NGIT Package Installer for .ngitpac files"""
+
+    PACKAGE_EXT = ".ngitpac"
+    MANIFEST_FILE = "package.json"
+    CHECKSUM_FILE = "checksums.json"
+    MODULE_DIR = "module"
+
+    def __init__(self, modules_dir: str, venv_manager=None, parent_widget=None):
+        self.modules_dir = modules_dir
+        self.venv_manager = venv_manager
+        self.parent_widget = parent_widget
+        self.errors = []
+        self.warnings = []
+
+    def install_package(self, package_path: str) -> bool:
+        """Install package from .ngitpac file"""
+        print(f"Installing package: {package_path}")
+
+        self.errors.clear()
+        self.warnings.clear()
+
+        # Validate package file
+        if not self._validate_package_file(package_path):
+            return False
+
+        try:
+            # Extract package to temporary directory
+            import tempfile
+            with tempfile.TemporaryDirectory() as temp_dir:
+                print("  Extracting package...")
+                if not self._extract_package(package_path, temp_dir):
+                    return False
+
+                # Verify package integrity
+                print("  Verifying package integrity...")
+                if not self._verify_package_integrity(temp_dir):
+                    return False
+
+                # Read package manifest
+                manifest_path = os.path.join(temp_dir, self.MANIFEST_FILE)
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    package_manifest = json.load(f)
+
+                module_info = package_manifest.get('module', {})
+                module_name = module_info.get('name')
+                module_version = module_info.get('version')
+
+                if not module_name:
+                    self.errors.append("Package manifest missing module name")
+                    return False
+
+                print(f"  Installing module: {module_name} v{module_version}")
+
+                # Check for existing module
+                module_install_path = os.path.join(self.modules_dir, module_name)
+                if os.path.exists(module_install_path):
+                    print(f"  Warning: Module '{module_name}' already exists")
+                    # TODO: Ask user for confirmation to overwrite
+                    self.warnings.append(f"Module '{module_name}' will be overwritten")
+
+                    # Remove existing module
+                    if os.path.isdir(module_install_path):
+                        shutil.rmtree(module_install_path)
+                    else:
+                        os.remove(module_install_path)
+
+                # Copy module files
+                module_source_path = os.path.join(temp_dir, self.MODULE_DIR)
+                print(f"  Installing to: {module_install_path}")
+                if os.path.isdir(module_source_path):
+                    shutil.copytree(module_source_path, module_install_path)
+                else:
+                    os.makedirs(self.modules_dir, exist_ok=True)
+                    shutil.copy2(module_source_path, module_install_path)
+
+                # Install dependencies if venv_manager is available
+                if self.venv_manager and module_info.get('dependencies'):
+                    print(f"  Installing {len(module_info['dependencies'])} dependencies...")
+                    if not self._install_module_dependencies(module_name, module_info):
+                        self.warnings.append("Some dependencies may not have installed correctly")
+
+                print(f"  Successfully installed module: {module_name}")
+                return True
+
+        except Exception as e:
+            self.errors.append(f"Installation failed: {e}")
+            return False
+
+    def _validate_package_file(self, package_path: str) -> bool:
+        """Validate the package file"""
+        if not os.path.exists(package_path):
+            self.errors.append(f"Package file does not exist: {package_path}")
+            return False
+
+        if not package_path.endswith(self.PACKAGE_EXT):
+            self.errors.append(f"Invalid package extension. Expected .{self.PACKAGE_EXT}")
+            return False
+
+        # Check if it's a valid zip file
+        try:
+            with zipfile.ZipFile(package_path, 'r') as zipf:
+                # Check for required files
+                required_files = [self.MANIFEST_FILE, self.CHECKSUM_FILE]
+                required_dirs = [self.MODULE_DIR + '/']
+                file_list = zipf.namelist()
+
+                # Check required files
+                for req_file in required_files:
+                    if req_file not in file_list:
+                        self.errors.append(f"Package missing file: {req_file}")
+                        return False
+
+                # Check required directories
+                for req_dir in required_dirs:
+                    if not any(f.startswith(req_dir) for f in file_list):
+                        self.errors.append(f"Package missing directory: {req_dir}")
+                        return False
+
+                return True
+
+        except zipfile.BadZipFile:
+            self.errors.append("Package file is not a valid zip archive")
+            return False
+        except Exception as e:
+            self.errors.append(f"Error reading package file: {e}")
+            return False
+
+    def _extract_package(self, package_path: str, extract_to: str) -> bool:
+        """Extract package to directory"""
+        try:
+            with zipfile.ZipFile(package_path, 'r') as zipf:
+                zipf.extractall(extract_to)
+            return True
+        except Exception as e:
+            self.errors.append(f"Failed to extract package: {e}")
+            return False
+
+    def _verify_package_integrity(self, extract_dir: str) -> bool:
+        """Verify package checksums"""
+        try:
+            checksum_path = os.path.join(extract_dir, self.CHECKSUM_FILE)
+            with open(checksum_path, 'r', encoding='utf-8') as f:
+                expected_checksums = json.load(f)
+
+            for file_path, expected_hash in expected_checksums.items():
+                # Use forward slashes from checksums file directly
+                full_path = os.path.join(extract_dir, file_path.replace('/', os.sep))
+                if not os.path.exists(full_path):
+                    self.errors.append(f"Missing file in package: {file_path}")
+                    return False
+
+                with open(full_path, 'rb') as f:
+                    actual_hash = hashlib.sha256(f.read()).hexdigest()
+
+                if actual_hash != expected_hash:
+                    self.errors.append(f"Checksum mismatch for {file_path}")
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.errors.append(f"Failed to verify package integrity: {e}")
+            return False
+
+    def _install_module_dependencies(self, module_name: str, module_info: dict) -> bool:
+        """Install module dependencies"""
+        if not self.venv_manager:
+            return False
+
+        dependencies = module_info.get('dependencies', [])
+        dependency_packages = module_info.get('dependency_packages')
+
+        if not dependencies and not dependency_packages:
+            return True
+
+        try:
+            return self.venv_manager.install_dependencies(
+                module_name, dependencies, dependency_packages, self.parent_widget
+            )
+        except Exception as e:
+            self.warnings.append(f"Dependency installation failed: {e}")
+            return False
+
+    def get_package_info(self, package_path: str) -> dict:
+        """Get package information without installing"""
+        try:
+            with zipfile.ZipFile(package_path, 'r') as zipf:
+                # Read manifest
+                with zipf.open(self.MANIFEST_FILE) as f:
+                    package_manifest = json.loads(f.read().decode('utf-8'))
+
+                # Get file list and size
+                files = zipf.namelist()
+                size = os.path.getsize(package_path)
+
+                return {
+                    'manifest': package_manifest,
+                    'module_info': package_manifest.get('module', {}),
+                    'file_count': len(files),
+                    'size_bytes': size,
+                    'size_mb': round(size / (1024 * 1024), 2),
+                    'files': files,
+                    'errors': [],
+                    'warnings': []
+                }
+
+        except Exception as e:
+            return {
+                'errors': [f"Failed to read package: {e}"],
+                'warnings': [],
+                'module_info': {}
+            }
+
+    def validate_package(self, package_path: str) -> bool:
+        """Validate package without installing"""
+        self.errors.clear()
+        self.warnings.clear()
+
+        if not self._validate_package_file(package_path):
+            return False
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                if not self._extract_package(package_path, temp_dir):
+                    return False
+
+                if not self._verify_package_integrity(temp_dir):
+                    return False
+
+                # Read and validate manifest
+                manifest_path = os.path.join(temp_dir, self.MANIFEST_FILE)
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    package_manifest = json.load(f)
+
+                module_info = package_manifest.get('module', {})
+                if not self._validate_module_info(module_info):
+                    return False
+
+                return True
+
+        except Exception as e:
+            self.errors.append(f"Package validation failed: {e}")
+            return False
+
+    def _validate_module_info(self, module_info: dict) -> bool:
+        """Validate module information"""
+        required_fields = ['name', 'version', 'description', 'main_class']
+        for field in required_fields:
+            if field not in module_info:
+                self.errors.append(f"Missing required field: {field}")
+
+        # Validate name
+        name = module_info.get('name')
+        if name and not isinstance(name, str):
+            self.errors.append("Module name must be a string")
+
+        # Validate version
+        version = module_info.get('version')
+        if version and not isinstance(version, str):
+            self.errors.append("Version must be a string")
+
+        return len(self.errors) == 0
+
+
 class ModuleManager(QObject):
     """Dynamic module manager with shared virtual environment support"""
 
@@ -1417,39 +1722,64 @@ class ModuleManager(QObject):
         self.parent_widget = parent_widget
         self.settings = settings or {}
         self.venv_manager = SharedVirtualEnvironmentManager(modules_dir, self.settings)
+        self.package_installer = NGITPackageInstaller(modules_dir, self.venv_manager, parent_widget)
 
     def discover_modules(self) -> dict:
-        """Discover all modules in the modules directory"""
+        """Discover all modules in the modules directory (supports both files and directories)"""
         discovered = {}
 
         if not os.path.exists(self.modules_dir):
             print(f"❌ Директорію модулів не знайдено: {self.modules_dir}")
             return discovered
 
-        # Look for .py files with embedded manifests
+        # Look for both .py files and directories with modules
         for item in os.listdir(self.modules_dir):
             module_path = os.path.join(self.modules_dir, item)
 
-            # Check if it's a Python file
+            # Skip __pycache__ and other system directories
+            if item.startswith('__') or item.startswith('.'):
+                continue
+
+            # Check if it's a Python file module
             if item.endswith('.py') and os.path.isfile(module_path):
                 module_info = ModuleInfo(module_path)
-                if module_info.valid:
-                    discovered[module_info.name] = module_info
-                    self.module_info[module_info.name] = module_info
-                    self.module_discovered.emit(module_info.name, {
-                        'name': module_info.name,
-                        'version': module_info.version,
-                        'description': module_info.description,
-                        'menu_text': module_info.menu_text,
-                        'author': module_info.author,
-                        'category': module_info.category
-                    })
-                    print(f"✅ Discovered module: {module_info.name} v{module_info.version}")
+                self._process_module_info(module_info, item, discovered)
+
+            # Check if it's a directory module
+            elif os.path.isdir(module_path):
+                # Must have either main.py or __init__.py to be considered a module
+                if (os.path.exists(os.path.join(module_path, "main.py")) or
+                    os.path.exists(os.path.join(module_path, "__init__.py"))):
+                    module_info = ModuleInfo(module_path)
+                    self._process_module_info(module_info, item, discovered)
                 else:
-                    print(f"❌ Invalid module {item}: {module_info.error}")
-                    self.module_error.emit(item, module_info.error)
+                    print(f"Warning: Skipping directory {item}: No main.py or __init__.py found")
 
         return discovered
+
+    def _process_module_info(self, module_info: ModuleInfo, item: str, discovered: dict):
+        """Process and validate discovered module info"""
+        if module_info.valid:
+            discovered[module_info.name] = module_info
+            self.module_info[module_info.name] = module_info
+
+            # Emit discovery signal
+            self.module_discovered.emit(module_info.name, {
+                'name': module_info.name,
+                'version': module_info.version,
+                'description': module_info.description,
+                'menu_text': module_info.menu_text,
+                'author': module_info.author,
+                'category': module_info.category,
+                'is_directory': module_info.is_directory,
+                'entry_point': module_info.entry_point
+            })
+
+            module_type = "directory module" if module_info.is_directory else "file module"
+            print(f"SUCCESS: Discovered {module_type}: {module_info.name} v{module_info.version}")
+        else:
+            print(f"ERROR: Invalid module {item}: {module_info.error}")
+            self.module_error.emit(item, module_info.error)
 
     def refresh_package_cache(self):
         """Manually refresh the package cache - call after installing new packages"""
@@ -1477,16 +1807,16 @@ class ModuleManager(QObject):
         if not self.module_info:
             return True
 
-        print("🔧 Validating module dependencies...")
+        print("Validating module dependencies...")
         # Only refresh package cache if forced or if needed
         if force_refresh or self.should_refresh_cache():
-            print("🔄 Syncing package cache...")
+            print("Syncing package cache...")
             self.venv_manager._sync_installed_packages()
             # Clear package cache to force fresh checks
             if hasattr(self.venv_manager, '_package_cache'):
                 self.venv_manager._package_cache.clear()
         else:
-            print("✅ Using cached package information")
+            print("Using cached package information")
 
         # Debug: Check what packages are actually installed
         # Virtual environment package validation completed - packages are checked dynamically as needed
@@ -1531,18 +1861,18 @@ class ModuleManager(QObject):
                     if missing_deps:
                         print(msg_formatter.module_dependencies_missing(module_name, missing_deps))
                     else:
-                        print(f"🔧 Installing dependencies for {module_name}...")
+                        print(f"Installing dependencies for {module_name}...")
 
                     if self.install_module_dependencies(module_name):
                         repaired_modules.append(module_name)
-                        print(f"✅ Repaired dependencies for {module_name}")
+                        print(f"Repaired dependencies for {module_name}")
                     else:
                         print(msg_formatter.module_dependency_repair_failed(module_name))
 
         if repaired_modules:
-            print(f"🔧 Repaired dependencies for {len(repaired_modules)} modules: {', '.join(repaired_modules)}")
+            print(f"Repaired dependencies for {len(repaired_modules)} modules: {', '.join(repaired_modules)}")
         else:
-            print("✅ All module dependencies are properly installed and up to date")
+            print("All module dependencies are properly installed and up to date")
 
         return True
 
@@ -1602,10 +1932,10 @@ class ModuleManager(QObject):
 
         # Only refresh package cache if needed (first time or cache refresh required)
         if self.should_refresh_cache():
-            print(f"🔄 Initializing package cache for {module_name}...")
+            print(f"Initializing package cache for {module_name}...")
             self.venv_manager._sync_installed_packages()
         else:
-            print(f"✅ Using cached package information for {module_name}")
+            print(f"Using cached package information for {module_name}")
 
         module_info = self.module_info[module_name]
 
@@ -1641,16 +1971,26 @@ class ModuleManager(QObject):
                         self.module_error.emit(module_name, error_msg)
                         return False
                 else:
-                    print(f"✅ Dependencies already satisfied for {module_name}")
+                    print(f"Dependencies already satisfied for {module_name}")
 
             # Ensure virtual environment paths are available for module import
             setup_venv_python_path()
 
             # Module environment is now handled dynamically - no need for debug path checking
 
-            # Load the module
-            spec = importlib.util.spec_from_file_location(f"module_{module_name}", module_info.module_path)
+            # Load the module (use entry_point for directory modules)
+            module_file = module_info.entry_point if module_info.is_directory else module_info.module_path
+
+            # For directory modules, add the module directory to Python path temporarily
+            if module_info.is_directory:
+                if module_info.module_dir not in sys.path:
+                    sys.path.insert(0, module_info.module_dir)
+
+            spec = importlib.util.spec_from_file_location(f"module_{module_name}", module_file)
             if spec is None:
+                # Clean up sys.path for directory modules
+                if module_info.is_directory and module_info.module_dir in sys.path:
+                    sys.path.remove(module_info.module_dir)
                 raise ImportError(f"Не вдалося створити spec для модуля {module_name}")
 
             module = importlib.util.module_from_spec(spec)
@@ -1659,7 +1999,17 @@ class ModuleManager(QObject):
             sys.modules[f"module_{module_name}"] = module
 
             # Execute the module
-            spec.loader.exec_module(module)
+            try:
+                spec.loader.exec_module(module)
+            except Exception as e:
+                # Clean up sys.path for directory modules on error
+                if module_info.is_directory and module_info.module_dir in sys.path:
+                    sys.path.remove(module_info.module_dir)
+                raise e
+
+            # Clean up sys.path for directory modules after successful load
+            if module_info.is_directory and module_info.module_dir in sys.path:
+                sys.path.remove(module_info.module_dir)
 
             # Get the main class
             if not hasattr(module, module_info.main_class):
@@ -1668,13 +2018,13 @@ class ModuleManager(QObject):
             module_class = getattr(module, module_info.main_class)
             self.loaded_modules[module_name] = module_class
 
-            print(f"✅ Успішно завантажено модуль: {module_name}")
+            print(f"Successfully loaded module: {module_name}")
             self.module_loaded.emit(module_name, module_class)
             return True
 
         except Exception as e:
             error_msg = msg_formatter.module_load_failed(module_name, str(e))
-            print(f"❌ {error_msg}")
+            print(f"ERROR: {error_msg}")
             self.module_error.emit(module_name, error_msg)
             return False
 
@@ -1699,8 +2049,11 @@ class ModuleManager(QObject):
                 del sys.modules[module_key]
 
             del self.loaded_modules[module_name]
-            print(f"✅ Unloaded module: {module_name}")
+            print(f"Unloaded module: {module_name}")
 
+  
+  
+    
     def get_module_info(self, module_name: str):
         """Get information about a module"""
         return self.module_info.get(module_name)
@@ -1712,6 +2065,69 @@ class ModuleManager(QObject):
     def get_virtual_env_manager(self) -> SharedVirtualEnvironmentManager:
         """Get the virtual environment manager"""
         return self.venv_manager
+
+    def install_package(self, package_path: str) -> bool:
+        """Install module from .ngitpac package"""
+        print(f"Installing package: {package_path}")
+
+        if not self.package_installer.install_package(package_path):
+            # Installation failed, show errors
+            print("Package installation failed:")
+            for error in self.package_installer.errors:
+                print(f"  ERROR: {error}")
+            for warning in self.package_installer.warnings:
+                print(f"  WARNING: {warning}")
+            return False
+
+        # Show warnings if any
+        if self.package_installer.warnings:
+            print("Installation warnings:")
+            for warning in self.package_installer.warnings:
+                print(f"  WARNING: {warning}")
+
+        # Refresh module discovery to include the newly installed module
+        print("Refreshing module discovery...")
+        newly_discovered = self.discover_modules()
+
+        # Update our module info with the newly discovered modules
+        self.module_info.update(newly_discovered)
+
+        # Check if we discovered any modules
+        if newly_discovered:
+            module_name = list(newly_discovered.keys())[0]
+            print(f"Successfully installed and discovered module: {module_name}")
+            # Try to validate and repair dependencies for the new module
+            if self.validate_and_repair_dependencies():
+                print(f"Dependencies validated for {module_name}")
+            return True
+        else:
+            print("Package installed but no modules were discovered")
+            return False
+
+    def get_package_info(self, package_path: str) -> dict:
+        """Get package information without installing"""
+        return self.package_installer.get_package_info(package_path)
+
+    def validate_package(self, package_path: str) -> bool:
+        """Validate package without installing"""
+        result = self.package_installer.validate_package(package_path)
+        if not result:
+            print("Package validation failed:")
+            for error in self.package_installer.errors:
+                print(f"  ERROR: {error}")
+            for warning in self.package_installer.warnings:
+                print(f"  WARNING: {warning}")
+        else:
+            print("Package validation passed")
+            if self.package_installer.warnings:
+                print("Validation warnings:")
+                for warning in self.package_installer.warnings:
+                    print(f"  WARNING: {warning}")
+        return result
+
+    def get_package_installer(self) -> NGITPackageInstaller:
+        """Get the package installer instance"""
+        return self.package_installer
 
 # --- Splash Screen with Console Output ---
 class SplashScreen(QSplashScreen):
@@ -7362,6 +7778,12 @@ class MainWindow(QMainWindow):
             close_all_action.setShortcut(QKeySequence('Ctrl+Shift+W'))
             self.modules_menu.addAction(close_all_action)
 
+            # Add delete module action
+            delete_module_action = QAction('Видалити модуль...', self)
+            delete_module_action.triggered.connect(self.show_delete_module_dialog)
+            delete_module_action.setEnabled(len(discovered_modules) > 0)
+            self.modules_menu.addAction(delete_module_action)
+
     def reload_modules(self):
         """Reload all modules - clear existing modules and reload them"""
         try:
@@ -7484,6 +7906,150 @@ class MainWindow(QMainWindow):
                 f'Не вдалося ініціалізувати перезавантаження модулів:\n{e}'
             )
 
+    def delete_module(self, module_name: str) -> bool:
+        """Delete a module from the file system and clean up"""
+        try:
+            # Get module info before deletion
+            module_info = self.module_manager.module_info.get(module_name)
+            if not module_info:
+                self.log_message(f"ERROR: Модуль не знайдено: {module_name}")
+                return False
+
+            # Confirm deletion
+            reply = QMessageBox.question(
+                self,
+                "Підтвердити видалення",
+                f"Ви впевнені, що хочете видалити модуль '{module_info.menu_text}'?\n\n"
+                f"Це назавжди видалить файли модуля:\n"
+                f"• {module_info.module_path if not module_info.is_directory else module_info.module_dir}",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                self.log_message(f"INFO: Видалення модуля '{module_name}' скасовано")
+                return False
+
+            self.log_message(f"DELETE: Видалення модуля: {module_name}")
+
+            # Close any open tabs for this module
+            self.close_module_tabs_by_name(module_name)
+
+            # Unload the module first
+            self.module_manager.unload_module(module_name)
+
+            # Delete the module files
+            try:
+                if module_info.is_directory:
+                    # Delete directory module
+                    if os.path.exists(module_info.module_dir):
+                        shutil.rmtree(module_info.module_dir)
+                        self.log_message(f"SUCCESS: Видалено директорію модуля: {module_info.module_dir}")
+                    else:
+                        self.log_message(f"WARNING: Директорія модуля не існує: {module_info.module_dir}")
+                else:
+                    # Delete single file module
+                    if os.path.exists(module_info.module_path):
+                        os.remove(module_info.module_path)
+                        self.log_message(f"SUCCESS: Видалено файл модуля: {module_info.module_path}")
+                    else:
+                        self.log_message(f"WARNING: Файл модуля не існує: {module_info.module_path}")
+
+            except Exception as e:
+                self.log_message(f"ERROR: Помилка видалення файлів модуля: {e}")
+                return False
+
+            # Remove from module info
+            if module_name in self.module_manager.module_info:
+                del self.module_manager.module_info[module_name]
+
+            # Remove from module actions
+            if module_name in self.module_actions:
+                action = self.module_actions[module_name]
+                if hasattr(self, 'modules_menu'):
+                    self.modules_menu.removeAction(action)
+                del self.module_actions[module_name]
+
+            # Update the modules menu
+            self.update_modules_menu()
+
+            self.log_message(f"SUCCESS: Модуль '{module_name}' успішно видалено")
+            return True
+
+        except Exception as e:
+            self.log_message(f"ERROR: Помилка видалення модуля '{module_name}': {e}")
+            return False
+
+    def close_module_tabs_by_name(self, module_name: str):
+        """Close all tabs for a specific module"""
+        tabs_to_close = []
+        for i in range(self.tab_widget.count()):
+            widget = self.tab_widget.widget(i)
+            if widget.property("module_name") == module_name:
+                tabs_to_close.append(i)
+
+        # Close tabs in reverse order to maintain indices
+        for index in reversed(tabs_to_close):
+            self.tab_widget.removeTab(index)
+
+    def show_delete_module_dialog(self):
+        """Show dialog to select and delete a module"""
+        discovered_modules = self.module_manager.module_info
+
+        if not discovered_modules:
+            QMessageBox.information(self, "Немає модулів",
+                                     "Немає доступних модулів для видалення.")
+            return
+
+        # Create module selection dialog
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Видалити модуль")
+        dialog.setModal(True)
+        dialog.setMinimumSize(400, 300)
+
+        layout = QVBoxLayout()
+
+        # Add instruction label
+        label = QLabel("Оберіть модуль для видалення:")
+        layout.addWidget(label)
+
+        # Create list widget
+        module_list = QListWidget()
+        layout.addWidget(module_list)
+
+        # Add modules to list
+        for module_name, module_info in discovered_modules.items():
+            item = QListWidgetItem(module_info.menu_text)
+            item.setData(Qt.UserRole, module_name)  # Store module name
+            item.setData(Qt.ToolTipRole, f"Ім'я: {module_name}\n"
+                                              f"Версія: {module_info.version}\n"
+                                              f"Тип: {'Директорія' if module_info.is_directory else 'Файл'}\n"
+                                              f"Шлях: {module_info.module_path if not module_info.is_directory else module_info.module_dir}")
+            module_list.addItem(item)
+
+        # Sort items alphabetically
+        module_list.sortItems(Qt.AscendingOrder)
+
+        # Add button box
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(button_box)
+
+        dialog.setLayout(layout)
+
+        # Connect buttons
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+
+        # Show dialog
+        if dialog.exec_() == QDialog.Accepted:
+            selected_item = module_list.currentItem()
+            if selected_item:
+                module_name = selected_item.data(Qt.UserRole)
+                if module_name:
+                    self.delete_module(module_name)
+
     def save_settings(self):
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -7592,6 +8158,10 @@ class MainWindow(QMainWindow):
         import_module_action = QAction('&Імпортувати додатковий модуль', self)
         import_module_action.triggered.connect(self.import_modules_to_standard_dir)
         file_menu.addAction(import_module_action)
+        # --- Add Install Package Action ---
+        install_package_action = QAction('&Встановити пакет (.ngitpac)', self)
+        install_package_action.triggered.connect(self.install_ngit_package)
+        file_menu.addAction(install_package_action)
         # --- Add Reload Modules Action ---
         reload_modules_action = QAction('&Перезавантажити модулі', self)
         reload_modules_action.triggered.connect(self.reload_modules)
@@ -7726,6 +8296,88 @@ class MainWindow(QMainWindow):
         if modules_changed:
             self.log_message("🔄 Перезавантаження модулів після імпорту...")
             self.reload_modules_and_update_ui()
+
+    def install_ngit_package(self):
+        """Install NGIT package from .ngitpac file"""
+        package_file, _ = QFileDialog.getOpenFileName(
+            self,
+            "Виберіть пакет для встановлення (.ngitpac)",
+            os.path.expanduser("~"),  # Start in user's home directory
+            "NGIT Packages (*.ngitpac);;Всі файли (*.*)"
+        )
+
+        if not package_file:
+            self.log_message("ℹ️ Встановлення пакета скасовано користувачем.")
+            return
+
+        # Get the package installer from module manager
+        installer = self.module_manager.get_package_installer()
+
+        self.log_message(f"📦 Встановлення пакета: {os.path.basename(package_file)}")
+
+        # Show progress dialog
+        progress_dialog = QProgressDialog(
+            "Встановлення пакета. Будь ласка, зачекайте...",
+            "Скасувати",
+            0, 0, self
+        )
+        progress_dialog.setWindowTitle("Встановлення пакета")
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.show()
+
+        # Process application events to ensure dialog appears
+        QApplication.processEvents()
+
+        try:
+            # Install the package
+            success = installer.install_package(package_file)
+
+            if success:
+                self.log_message(f"✅ Пакет успішно встановлено: {os.path.basename(package_file)}")
+
+                # Show success message with details
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Встановлення успішне")
+                msg.setText("Пакет успішно встановлено!")
+
+                # Add details about warnings if any
+                if installer.warnings:
+                    detailed_text = "Попередження:\n" + "\n".join(f"• {warning}" for warning in installer.warnings)
+                    msg.setDetailedText(detailed_text)
+
+                msg.exec_()
+
+                # Reload modules to include the newly installed package
+                self.log_message("🔄 Перезавантаження модулів після встановлення пакета...")
+                self.reload_modules_and_update_ui()
+
+            else:
+                self.log_message(f"❌ Помилка встановлення пакета: {os.path.basename(package_file)}")
+
+                # Show error message
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("Помилка встановлення")
+                msg.setText("Не вдалося встановити пакет.")
+
+                # Add details about errors
+                if installer.errors:
+                    detailed_text = "Помилки:\n" + "\n".join(f"• {error}" for error in installer.errors)
+                    msg.setDetailedText(detailed_text)
+
+                msg.exec_()
+
+        except Exception as e:
+            self.log_message(f"❌ Критична помилка при встановленні пакета: {e}")
+            QMessageBox.critical(
+                self,
+                "Критична помилка",
+                f"Виникла критична помилка при встановленні пакета:\n{e}"
+            )
+
+        finally:
+            progress_dialog.close()
 
     def open_module_window(self, module_name):
         """Open a module window/tab"""
