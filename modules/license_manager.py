@@ -5,7 +5,7 @@
   "description": "Модуль для керування ліцензіями програмного забезпечення з підтримкою синтаксису NGINX",
   "author": "Desktop Organizer Team",
   "category": "System",
-  "menu_text": "&Керування Ліцензіями...",
+  "menu_text": "&Керування Ліцензіями",
   "main_class": "LicenseManager",
   "dependencies": [],
   "python_version": "3.8+",
@@ -441,8 +441,8 @@ class LicenseManager(QWidget):
 
 
     def check_system_action(self):
-        self.log("info", "Перевірка ліцензій системного середовища...")
-        self.status_label.setText("Перевірка ліцензій...")
+        self.log("info", "Перевірка ліцензій системного середовища")
+        self.status_label.setText("Перевірка ліцензій")
         QApplication.processEvents()
         self.system_licenses = self._get_system_licenses()
         if not self.system_licenses:

@@ -5,7 +5,7 @@
   "description": "Advanced module for discovering, installing and managing software programs on Windows systems with support for silent installation and multiple installer formats",
   "author": "Desktop Organizer Team",
   "category": "System",
-  "menu_text": "Встановити Нову Програму...",
+  "menu_text": "Встановити Нову Програму",
   "main_class": "ProgramInstallerUI",
   "dependencies": [
     "pywin32>=227"

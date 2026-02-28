@@ -5,7 +5,7 @@
   "description": "Комплексний інструмент для очищення та керування архівами робочого столу з розширеною аналітикою файлів, виявленням дублікатів та можливостями стиснення",
   "author": "Команда Desktop Organizer",
   "category": "Utility",
-  "menu_text": "Менеджер Архіву Робочого Столу...",
+  "menu_text": "Менеджер Архіву Робочого Столу",
   "main_class": "CleanupHelperWidget",
   "dependencies": [
     "pandas>=1.3.0",
@@ -190,7 +190,7 @@ class ScanSplashScreen(QWidget):
         title_layout.addWidget(self.spinning_wheel)
 
         # Title label
-        self.title_label = QLabel("🔍 Сканування файлів...")
+        self.title_label = QLabel("🔍 Сканування файлів")
         self.title_label.setStyleSheet("""
             QLabel {
                 font-size: 16px;
@@ -205,7 +205,7 @@ class ScanSplashScreen(QWidget):
         container_layout.addLayout(title_layout)
 
         # Progress label - expanded space
-        self.progress_label = QLabel("Підготовка до сканування...")
+        self.progress_label = QLabel("Підготовка до сканування")
         self.progress_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
@@ -338,7 +338,7 @@ class ArchiveSplashScreen(QWidget):
         title_layout.addWidget(self.spinning_wheel)
 
         # Title label
-        self.title_label = QLabel("📂 Пошук в архівах...")
+        self.title_label = QLabel("📂 Пошук в архівах")
         self.title_label.setStyleSheet("""
             QLabel {
                 font-size: 16px;
@@ -353,7 +353,7 @@ class ArchiveSplashScreen(QWidget):
         container_layout.addLayout(title_layout)
 
         # Progress label - expanded space
-        self.progress_label = QLabel("Підготовка до пошуку...")
+        self.progress_label = QLabel("Підготовка до пошуку")
         self.progress_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
@@ -491,7 +491,7 @@ class DuplicateFinderSplashScreen(QWidget):
         title_layout.addWidget(self.spinning_wheel)
 
         # Title label
-        self.title_label = QLabel("🎯 Пошук дублікатів...")
+        self.title_label = QLabel("🎯 Пошук дублікатів")
         self.title_label.setStyleSheet("""
             QLabel {
                 font-size: 16px;
@@ -506,7 +506,7 @@ class DuplicateFinderSplashScreen(QWidget):
         container_layout.addLayout(title_layout)
 
         # Progress label - expanded space
-        self.progress_label = QLabel("Підготовка до пошуку...")
+        self.progress_label = QLabel("Підготовка до пошуку")
         self.progress_label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
@@ -596,12 +596,12 @@ class ArchiveTreeBuilder(QThread):
                          current_time - self.parent()._cache_timestamp < 300)
 
             if not use_cache:
-                self.progress_updated.emit(25, "Сканування файлів...")
+                self.progress_updated.emit(25, "Сканування файлів")
                 self._build_file_cache()
             else:
-                self.progress_updated.emit(50, "Використання кешу...")
+                self.progress_updated.emit(50, "Використання кешу")
 
-            self.progress_updated.emit(75, "Побудова дерева файлів...")
+            self.progress_updated.emit(75, "Побудова дерева файлів")
             tree_widget = self._build_tree_recursive()
             self.tree_built.emit(tree_widget)
 
@@ -1444,54 +1444,16 @@ class CleanupHelperWidget(QWidget):
 
         browse_btn = QPushButton("Огляд")
         browse_btn.clicked.connect(self.browse_scan_path)
-        browse_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         controls_layout.addWidget(browse_btn)
 
         self.scan_btn = QPushButton("🔍 Почати сканування")
         self.scan_btn.clicked.connect(self.start_scan)
-        self.scan_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         controls_layout.addWidget(self.scan_btn)
 
         # Add "Load to Archive Browser" button (initially hidden)
         self.load_to_archive_btn = QPushButton("📂 Завантажити файли до огляду архівів")
         self.load_to_archive_btn.setVisible(False)
         self.load_to_archive_btn.clicked.connect(self.load_scan_results_to_archive)
-        self.load_to_archive_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         controls_layout.addWidget(self.load_to_archive_btn)
 
         controls_layout.addStretch()
@@ -1561,7 +1523,9 @@ class CleanupHelperWidget(QWidget):
         self.file_types_table = QTableWidget()
         self.file_types_table.setColumnCount(3)
         self.file_types_table.setHorizontalHeaderLabels(["Розширення", "Кількість", "Розмір"])
-        self.file_types_table.horizontalHeader().setStretchLastSection(True)
+        self.file_types_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.file_types_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.file_types_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.file_types_table.setMaximumHeight(200)
 
         file_types_layout = QVBoxLayout(self.file_types_group)
@@ -1569,33 +1533,6 @@ class CleanupHelperWidget(QWidget):
 
         left_layout.addWidget(self.file_types_group)
 
-        # Add storage insights section
-        self.insights_group = QGroupBox("💡 Інсайти зберігання")
-        self.insights_group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #9b59b6;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #9b59b6;
-            }
-        """)
-
-        self.insights_text = QTextEdit()
-        self.insights_text.setMaximumHeight(120)
-        self.insights_text.setReadOnly(True)
-        self.insights_text.setPlainText("Запустіть сканування для отримання інсайтів...")
-
-        insights_layout = QVBoxLayout(self.insights_group)
-        insights_layout.addWidget(self.insights_text)
-
-        left_layout.addWidget(self.insights_group)
         left_layout.addStretch()
 
         # Right side - Large files list
@@ -1629,19 +1566,6 @@ class CleanupHelperWidget(QWidget):
 
         self.export_btn = QPushButton("📥 Експорт")
         self.export_btn.clicked.connect(self.export_analytics)
-        self.export_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #219a52;
-            }
-        """)
         large_files_controls.addWidget(self.export_btn)
 
         large_files_controls.addStretch()
@@ -1731,34 +1655,10 @@ class CleanupHelperWidget(QWidget):
         search_btn = QPushButton("Пошук")
         search_btn.setObjectName("search_button")
         search_btn.clicked.connect(self.refresh_archive_tree)
-        search_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         search_layout.addWidget(search_btn)
 
         clear_search_btn = QPushButton("Очистити")
         clear_search_btn.clicked.connect(self.reset_all_filters)
-        clear_search_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #95a5a6;
-                color: white;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #7f8c8d;
-            }
-        """)
         search_layout.addWidget(clear_search_btn)
 
         search_layout.addStretch()
@@ -1801,41 +1701,57 @@ class CleanupHelperWidget(QWidget):
         """)
         layout.addWidget(self.archive_status_label)
 
+        # Mode indicator and return button (hidden by default)
+        self.mode_indicator_label = QLabel("📂 Звичайний режим")
+        self.mode_indicator_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #27ae60;
+                padding: 6px 12px;
+                background-color: #d5f4e6;
+                border-radius: 4px;
+                border: 1px solid #27ae60;
+                font-weight: bold;
+            }
+        """)
+        self.mode_indicator_label.setVisible(False)
+        layout.addWidget(self.mode_indicator_label)
+
         # Action buttons
         actions_layout = QHBoxLayout()
 
-    
+
         open_btn = QPushButton("📂 Відкрити місцезнаходження")
         open_btn.clicked.connect(self.open_selected_location)
-        open_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         actions_layout.addWidget(open_btn)
 
         restore_btn = QPushButton("↩️ Відновити на стіл")
         restore_btn.clicked.connect(self.restore_selected_file)
-        restore_btn.setStyleSheet("""
+        actions_layout.addWidget(restore_btn)
+
+        # Add "Find Duplicates" button
+        find_dup_btn = QPushButton("🔍 Знайти дублікати")
+        find_dup_btn.clicked.connect(self.send_selection_to_duplicate_finder)
+        actions_layout.addWidget(find_dup_btn)
+
+        # Add "Return to normal mode" button (hidden by default)
+        self.return_to_normal_btn = QPushButton("↩️ Повернутися до звичайного режиму")
+        self.return_to_normal_btn.setStyleSheet("""
             QPushButton {
-                background-color: #a0a0a0;
+                background-color: #e74c3c;
                 color: white;
                 border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #808080;
+                background-color: #c0392b;
             }
         """)
-        actions_layout.addWidget(restore_btn)
+        self.return_to_normal_btn.clicked.connect(self.switch_to_normal_mode)
+        self.return_to_normal_btn.setVisible(False)
+        actions_layout.addWidget(self.return_to_normal_btn)
 
         actions_layout.addStretch()
         layout.addLayout(actions_layout)
@@ -1843,25 +1759,6 @@ class CleanupHelperWidget(QWidget):
         # Filter toggle button
         self.filter_toggle_btn = QPushButton("⌃ ⌃ ⌃ Фільтри ⌃ ⌃ ⌃")
         self.filter_toggle_btn.clicked.connect(self.toggle_filters)
-        self.filter_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(52, 73, 94, 0.8);
-                color: white;
-                border: 1px solid rgba(52, 73, 94, 0.5);
-                padding: 4px 8px;
-                border-radius: 3px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(44, 62, 80, 0.9);
-                border: 1px solid rgba(44, 62, 80, 0.7);
-            }
-            QPushButton:pressed {
-                background-color: rgba(26, 37, 47, 0.9);
-                border: 1px solid rgba(26, 37, 47, 0.7);
-            }
-        """)
         layout.addWidget(self.filter_toggle_btn)
 
         # Filter controls (collapsible)
@@ -1876,112 +1773,28 @@ class CleanupHelperWidget(QWidget):
         # Oil & Gas Engineering filter (prominent)
         oil_gas_btn = QPushButton("⛽ Нафтогазова інженерія")
         oil_gas_btn.clicked.connect(lambda: self.apply_quick_filter("oil_gas"))
-        oil_gas_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #d35400;
-            }
-            QPushButton:pressed {
-                background-color: #a04000;
-            }
-        """)
         primary_filters_layout.addWidget(oil_gas_btn)
 
         # Common file type filters
         images_btn = QPushButton("🖼️ Зображення")
         images_btn.clicked.connect(lambda: self.apply_quick_filter("images"))
-        oil_gas_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #d35400;
-            }
-            QPushButton:pressed {
-                background-color: #a04000;
-            }
-        """)
         primary_filters_layout.addWidget(images_btn)
 
         documents_btn = QPushButton("📄 Документи")
         documents_btn.clicked.connect(lambda: self.apply_quick_filter("documents"))
-        documents_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         primary_filters_layout.addWidget(documents_btn)
 
         video_btn = QPushButton("🎥 Відео")
         video_btn.clicked.connect(lambda: self.apply_quick_filter("video"))
-        video_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         primary_filters_layout.addWidget(video_btn)
 
         archives_btn = QPushButton("📦 Архіви")
         archives_btn.clicked.connect(lambda: self.apply_quick_filter("archives"))
-        archives_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         primary_filters_layout.addWidget(archives_btn)
 
         # More Filters button (inline with other filters)
         more_filters_btn = QPushButton("⚙️ Більше фільтрів...")
         more_filters_btn.clicked.connect(self.open_advanced_filter_presets)
-        more_filters_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #606060;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #404040;
-            }
-        """)
         primary_filters_layout.addWidget(more_filters_btn)
 
         primary_filters_layout.addStretch()
@@ -2020,19 +1833,6 @@ class CleanupHelperWidget(QWidget):
 
         self.find_duplicates_btn = QPushButton("🔍 Знайти дублікати")
         self.find_duplicates_btn.clicked.connect(self.find_duplicates)
-        self.find_duplicates_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-        """)
         controls_layout.addWidget(self.find_duplicates_btn)
 
         controls_layout.addStretch()
@@ -2050,31 +1850,6 @@ class CleanupHelperWidget(QWidget):
 
         self.check_content_hash = QCheckBox("Порівнювати вміст файлів (повільніше, але точніше)")
         self.check_content_hash.setChecked(True)
-        self.check_content_hash.setStyleSheet("""
-            QCheckBox {
-                font-size: 11px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 13px;
-                height: 13px;
-                border: 1px solid #6C6C6C;
-                background-color: #FFFFFF;
-                border-radius: 0px;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #FFFFFF;
-                border: 1px solid #6C6C6C;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
-            }
-            QCheckBox::indicator:hover {
-                border: 1px solid #0078D4;
-            }
-            QCheckBox::indicator:pressed {
-                background-color: #F0F0F0;
-                border: 1px solid #6C6C6C;
-            }
-        """)
         options_layout.addWidget(self.check_content_hash)
 
         options_layout.addStretch()
@@ -2106,12 +1881,6 @@ class CleanupHelperWidget(QWidget):
 
         delete_selected_btn = QPushButton("🗑️ Видалити вибране")
         delete_selected_btn.clicked.connect(self.delete_selected_duplicates)
-        delete_selected_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-            }
-        """)
         duplicate_actions_layout.addWidget(delete_selected_btn)
 
         duplicate_actions_layout.addStretch()
@@ -2221,18 +1990,6 @@ class CleanupHelperWidget(QWidget):
         if not COMPRESS_AVAILABLE:
             install_compress_btn = QPushButton("Встановити compress package")
             install_compress_btn.clicked.connect(self.install_compress_package)
-            install_compress_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #ffc107;
-                    color: #212529;
-                    padding: 5px 10px;
-                    border-radius: 3px;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: #e0a800;
-                }
-            """)
             status_layout.addWidget(install_compress_btn)
 
         status_layout.addStretch()
@@ -2284,20 +2041,6 @@ class CleanupHelperWidget(QWidget):
 
         self.compress_btn = QPushButton("🗜️ Стиснути файли")
         self.compress_btn.clicked.connect(self.compress_files)
-        self.compress_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #9b59b6;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #808080;
-            }
-        """)
         actions_layout.addWidget(self.compress_btn)
 
         clear_files_btn = QPushButton("Очистити вибір")
@@ -2335,59 +2078,9 @@ class CleanupHelperWidget(QWidget):
 
         self.auto_detect_archives = QCheckBox("Автоматично визначати папки архівів")
         self.auto_detect_archives.setChecked(True)
-        self.auto_detect_archives.setStyleSheet("""
-            QCheckBox {
-                font-size: 11px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 13px;
-                height: 13px;
-                border: 1px solid #6C6C6C;
-                background-color: #FFFFFF;
-                border-radius: 0px;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #FFFFFF;
-                border: 1px solid #6C6C6C;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
-            }
-            QCheckBox::indicator:hover {
-                border: 1px solid #0078D4;
-            }
-            QCheckBox::indicator:pressed {
-                background-color: #F0F0F0;
-                border: 1px solid #6C6C6C;
-            }
-        """)
         general_layout.addWidget(self.auto_detect_archives, 1, 0, 1, 3)
 
         self.show_hidden_files = QCheckBox("Показувати приховані файли в оглядачі")
-        self.show_hidden_files.setStyleSheet("""
-            QCheckBox {
-                font-size: 11px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 13px;
-                height: 13px;
-                border: 1px solid #6C6C6C;
-                background-color: #FFFFFF;
-                border-radius: 0px;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #FFFFFF;
-                border: 1px solid #6C6C6C;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
-            }
-            QCheckBox::indicator:hover {
-                border: 1px solid #0078D4;
-            }
-            QCheckBox::indicator:pressed {
-                background-color: #F0F0F0;
-                border: 1px solid #6C6C6C;
-            }
-        """)
         general_layout.addWidget(self.show_hidden_files, 2, 0, 1, 3)
 
         layout.addWidget(general_group)
@@ -2424,31 +2117,6 @@ class CleanupHelperWidget(QWidget):
 
         self.enable_caching = QCheckBox("Enable file caching")
         self.enable_caching.setChecked(True)
-        self.enable_caching.setStyleSheet("""
-            QCheckBox {
-                font-size: 11px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 13px;
-                height: 13px;
-                border: 1px solid #6C6C6C;
-                background-color: #FFFFFF;
-                border-radius: 0px;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #FFFFFF;
-                border: 1px solid #6C6C6C;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEgNkw0LjUgOS41TDEwLjUgMy41IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPg==);
-            }
-            QCheckBox::indicator:hover {
-                border: 1px solid #0078D4;
-            }
-            QCheckBox::indicator:pressed {
-                background-color: #F0F0F0;
-                border: 1px solid #6C6C6C;
-            }
-        """)
         performance_layout.addWidget(self.enable_caching, 1, 0, 1, 2)
 
         layout.addWidget(performance_group)
@@ -2458,14 +2126,6 @@ class CleanupHelperWidget(QWidget):
 
         save_settings_btn = QPushButton("💾 Save Settings")
         save_settings_btn.clicked.connect(self.save_settings)
-        save_settings_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #808080;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }
-        """)
         actions_layout.addWidget(save_settings_btn)
 
         reset_settings_btn = QPushButton("🔄 Reset to Defaults")
@@ -2478,6 +2138,9 @@ class CleanupHelperWidget(QWidget):
         layout.addStretch()
 
         self.tab_widget.addTab(tab, "⚙️ Налаштування")
+
+        # Load saved settings
+        self.load_settings()
 
     # === UI Action Methods ===
 
@@ -2692,14 +2355,106 @@ class CleanupHelperWidget(QWidget):
 
         # Update status and hide progress
         self.archive_status_label.setText(f"📊 Режим перегляду результатів аналітики: {len(scanned_files)} файлів")
-        
+
         # Set a special flag to indicate this is analytics data
         self.is_showing_analytics_results = True
+
+        # Show analytics mode indicator
+        self.mode_indicator_label.setText("📊 Режим аналітики")
+        self.mode_indicator_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #9b59b6;
+                padding: 6px 12px;
+                background-color: #e8daef;
+                border-radius: 4px;
+                border: 1px solid #9b59b6;
+                font-weight: bold;
+            }
+        """)
+        self.mode_indicator_label.setVisible(True)
+
+        # Show "Return to normal mode" button
+        self.return_to_normal_btn.setVisible(True)
+
+        # Hide "Find Duplicates" button in analytics mode
+        for i in range(self.archive_tree.columnCount()):
+            self.archive_tree.resizeColumnToContents(i)
 
         # Show success message
         QMessageBox.information(self, "Завантаження завершено",
                                f"Завантажено {len(scanned_files)} файлів до огляду архівів.\n\n"
                                f"Файли згруповані за каталогами для зручного перегляду.")
+
+    def switch_to_normal_mode(self):
+        """Clear analytics results and return to normal archive browsing"""
+        # Clear analytics mode flag
+        self.is_showing_analytics_results = False
+
+        # Clear the tree
+        self.archive_tree.clear()
+
+        # Reset status and mode indicators
+        self.archive_status_label.setText("Готовий до пошуку та фільтрації")
+
+        # Hide analytics mode indicator
+        self.mode_indicator_label.setVisible(False)
+
+        # Hide return to normal button
+        self.return_to_normal_btn.setVisible(False)
+
+        # Reload normal archive view
+        self.refresh_archive_tree()
+
+        # Log the mode change
+        if hasattr(self.main_window, 'log_message'):
+            self.main_window.log_message("CleanupHelper: Переключено на звичайний режим перегляду архівів")
+
+    def send_selection_to_duplicate_finder(self):
+        """Send selected files to duplicate finder tab"""
+        # Get selected items from archive tree
+        selected_items = self.archive_tree.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть файли для пошуку дублікатів.")
+            return
+
+        # Check if we're in analytics mode - don't allow duplicate search in analytics mode
+        if self.is_showing_analytics_results:
+            QMessageBox.information(self, "Інформація",
+                "У режимі аналітики пошук дублікатів недоступний.\n"
+                "Спочатку поверніться до звичайного режиму.")
+            return
+
+        # Extract unique directory paths from selected items
+        directories = set()
+        for item in selected_items:
+            file_path = item.text(4)  # Column 4 contains the full path
+            if file_path and os.path.exists(file_path):
+                if os.path.isfile(file_path):
+                    directories.add(os.path.dirname(file_path))
+                elif os.path.isdir(file_path):
+                    directories.add(file_path)
+
+        if not directories:
+            QMessageBox.warning(self, "Попередження", "Не вдалося визначити шлях для пошуку дублікатів.")
+            return
+
+        # Use the first selected directory (or working path if none selected)
+        search_path = directories.pop() if directories else self.working_path
+        # Add back any remaining directories if multiple
+        for d in directories:
+            search_path = self.working_path  # If multiple dirs, use working path instead
+
+        # Switch to duplicate finder tab (index 2)
+        self.tab_widget.setCurrentIndex(2)
+
+        # Set the search path in duplicate finder
+        if hasattr(self, 'duplicate_path_edit'):
+            self.duplicate_path_edit.setText(search_path)
+
+        # Log the action
+        if hasattr(self.main_window, 'log_message'):
+            self.main_window.log_message(f"CleanupHelper: Переключено на пошук дублікатів: {search_path}")
 
     def _populate_archive_tree_from_scan_results(self, directory_tree: dict, parent_item: QTreeWidgetItem):
         """Populate archive tree with scan results grouped by directory"""
@@ -2778,96 +2533,6 @@ class CleanupHelperWidget(QWidget):
 
         # Store current analytics data for export and filtering
         self.current_analytics_data = results
-
-        # Generate and display insights
-        self.generate_insights(results)
-
-    def generate_insights(self, results):
-        """Generate storage insights from scan results"""
-        try:
-            insights = []
-
-            # File count insights
-            total_files = results['total_files']
-            if total_files == 0:
-                insights.append("📁 Немає файлів для аналізу")
-            else:
-                insights.append(f"📁 Всього знайдено {total_files:,} файлів")
-
-                # Size insights
-                total_size = results['total_size']
-                if total_size > 0:
-                    insights.append(f"💾 Загальний розмір: {humanize.naturalsize(total_size)}")
-
-                    # Average file size
-                    avg_size = total_size / total_files
-                    insights.append(f"📏 Середній розмір файлу: {humanize.naturalsize(avg_size)}")
-
-                    # Storage efficiency
-                    if total_size > 1024**3:  # More than 1GB
-                        insights.append(f"⚠️ Великий обсяг даних ({humanize.naturalsize(total_size)}) - рекомендується очищення")
-
-                # File types insights
-                file_types = results['file_types']
-                if file_types:
-                    # Most common file type
-                    most_common = max(file_types.items(), key=lambda x: x[1]['count'])
-                    insights.append(f"🏷️ Найпоширеніший тип: {most_common[0] or '(без розширення)'} ({most_common[1]['count']} файлів)")
-
-                    # Largest file type by size
-                    largest_type = max(file_types.items(), key=lambda x: x[1]['size'])
-                    insights.append(f"📊 Найбільший тип за розміром: {largest_type[0] or '(без розширення)'} ({humanize.naturalsize(largest_type[1]['size'])})")
-
-                    # File type diversity
-                    type_count = len(file_types)
-                    if type_count > 20:
-                        insights.append(f"🌈 Висока різноманітність типів файлів ({type_count} типів)")
-                    elif type_count > 10:
-                        insights.append(f"📂 Середня різноманітність файлів ({type_count} типів)")
-                    else:
-                        insights.append(f"📦 Низька різноманітність файлів ({type_count} типів)")
-
-                # Large files insights
-                large_files = results['large_files']
-                if large_files:
-                    large_count = len(large_files)
-                    large_size = sum(f['size'] for f in large_files)
-                    insights.append(f"🔍 {large_count} великих файлів (>10МБ) займають {humanize.naturalsize(large_size)}")
-
-                    # Storage impact
-                    if total_size > 0:
-                        large_percentage = (large_size / total_size) * 100
-                        if large_percentage > 50:
-                            insights.append(f"⚠️ Великі файли становлять {large_percentage:.1f}% усього місця - рекомендується очищення")
-                        elif large_percentage > 20:
-                            insights.append(f"💡 Великі файли становлять {large_percentage:.1f}% усього місця")
-
-                    # Largest file
-                    largest_file = max(large_files, key=lambda x: x['size'])
-                    insights.append(f"🗄️ Найбільший файл: {largest_file['name']} ({humanize.naturalsize(largest_file['size'])})")
-
-                # Recommendations
-                insights.append("\n💡 Рекомендації:")
-
-                if large_files:
-                    insights.append("  • Розгляньте видалення або архівацію великих файлів")
-
-                if total_size > 10 * 1024**3:  # More than 10GB
-                    insights.append("  • Розгляньте переміщення старих файлів на зовнішній носій")
-
-                if len(file_types) > 15:
-                    insights.append("  • Організуйте файли по типах для кращої структури")
-
-                if total_files > 10000:
-                    insights.append("  • Використовуйте фільтрацію та пошук для навігації")
-
-            # Display insights
-            if hasattr(self, 'insights_text'):
-                self.insights_text.setPlainText('\n'.join(insights))
-
-        except Exception as e:
-            if hasattr(self, 'insights_text'):
-                self.insights_text.setPlainText(f"❌ Помилка генерації інсайтів: {str(e)}")
 
 
     def filter_large_files(self, text):
@@ -3431,6 +3096,21 @@ class CleanupHelperWidget(QWidget):
 
     def refresh_archive_tree(self, search_term: str = ""):
         """Refresh the archive tree view with optional search and category filtering"""
+        # If in analytics mode, ask user if they want to switch to normal mode first
+        if getattr(self, 'is_showing_analytics_results', False):
+            reply = QMessageBox.question(
+                self, "Режим аналітики",
+                "Ви перебуваєте в режимі перегляду результатів аналітики.\n\n"
+                "Бажаєте очистити результати та переключитися на звичайний режим?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.switch_to_normal_mode()
+                return  # switch_to_normal_mode will call refresh internally
+            else:
+                return  # User chose to stay in analytics mode
+
         # Determine scan path
         scan_path = getattr(self, 'archive_scan_path', self.working_path)
         if not scan_path or not os.path.exists(scan_path):
@@ -3460,6 +3140,9 @@ class CleanupHelperWidget(QWidget):
                 self.show_archive_splash("📂 Пошук в архівах...", f"Пошук: '{search_term}'...")
             else:
                 self.show_archive_splash("🔄 Оновлення архіву...", "Оновлення списку файлів...")
+
+        # Clear tree before rebuilding to prevent duplicates
+        self.archive_tree.clear()
 
         # Stop any existing tree building thread
         if hasattr(self, 'tree_builder_thread') and self.tree_builder_thread:
@@ -3931,93 +3614,86 @@ class CleanupHelperWidget(QWidget):
         def _build_from_cache(cache_dict: dict, parent_item: QTreeWidgetItem, search_term: str):
             """Recursively build tree from cache"""
             for item_name, item_data in cache_dict.items():
-                if item_data['is_dir']:
+                is_dir = item_data['is_dir']
+
+                if is_dir:
                     # For directories, check both original name and display name
                     folder_info = self.identify_folder_structure(item_data['path'])
                     dir_matches = not search_term or self._matches_search_term(search_term, folder_info['name'])
 
-                    if not dir_matches:
-                        # Directory doesn't match search term, but search children recursively
-                        if 'children' in item_data:
-                            _build_from_cache(item_data['children'], parent_item, search_term)
-                        continue
-                else:
-                    # For files, check if they match search term
-                    if search_term and not self._matches_search_term(search_term, item_data['name_lower']):
-                        continue
-
-                if item_data['is_dir']:
-                    # Create directory item
+                    # Create directory item (always, to preserve tree structure)
                     dir_item = QTreeWidgetItem(parent_item)
-                    display_name = folder_info['name']
+                    # Include icon emoji in text (like the working _build_tree_recursive does)
+                    display_name = f"{folder_info['icon']} {folder_info['name']}"
                     dir_item.setText(0, display_name)
                     dir_item.setText(1, "Папка")
                     dir_item.setText(2, "")
                     dir_item.setText(3, folder_info['type'])
                     dir_item.setText(4, item_data['path'])
 
-                    # Set folder icon properly
-                    try:
-                        dir_item.setIcon(0, QIcon(folder_info['icon']))
-                    except:
-                        dir_item.setIcon(0, QIcon("📁"))
+                    # Recursively add children (filtered by search term)
+                    if 'children' in item_data:
+                        _build_from_cache(item_data['children'], dir_item, search_term)
 
-                    # Count items
-                    try:
-                        sub_items = len(item_data.get('children', {}))
-                        dir_item.setText(1, f"Папка ({sub_items} елементів)")
-                    except:
+                        # Update item count after building children
+                        try:
+                            sub_items = len(item_data.get('children', {}))
+                            if sub_items > 0:
+                                dir_item.setText(1, f"Папка ({sub_items} елементів)")
+                        except:
+                            pass
+                    else:
                         dir_item.setText(1, "Папка")
 
-                else:
-                    # Create file item
-                    file_item = QTreeWidgetItem(parent_item)
-                    try:
-                        # Use cached values instead of filesystem calls
-                        file_category = self.get_file_category(item_data['path'])
-                        _, file_ext = os.path.splitext(item_name)
-                        file_icon = self.get_file_icon(item_data['path'], file_ext)
-                        display_name = item_name
+                    # If directory doesn't match and no children matched, remove the empty folder
+                    if not dir_matches and dir_item.childCount() == 0:
+                        parent_item.removeChild(dir_item)
 
-                        file_item.setText(0, display_name)
+                    continue
 
-                        # Use cached size
-                        if 'size' in item_data and item_data['size'] is not None:
-                            file_size = item_data['size']
-                            try:
-                                import humanize
-                                file_item.setText(1, humanize.naturalsize(file_size))
-                            except ImportError:
-                                size_mb = file_size / (1024 * 1024)
-                                if size_mb < 1:
-                                    file_item.setText(1, f"{file_size / 1024:.1f} KB")
-                                else:
-                                    file_item.setText(1, f"{size_mb:.1f} MB")
-                        else:
-                            file_item.setText(1, "Розмір невідомий")
+                # For files (not directories), create file item
+                file_item = QTreeWidgetItem(parent_item)
+                try:
+                    # Use cached values instead of filesystem calls
+                    file_category = self.get_file_category(item_data['path'])
+                    _, file_ext = os.path.splitext(item_name)
+                    file_icon = self.get_file_icon(item_data['path'], file_ext)
+                    # Include icon emoji in text (like the working _build_tree_recursive does)
+                    display_name = f"{file_icon} {item_name}"
 
-                        # Use cached modified time
-                        if 'modified' in item_data and item_data['modified']:
-                            file_item.setText(2, item_data['modified'])
-                        else:
-                            file_item.setText(2, "")
+                    file_item.setText(0, display_name)
 
-                        file_item.setText(3, file_category)
-                        file_item.setText(4, item_data['path'])
-
-                        # Set file icon
+                    # Use cached size
+                    if 'size' in item_data and item_data['size'] is not None:
+                        file_size = item_data['size']
                         try:
-                            file_item.setIcon(0, QIcon(file_icon))
-                        except:
-                            file_item.setIcon(0, QIcon("📄"))
-
-                    except Exception:
-                        file_item.setText(0, item_name)
+                            import humanize
+                            file_item.setText(1, humanize.naturalsize(file_size))
+                        except ImportError:
+                            size_mb = file_size / (1024 * 1024)
+                            if size_mb < 1:
+                                file_item.setText(1, f"{file_size / 1024:.1f} KB")
+                            else:
+                                file_item.setText(1, f"{size_mb:.1f} MB")
+                    else:
                         file_item.setText(1, "Розмір невідомий")
+
+                    # Use cached modified time
+                    if 'modified' in item_data and item_data['modified']:
+                        file_item.setText(2, item_data['modified'])
+                    else:
                         file_item.setText(2, "")
-                        file_item.setText(3, "Файл")
-                        file_item.setText(4, item_data['path'])
-                        file_item.setIcon(0, QIcon("📄"))
+
+                    file_item.setText(3, file_category)
+                    file_item.setText(4, item_data['path'])
+
+                except Exception:
+                    # Include default file icon in text
+                    file_item.setText(0, f"📄 {item_name}")
+                    file_item.setText(1, "Розмір невідомий")
+                    file_item.setText(2, "")
+                    file_item.setText(3, "Файл")
+                    file_item.setText(4, item_data['path'])
 
         _build_from_cache(self._file_cache, self.archive_tree.invisibleRootItem(), search_term)
 
@@ -4620,6 +4296,41 @@ class CleanupHelperWidget(QWidget):
             self.old_file_threshold_spin.setValue(365)
             self.thread_count_spin.setValue(4)
             self.enable_caching.setChecked(True)
+
+    def load_settings(self):
+        """Load module settings from file"""
+        try:
+            settings_file = os.path.join(
+                os.path.expanduser("~"),
+                ".DesktopOrganizer",
+                "cleanup_helper_settings.json"
+            )
+
+            if not os.path.exists(settings_file):
+                return  # Use defaults
+
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+
+            # Apply loaded settings to UI
+            if 'default_scan_path' in settings:
+                self.default_scan_path_edit.setText(settings['default_scan_path'])
+            if 'auto_detect_archives' in settings:
+                self.auto_detect_archives.setChecked(settings['auto_detect_archives'])
+            if 'show_hidden_files' in settings:
+                self.show_hidden_files.setChecked(settings['show_hidden_files'])
+            if 'large_file_threshold_mb' in settings:
+                self.large_file_threshold_spin.setValue(settings['large_file_threshold_mb'])
+            if 'old_file_threshold_days' in settings:
+                self.old_file_threshold_spin.setValue(settings['old_file_threshold_days'])
+            if 'thread_count' in settings:
+                self.thread_count_spin.setValue(settings['thread_count'])
+            if 'enable_caching' in settings:
+                self.enable_caching.setChecked(settings['enable_caching'])
+
+        except Exception as e:
+            print(f"Failed to load settings: {e}")
+            # Silently fail - use defaults
 
     # === Archive Browser Context Menu Methods ===
 

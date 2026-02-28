@@ -5,7 +5,7 @@
   "description": "Модуль для перевірки стану ліцензій та моніторингу системи",
   "author": "Desktop Organizer Team",
   "category": "Security",
-  "menu_text": "Перевірка стану ліцензії...",
+  "menu_text": "Перевірка стану ліцензії",
   "main_class": "LicenseCheckerUI",
   "dependencies": [
     "PyYAML>=6.0"
@@ -310,7 +310,7 @@ class LicenseCheckerUI(QWidget):
         edit_icon = style.standardIcon(QStyle.SP_FileDialogDetailedView) if style else QIcon()
         self.refresh_action = QAction(refresh_icon, "Refresh", self)
         self.refresh_action.triggered.connect(self.refresh_licenses)
-        self.edit_action = QAction(edit_icon, "Edit Checks...", self)
+        self.edit_action = QAction(edit_icon, "Edit Checks", self)
         self.edit_action.triggered.connect(self.open_edit_checks_dialog)
         toolbar.addAction(self.refresh_action)
         toolbar.addAction(self.edit_action)
@@ -340,7 +340,7 @@ class LicenseCheckerUI(QWidget):
         self.tree.clear()
         self.refresh_action.setEnabled(False)
         self.edit_action.setEnabled(False)
-        self.status_label.setText("Running license checks...")
+        self.status_label.setText("Running license checks")
         self.worker = LicenseWorker(self.checker)
         self.worker.result_ready.connect(self.update_tree)
         self.worker.finished.connect(self.on_worker_finished)

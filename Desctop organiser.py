@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QProgressDialog, QSystemTrayIcon, QMenu, QProgressBar, QSizePolicy, QStyleOptionButton, QFrame
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QObject, QRect, QDateTime, QCoreApplication, QMetaType
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush, QKeySequence, QPainterPath, QPalette
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPixmap, QBrush, QKeySequence, QPainterPath, QPalette, QIcon
 from PyQt5.QtWidgets import QStyle
 
 # Register custom meta types to avoid QVector<int> warnings
@@ -40,55 +40,6 @@ except ImportError:
         pass  # Final fallback
 
 
-class WindowsCheckBox(QCheckBox):
-    """Custom checkbox with Windows-style checkmark"""
-
-    def __init__(self, text: str, parent=None):
-        super().__init__(text, parent)
-        # Set larger checkbox size
-        self.setStyleSheet("WindowsCheckBox { spacing: 10px; }")
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Get the rectangle for the indicator and make it bigger
-        option = QStyleOptionButton()
-        option.initFrom(self)
-        rect = self.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, self)
-
-        # Make checkbox bigger - expand from default 13x13 to 20x20
-        checkbox_size = 20
-        rect = QRect(rect.left(), rect.top(), checkbox_size, checkbox_size)
-
-        # Draw unchecked state
-        if not self.isChecked():
-            painter.fillRect(rect, QColor("#FFFFFF"))
-            painter.setPen(QPen(QColor("#6C6C6C"), 2))
-            painter.drawRect(rect.adjusted(1, 1, -1, -1))
-        else:
-            # Draw checked state with blue background
-            painter.fillRect(rect, QColor("#0078D4"))
-            painter.setPen(QPen(QColor("#0078D4"), 2))
-            painter.drawRect(rect.adjusted(1, 1, -1, -1))
-
-            # Draw white checkmark - make it thicker and bigger
-            painter.setPen(QPen(QColor("#FFFFFF"), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            check_rect = rect.adjusted(4, 4, -4, -4)
-
-            # Draw checkmark path
-            path = QPainterPath()
-            path.moveTo(check_rect.left() + 2, check_rect.center().y())
-            path.lineTo(check_rect.left() + check_rect.width() * 0.4, check_rect.bottom() - 2)
-            path.lineTo(check_rect.right() - 2, check_rect.top() + 2)
-            painter.drawPath(path)
-
-        # Draw the text with adjusted position
-        text_rect = QRect(rect.right() + 8, rect.top(), self.width() - rect.right() - 8, rect.height())
-        painter.setPen(QPen(self.palette().text().color()))
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.text())
-
-        painter.end()
 import subprocess
 import json
 from pathlib import Path
@@ -1807,16 +1758,12 @@ class ModuleManager(QObject):
         if not self.module_info:
             return True
 
-        print("Validating module dependencies...")
         # Only refresh package cache if forced or if needed
         if force_refresh or self.should_refresh_cache():
-            print("Syncing package cache...")
             self.venv_manager._sync_installed_packages()
             # Clear package cache to force fresh checks
             if hasattr(self.venv_manager, '_package_cache'):
                 self.venv_manager._package_cache.clear()
-        else:
-            print("Using cached package information")
 
         # Debug: Check what packages are actually installed
         # Virtual environment package validation completed - packages are checked dynamically as needed
@@ -1932,10 +1879,7 @@ class ModuleManager(QObject):
 
         # Only refresh package cache if needed (first time or cache refresh required)
         if self.should_refresh_cache():
-            print(f"Initializing package cache for {module_name}...")
             self.venv_manager._sync_installed_packages()
-        else:
-            print(f"Using cached package information for {module_name}")
 
         module_info = self.module_info[module_name]
 
@@ -1967,11 +1911,8 @@ class ModuleManager(QObject):
                     print(f"⚠️ Dependencies not satisfied for {module_name}, installing...")
                     if not self.install_module_dependencies(module_name):
                         error_msg = msg_formatter.module_dependency_install_failed(module_name)
-                        print(f"❌ {error_msg}")
                         self.module_error.emit(module_name, error_msg)
                         return False
-                else:
-                    print(f"Dependencies already satisfied for {module_name}")
 
             # Ensure virtual environment paths are available for module import
             setup_venv_python_path()
@@ -2018,7 +1959,6 @@ class ModuleManager(QObject):
             module_class = getattr(module, module_info.main_class)
             self.loaded_modules[module_name] = module_class
 
-            print(f"Successfully loaded module: {module_name}")
             self.module_loaded.emit(module_name, module_class)
             return True
 
@@ -2095,13 +2035,11 @@ class ModuleManager(QObject):
         # Check if we discovered any modules
         if newly_discovered:
             module_name = list(newly_discovered.keys())[0]
-            print(f"Successfully installed and discovered module: {module_name}")
             # Try to validate and repair dependencies for the new module
             if self.validate_and_repair_dependencies():
-                print(f"Dependencies validated for {module_name}")
+                pass
             return True
         else:
-            print("Package installed but no modules were discovered")
             return False
 
     def get_package_info(self, package_path: str) -> dict:
@@ -2338,6 +2276,9 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(829, 888)
 
+        # Flag to prevent recursive calls during initialization
+        self._loading_settings = True
+
         self._setup_ui()
         self._create_tabs()
         self._setup_buttons()
@@ -2370,7 +2311,6 @@ class SettingsDialog(QDialog):
         self.create_general_tab()
         self.create_file_manager_tab()
         self.create_schedule_tab()
-        self.create_virtual_environment_tab()
 
     def _create_group_box(self, title: str, layout_type='form') -> QGroupBox:
         """Create a group box with specified layout type"""
@@ -2380,19 +2320,6 @@ class SettingsDialog(QDialog):
         else:
             layout = QVBoxLayout(group)
         return group
-
-    def _create_checkbox(self, text: str) -> QCheckBox:
-        """Create a checkbox with given text and Windows-style appearance"""
-        checkbox = WindowsCheckBox(text)
-        checkbox.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                spacing: 12px;
-                min-height: 24px;
-                padding: 2px;
-            }
-        """)
-        return checkbox
 
     def _create_spinbox(self, min_val: int, max_val: int, suffix: str = '') -> QSpinBox:
         """Create a spinbox with range and optional suffix"""
@@ -2474,7 +2401,7 @@ class SettingsDialog(QDialog):
 
     def _setup_timer_controls(self, layout):
         """Setup timer-related controls"""
-        self.chk_override_timer = WindowsCheckBox("Перевизначити тривалість таймера за замовчуванням")
+        self.chk_override_timer = QCheckBox("Перевизначити тривалість таймера за замовчуванням")
         self.spin_default_timer = self._create_spinbox(1, 60, " хвилин")
         self.chk_override_timer.toggled.connect(self.spin_default_timer.setEnabled)
         layout.addRow(self.chk_override_timer)
@@ -2514,45 +2441,21 @@ class SettingsDialog(QDialog):
 
         # Startup behavior
         startup_layout = QHBoxLayout()
-        self.chk_enable_autostart = WindowsCheckBox("Автоматично запускати таймер при старті")
-        self.chk_enable_autostart.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                spacing: 12px;
-                min-height: 24px;
-                padding: 2px;
-            }
-        """)
+        self.chk_enable_autostart = QCheckBox("Автоматично запускати таймер при старті")
         startup_layout.addWidget(self.chk_enable_autostart)
         startup_layout.addStretch()
         layout.addLayout(startup_layout)
 
         # Notification settings
         notification_layout = QHBoxLayout()
-        self.chk_enable_notifications = WindowsCheckBox("Показувати сповіщення при організації")
-        self.chk_enable_notifications.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                spacing: 12px;
-                min-height: 24px;
-                padding: 2px;
-            }
-        """)
+        self.chk_enable_notifications = QCheckBox("Показувати сповіщення при організації")
         notification_layout.addWidget(self.chk_enable_notifications)
         notification_layout.addStretch()
         layout.addLayout(notification_layout)
 
         # Minimize to tray
         tray_layout = QHBoxLayout()
-        self.chk_minimize_to_tray = WindowsCheckBox("Мінімізувати в трей при закритті")
-        self.chk_minimize_to_tray.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                spacing: 12px;
-                min-height: 24px;
-                padding: 2px;
-            }
-        """)
+        self.chk_minimize_to_tray = QCheckBox("Мінімізувати в трей при закритті")
         tray_layout.addWidget(self.chk_minimize_to_tray)
         tray_layout.addStretch()
         layout.addLayout(tray_layout)
@@ -2568,7 +2471,7 @@ class SettingsDialog(QDialog):
                 font-size: 12px;
                 border: 2px solid black;
                 border-radius: 2px;
-                margin-top: 10px;
+                margin-top: 0px;
                 padding-top: 10px;
                 background-color: #fafafa;
             }
@@ -2580,21 +2483,12 @@ class SettingsDialog(QDialog):
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(15)
-        layout.setContentsMargins(15, 20, 15, 15)
+        layout.setSpacing(5)
+        layout.setContentsMargins(15, 10, 15, 15)
 
         # Timer override settings
         override_layout = QHBoxLayout()
-        self.chk_override_timer = WindowsCheckBox("Перевизначити тривалість таймера за замовчуванням")
-        self.chk_override_timer.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                spacing: 12px;
-                min-height: 24px;
-                padding: 2px;
-                font-weight: bold;
-            }
-        """)
+        self.chk_override_timer = QCheckBox("Перевизначити тривалість таймера за замовчуванням")
         override_layout.addWidget(self.chk_override_timer)
         override_layout.addStretch()
         layout.addLayout(override_layout)
@@ -2674,7 +2568,7 @@ class SettingsDialog(QDialog):
                 font-size: 12px;
                 border: 2px solid black;
                 border-radius: 2px;
-                margin-top: 10px;
+                margin-top: 0px;
                 padding-top: 10px;
                 background-color: #fafafa;
             }
@@ -2686,13 +2580,13 @@ class SettingsDialog(QDialog):
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(8)  # More compact spacing
-        layout.setContentsMargins(10, 12, 10, 10)  # More compact margins
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 5, 10, 10)
 
         # Drive selection
         drive_selection_layout = QVBoxLayout()
         drive_label = QLabel("Управління зберіганням:")
-        drive_label.setStyleSheet("font-weight: bold; font-size: 10px; color: #333; margin-bottom: 3px;")
+        drive_label.setStyleSheet("font-weight: bold; font-size: 10px; color: #333;")
         drive_selection_layout.addWidget(drive_label)
 
         # Create horizontal layout for radio buttons with indentation
@@ -3109,17 +3003,17 @@ class SettingsDialog(QDialog):
             }
         """)
         layout = QVBoxLayout(group)
-        layout.setSpacing(15)
-        layout.setContentsMargins(18, 25, 18, 18)
+        layout.setSpacing(5)
+        layout.setContentsMargins(18, 10, 18, 18)
 
         # === Швидкі Дії Section ===
         quick_actions_label = QLabel("🚀 Швидкі Дії")
-        quick_actions_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #333; margin-bottom: 8px; padding-left: 5px;")
+        quick_actions_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #333;")
         layout.addWidget(quick_actions_label)
 
         # Quick actions dropdown with indentation
         actions_layout = QHBoxLayout()
-        actions_layout.setContentsMargins(10, 0, 0, 0)  # Indentation
+        actions_layout.setContentsMargins(0, 0, 0, 0)
 
         self.quick_actions_dropdown = QComboBox()
         self.quick_actions_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -3141,7 +3035,7 @@ class SettingsDialog(QDialog):
 
         # Autorun status label with indentation
         autorun_status_layout = QHBoxLayout()
-        autorun_status_layout.setContentsMargins(10, 0, 0, 0)  # Indentation
+        autorun_status_layout.setContentsMargins(0, 0, 0, 0)
         self.autorun_status_label = QLabel("Статус автозапуску: Вимкнено")
         self.autorun_status_label.setStyleSheet("font-size: 10px; color: #666; padding: 5px;")
         autorun_status_layout.addWidget(self.autorun_status_label)
@@ -3165,13 +3059,7 @@ class SettingsDialog(QDialog):
         # Startup behavior with indentation
         startup_layout = QHBoxLayout()
         startup_layout.setContentsMargins(10, 0, 0, 0)  # Indentation
-        self.chk_enable_autostart = WindowsCheckBox("Автоматично запускати таймер при старті")
-        self.chk_enable_autostart.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                color: black;
-            }
-        """)
+        self.chk_enable_autostart = QCheckBox("Автоматично запускати таймер при старті")
         startup_layout.addWidget(self.chk_enable_autostart)
         startup_layout.addStretch()
         layout.addLayout(startup_layout)
@@ -3179,13 +3067,7 @@ class SettingsDialog(QDialog):
         # Minimize to tray behavior with indentation
         tray_layout = QHBoxLayout()
         tray_layout.setContentsMargins(10, 0, 0, 0)  # Indentation
-        self.chk_minimize_to_tray = WindowsCheckBox("Мінімізувати в системний трей при закритті")
-        self.chk_minimize_to_tray.setStyleSheet("""
-            WindowsCheckBox {
-                font-size: 11px;
-                color: black;
-            }
-        """)
+        self.chk_minimize_to_tray = QCheckBox("Мінімізувати в системний трей при закритті")
         tray_layout.addWidget(self.chk_minimize_to_tray)
         tray_layout.addStretch()
         layout.addLayout(tray_layout)
@@ -3201,7 +3083,7 @@ class SettingsDialog(QDialog):
                 font-size: 12px;
                 border: 2px solid black;
                 border-radius: 2px;
-                margin-top: 10px;
+                margin-top: 0px;
                 padding-top: 10px;
                 background-color: #fafafa;
             }
@@ -3214,7 +3096,7 @@ class SettingsDialog(QDialog):
         """)
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
-        layout.setContentsMargins(15, 20, 15, 15)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Quick actions dropdown
         actions_layout1 = QHBoxLayout()
@@ -3734,12 +3616,11 @@ class SettingsDialog(QDialog):
                 # For Python scripts, use python.exe to run
                 app_path = f'"{sys.executable}" "{app_path}"'
 
-            # Enable tray mode in settings
+            # Enable tray mode in settings (but NOT autostart_timer_enabled - that's user's choice)
             current_settings = self.current_settings.copy()
             if 'application' not in current_settings:
                 current_settings['application'] = {}
             current_settings['application']['minimize_to_tray'] = True
-            current_settings['application']['autostart_timer_enabled'] = True
 
             # Apply the settings changes
             self.current_settings = current_settings
@@ -3852,6 +3733,93 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, "Помилка",
                 f"Не вдалося видалити автозапуск:\n{e}")
 
+    def _setup_autorun_silent(self):
+        """Setup Windows autorun silently (without message boxes)"""
+        try:
+            # Get application path
+            if getattr(sys, 'frozen', False):
+                app_path = sys.executable
+            else:
+                app_path = os.path.abspath(__file__)
+                # For Python scripts, use python.exe to run
+                app_path = f'"{sys.executable}" "{app_path}"'
+
+            # Enable tray mode in settings (but NOT autostart_timer_enabled - that's user's choice)
+            current_settings = self.current_settings.copy()
+            if 'application' not in current_settings:
+                current_settings['application'] = {}
+            current_settings['application']['minimize_to_tray'] = True
+
+            # Apply the settings changes
+            self.current_settings = current_settings
+            self.settings_applied.emit(current_settings)
+
+            # Create registry entry for autorun
+            import winreg
+            key = winreg.HKEY_CURRENT_USER
+            subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+            app_name = "DesktopOrganizer"
+
+            try:
+                # Open or create the registry key
+                with winreg.OpenKey(key, subkey, 0, winreg.KEY_SET_VALUE) as registry_key:
+                    # Set the autorun value with startup-to-tray argument
+                    autorun_command = f'"{app_path}" --startup-to-tray'
+                    winreg.SetValueEx(registry_key, app_name, 0, winreg.REG_SZ, autorun_command)
+
+                # Update UI status label
+                if hasattr(self, 'autorun_status_label'):
+                    self.autorun_status_label.setText("Статус автозапуску: ✅ Налаштовано")
+                    self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
+
+            except OSError:
+                pass  # Silent fail
+
+        except Exception:
+            pass  # Silent fail
+
+    def _remove_autorun_silent(self):
+        """Remove Windows autorun silently (without message boxes)"""
+        try:
+            import winreg
+            key = winreg.HKEY_CURRENT_USER
+            subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+            app_name = "DesktopOrganizer"
+
+            try:
+                # Open the registry key
+                with winreg.OpenKey(key, subkey, 0, winreg.KEY_SET_VALUE) as registry_key:
+                    # Try to delete the autorun value
+                    winreg.DeleteValue(registry_key, app_name)
+
+                # Update UI status label
+                if hasattr(self, 'autorun_status_label'):
+                    self.autorun_status_label.setText("Статус автозапуску: ❌ Вимкнено")
+                    self.autorun_status_label.setStyleSheet("font-size: 10px; color: black; padding: 5px;")
+
+            except OSError:
+                pass  # Entry doesn't exist, silent fail
+
+        except Exception:
+            pass  # Silent fail
+
+    def _is_autorun_enabled(self):
+        """Check if Windows autorun is currently enabled (returns True/False)"""
+        try:
+            import winreg
+            key = winreg.HKEY_CURRENT_USER
+            subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+            app_name = "DesktopOrganizer"
+
+            try:
+                with winreg.OpenKey(key, subkey, 0, winreg.KEY_READ) as registry_key:
+                    winreg.QueryValueEx(registry_key, app_name)
+                    return True  # Value exists, autorun is enabled
+            except OSError:
+                return False  # Value doesn't exist, autorun is disabled
+        except Exception:
+            return False
+
     def check_autorun_status(self):
         """Check current autorun status"""
         # Prevent infinite calls by checking if the label exists
@@ -3914,10 +3882,6 @@ class SettingsDialog(QDialog):
         size_layout.addStretch()
         main_layout.addWidget(size_group)
 
-        # Common presets section
-        presets_group = self._create_presets_section()
-        main_layout.addWidget(presets_group)
-
         # Actions section - moved up for better accessibility
         actions_group = self._create_filter_actions_section()
         main_layout.addWidget(actions_group)
@@ -3946,117 +3910,6 @@ class SettingsDialog(QDialog):
 
         # Add tab directly without scroll area
         self.tabs.addTab(tab_fm, "Фільтри Файлів")
-
-    def _create_presets_section(self) -> QGroupBox:
-        """Create compact filter presets section - no scroll area needed"""
-        presets_group = QGroupBox("Шаблонні Набори Фільтрів")
-        presets_group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                font-size: 11px;
-                border: 2px solid black;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-                background-color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #333;
-            }
-        """)
-
-        # Compact layout - no scroll area for this small amount of content
-        presets_layout = QVBoxLayout(presets_group)
-        presets_layout.setSpacing(10)  # Consistent spacing
-        presets_layout.setContentsMargins(15, 15, 15, 10)  # Consistent margins
-
-        # Direct button layout without scroll area container
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(10)  # Consistent spacing between buttons
-        buttons_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Compact button style
-        button_style = """
-            QPushButton {
-                font-size: 9px;
-                font-weight: 500;
-                padding: 3px 6px;
-                border: 1px solid #aaa;
-                border-radius: 3px;
-                background-color: #f9f9f9;
-                min-width: 70px;
-                max-width: 90px;
-                height: 22px;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-                border: 1px solid #888;
-            }
-            QPushButton:pressed {
-                background-color: #ddd;
-                border: 1px solid #666;
-            }
-        """
-
-        # Create all preset buttons
-        self.btn_preset_system = QPushButton("Системні")
-        self.btn_preset_system.clicked.connect(lambda: self.apply_preset("system"))
-        self.btn_preset_system.setToolTip("Зберігати системні файли Windows")
-        self.btn_preset_system.setStyleSheet(button_style)
-
-        self.btn_preset_media = QPushButton("Медіа")
-        self.btn_preset_media.clicked.connect(lambda: self.apply_preset("media"))
-        self.btn_preset_media.setToolTip("Зберігати медіа файли (зображення, відео, аудіо)")
-        self.btn_preset_media.setStyleSheet(button_style)
-
-        self.btn_preset_docs = QPushButton("Документи")
-        self.btn_preset_docs.clicked.connect(lambda: self.apply_preset("documents"))
-        self.btn_preset_docs.setToolTip("Зберігати файли документів")
-        self.btn_preset_docs.setStyleSheet(button_style)
-
-        self.btn_preset_dev = QPushButton("Розробка")
-        self.btn_preset_dev.clicked.connect(lambda: self.apply_preset("development"))
-        self.btn_preset_dev.setToolTip("Зберігати файли розробки (код, білди)")
-        self.btn_preset_dev.setStyleSheet(button_style)
-
-        self.btn_preset_reservoir = QPushButton("Резервуар")
-        self.btn_preset_reservoir.clicked.connect(lambda: self.apply_preset("reservoir"))
-        self.btn_preset_reservoir.setToolTip("Зберігати файли резервуарної симуляції")
-        self.btn_preset_reservoir.setStyleSheet(button_style)
-
-        self.btn_preset_cmgs = QPushButton("CMG")
-        self.btn_preset_cmgs.clicked.connect(lambda: self.apply_preset("cmg"))
-        self.btn_preset_cmgs.setToolTip("Зберігати файли CMG")
-        self.btn_preset_cmgs.setStyleSheet(button_style)
-
-        self.btn_preset_schlumberger = QPushButton("Schlumberger")
-        self.btn_preset_schlumberger.clicked.connect(lambda: self.apply_preset("schlumberger"))
-        self.btn_preset_schlumberger.setToolTip("Зберігати файли Schlumberger")
-        self.btn_preset_schlumberger.setStyleSheet(button_style)
-
-        self.btn_preset_halliburton = QPushButton("Halliburton")
-        self.btn_preset_halliburton.clicked.connect(lambda: self.apply_preset("halliburton"))
-        self.btn_preset_halliburton.setToolTip("Зберігати файли Halliburton")
-        self.btn_preset_halliburton.setStyleSheet(button_style)
-
-        # Add all buttons to layout directly - no scroll area needed
-        buttons_layout.addWidget(self.btn_preset_system)
-        buttons_layout.addWidget(self.btn_preset_media)
-        buttons_layout.addWidget(self.btn_preset_docs)
-        buttons_layout.addWidget(self.btn_preset_dev)
-        buttons_layout.addWidget(self.btn_preset_reservoir)
-        buttons_layout.addWidget(self.btn_preset_cmgs)
-        buttons_layout.addWidget(self.btn_preset_schlumberger)
-        buttons_layout.addWidget(self.btn_preset_halliburton)
-        buttons_layout.addStretch()
-
-        # Add buttons layout directly to group
-        presets_layout.addLayout(buttons_layout)
-
-        return presets_group
 
     def _create_enhanced_filter_group(self, filter_type: str) -> QGroupBox:
         """Create an enhanced filter group with better layout and functionality"""
@@ -4215,7 +4068,7 @@ class SettingsDialog(QDialog):
         button_style = """
             QPushButton {
                 font-size: 9px;
-                font-weight: 500;
+                font-weight: normal;
                 padding: 4px 8px;
                 border: 1px solid #888;
                 border-radius: 4px;
@@ -4310,7 +4163,7 @@ class SettingsDialog(QDialog):
         button_style = """
             QPushButton {
                 font-size: 10px;
-                font-weight: 500;
+                font-weight: normal;
                 padding: 4px 8px;
                 border: 1px solid #888;
                 border-radius: 4px;
@@ -5983,6 +5836,12 @@ class SettingsDialog(QDialog):
                 )
 
     def update_schedule_ui(self, index):
+        # Guard against calls during initialization and settings loading
+        if hasattr(self, '_loading_settings') and self._loading_settings:
+            return
+        if not hasattr(self, 'schedule_options_widget') or self.schedule_options_widget is None:
+            return
+
         schedule_type = self.schedule_type_combo.itemText(index)
 
         # Visibility flags based on selection
@@ -5992,53 +5851,58 @@ class SettingsDialog(QDialog):
         is_quarterly = (schedule_type == "Щокварталу")
         is_disabled = (schedule_type == "Вимкнено")
 
+        # When schedule is enabled, enforce tray mode and setup Windows autorun
+        # NOTE: Only apply these changes when NOT loading settings
+        if not hasattr(self, '_loading_settings') or not self._loading_settings:
+            if not is_disabled:
+                # SCHEDULE IS BEING ENABLED
+                # Save current settings before enabling scheduler
+                if hasattr(self, 'chk_minimize_to_tray'):
+                    self._original_minimize_to_tray = self.chk_minimize_to_tray.isChecked()
+                self._original_autorun_enabled = self._is_autorun_enabled()
+
+                # Enable minimize to tray (required for scheduled runs)
+                if hasattr(self, 'chk_minimize_to_tray'):
+                    self.chk_minimize_to_tray.setChecked(True)
+
+                # Setup Windows autorun (silent version)
+                self._setup_autorun_silent()
+            else:
+                # SCHEDULE IS BEING DISABLED
+                # Restore original settings
+                if hasattr(self, 'chk_minimize_to_tray') and self._original_minimize_to_tray is not None:
+                    self.chk_minimize_to_tray.setChecked(self._original_minimize_to_tray)
+                # Restore Windows autorun to original state
+                if self._original_autorun_enabled is not None:
+                    if self._original_autorun_enabled:
+                        self._setup_autorun_silent()
+                    else:
+                        self._remove_autorun_silent()
+                else:
+                    # If we don't have original state, check current checkbox state
+                    if hasattr(self, 'chk_minimize_to_tray') and self.chk_minimize_to_tray.isChecked():
+                        self._setup_autorun_silent()
+                    else:
+                        self._remove_autorun_silent()
+
         # Show/hide schedule options container based on whether schedule is disabled
         self.schedule_options_widget.setVisible(not is_disabled)
 
-        # Show/hide specific options within the container
-        if hasattr(self, 'schedule_options_widget'):
-            for i in range(self.schedule_options_widget.layout().count()):
-                widget = self.schedule_options_widget.layout().itemAt(i).widget()
-                if widget:
-                    if isinstance(widget.layout(), QHBoxLayout):
-                        # Check if this is weekly, monthly, or quarterly container
-                        if widget.findChild(QComboBox) and widget.findChild(QComboBox) != self.schedule_type_combo:
-                            # This is likely weekly, monthly, or quarterly options
-                            widget.setVisible(False)
-
-        # Show weekly options
-        weekly_container = self.schedule_options_widget.findChild(QWidget)
-        if weekly_container:
-            for i in range(self.schedule_options_widget.layout().count()):
-                item = self.schedule_options_widget.layout().itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    if self.schedule_day_of_week_combo in widget.findChildren(QComboBox):
-                        widget.setVisible(is_weekly)
-                        break
-
-        # Show monthly options
-        monthly_container = self.schedule_options_widget.findChild(QWidget)
-        if monthly_container:
-            for i in range(self.schedule_options_widget.layout().count()):
-                item = self.schedule_options_widget.layout().itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    if self.schedule_day_of_month_spin in widget.findChildren(QSpinBox):
-                        widget.setVisible(is_monthly)
-                        break
-
-        # Show quarterly options
-        quarterly_container = self.schedule_options_widget.findChild(QWidget)
-        if quarterly_container:
-            for i in range(self.schedule_options_widget.layout().count()):
-                item = self.schedule_options_widget.layout().itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    if (self.schedule_quarter_month_combo in widget.findChildren(QComboBox) and
-                        self.schedule_quarter_day_spin in widget.findChildren(QSpinBox)):
-                        widget.setVisible(is_quarterly)
-                        break
+        # Show/hide schedule-specific option containers
+        # Iterate through all items in the schedule options layout
+        for i in range(self.schedule_options_widget.layout().count()):
+            item = self.schedule_options_widget.layout().itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                # Check if this widget contains the weekly combo
+                if self.schedule_day_of_week_combo in widget.findChildren(QComboBox):
+                    widget.setVisible(is_weekly)
+                # Check if this widget contains the monthly spinbox
+                elif self.schedule_day_of_month_spin in widget.findChildren(QSpinBox):
+                    widget.setVisible(is_monthly)
+                # Check if this widget contains the quarterly combo
+                elif self.schedule_quarter_month_combo in widget.findChildren(QComboBox):
+                    widget.setVisible(is_quarterly)
 
         # Refresh status when schedule changes
         self.refresh_schedule_status()
@@ -6192,96 +6056,6 @@ class SettingsDialog(QDialog):
                 self.list_filenames.clear()
             self.update_filter_stats(filter_type)
 
-    def apply_preset(self, preset_type: str):
-        """Apply a preset filter configuration"""
-        presets = {
-            "system": {
-                "extensions": [".sys", ".dll", ".exe", ".bat", ".cmd", ".scr", ".msi", ".msp", ".msu"],
-                "filenames": ["pagefile.sys", "hiberfil.sys", "swapfile.sys", "ntuser.dat", "ntuser.dat.log"]
-            },
-            "media": {
-                "extensions": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".mp4", ".avi", ".mkv", ".mov",
-                              ".mp3", ".wav", ".flac", ".aac", ".ogg", ".pdf", ".doc", ".docx", ".xls", ".xlsx"],
-                "filenames": []
-            },
-            "documents": {
-                "extensions": [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf", ".odt", ".ods", ".odp"],
-                "filenames": ["readme*", "changelog*", "license*", "*.tmp", "*.bak"]
-            },
-            "development": {
-                "extensions": [".py", ".js", ".html", ".css", ".cpp", ".c", ".h", ".java", ".cs", ".php", ".rb", ".go",
-                              ".json", ".xml", ".yaml", ".yml", ".lock", ".log"],
-                "filenames": ["node_modules", "*.git*", ".vscode", ".idea", "__pycache__", "*.pyc", "build*", "dist*"]
-            },
-            "reservoir": {
-                "extensions": [".data", ".smspec", ".unsmry", ".grid", ".init", ".rft", ".rft", ".pvt", ".e300", ".e100",
-                              ".hdf", ".h5", ".dat", ".inp", ".out", ".rwd", ".rwo", ".rwr", ".pdat", ".plot", ".plt",
-                              ".bgr", ".bgi", ".bgf", ".flog", ".log", ".err", ".prt", ".rpt", ".swf", ".frt", ".f01"],
-                "filenames": ["*.data*", "*.smspec*", "*.unsmry*", "*.grid*", "*.init*", "eclipse*", "tNav*", "tnavigator*",
-                              "include*", "summary*", "restart*", "save*", "debug*", "output*", "results*", "run*"]
-            },
-            "cmg": {
-                "extensions": [".dat", ".out", ".rwd", ".rwo", ".rwr", ".pdat", ".plot", ".plt", ".irf", ".srf", ".rrf",
-                              ".h5", ".hdf", ".flog", ".log", ".err", ".fres", ".sr", ".geol", ".props", ".wells"],
-                "filenames": ["imex*", "gem*", "stars*", "winprop*", "cmg*", "results*", "output*", "run*", "include*",
-                              "history*", "report*", "summary*", "grid*", "property*", "well*", "region*"]
-            },
-            "schlumberger": {
-                "extensions": [".data", ".smspec", ".unsmry", ".grid", ".init", ".rft", ".pvt", ".e300", ".e100", ".hdf",
-                              ".h5", ".dat", ".inp", ".out", ".rwd", ".rwo", ".rwr", ".pdat", ".plot", ".plt", ".bgr",
-                              ".bgi", ".bgf", ".flog", ".log", ".err", ".prt", ".rpt", ".swf", ".frt", ".f01", ".pan",
-                              ".pdx", ".pro", ".rcs", ".rcb", ".rsg", ".rsb"],
-                "filenames": ["eclipse*", "intersect*", "petrel*", "office*", "visage*", "geoquest*", "schedule*",
-                              "summary*", "restart*", "grid*", "property*", "region*", "well*", "include*", "run*"]
-            },
-            "halliburton": {
-                "extensions": [".dat", ".inp", ".out", ".rwd", ".rwo", ".rwr", ".pdat", ".plot", ".plt", ".h5", ".hdf",
-                              ".log", ".err", ".rpt", ".res", ".sim", ".his", ".bna", ".bnt"],
-                "filenames": ["nexus*", "vip*", "landmark*", "decisionspace*", "jason*", "geoprobe*", "kingdom*",
-                              "results*", "output*", "run*", "history*", "report*", "summary*", "grid*", "well*"]
-            }
-        }
-
-        if preset_type not in presets:
-            return
-
-        preset = presets[preset_type]
-
-        # Ask user if they want to merge or replace
-        reply = QMessageBox.question(
-            self,
-            "Застосувати Шаблон",
-            "Бажаєте додати до існуючих фільтрів чи замінити їх?",
-            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-            QMessageBox.Yes
-        )
-
-        if reply == QMessageBox.Cancel:
-            return
-
-        # Clear existing filters if replacing
-        if reply == QMessageBox.No:
-            # These presets only affect extensions
-            if preset_type in ["media", "documents"]:
-                self.list_extensions.clear()
-            else:
-                # All other presets affect both extensions and filenames
-                self.list_extensions.clear()
-                self.list_filenames.clear()
-
-        # Add extensions
-        for ext in preset["extensions"]:
-            if not self._is_duplicate_item(self.list_extensions, ext):
-                self.list_extensions.addItem(ext)
-
-        # Add filenames
-        for name in preset["filenames"]:
-            if not self._is_duplicate_item(self.list_filenames, name):
-                self.list_filenames.addItem(name)
-
-        self.update_filter_stats("extension")
-        self.update_filter_stats("filename")
-
     def import_filters(self):
         """Import filters from a JSON file"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -6381,11 +6155,17 @@ class SettingsDialog(QDialog):
 
     def load_settings_to_ui(self):
         """Load current settings into the UI controls"""
+        # Set flag to prevent recursive calls during loading
+        self._loading_settings = True
+
         self._load_application_settings()
         self._load_timer_settings()
         self._load_drive_settings()
         self._load_file_manager_settings()
         self._load_schedule_settings()
+
+        # Clear flag after loading is complete
+        self._loading_settings = False
 
     def _load_application_settings(self):
         """Load application behavior settings"""
@@ -6447,6 +6227,9 @@ class SettingsDialog(QDialog):
         """Load schedule settings"""
         schedule_cfg = self.current_settings.get('schedule', DEFAULT_SETTINGS['schedule'])
 
+        # Block signals to prevent triggering update_schedule_ui during loading
+        self.schedule_type_combo.blockSignals(True)
+
         # Schedule type
         schedule_type_en = schedule_cfg.get('type', 'disabled')
         schedule_type_ua = SCHEDULE_TYPE_MAP.get(schedule_type_en, "Вимкнено")
@@ -6466,7 +6249,13 @@ class SettingsDialog(QDialog):
         self.schedule_quarter_month_combo.setCurrentIndex(schedule_cfg.get('quarter_month', 1) - 1)
         self.schedule_quarter_day_spin.setValue(schedule_cfg.get('quarter_day', 1))
 
-        self.update_schedule_ui(self.schedule_type_combo.currentIndex())
+        # Unblock signals
+        self.schedule_type_combo.blockSignals(False)
+
+        # Update UI visibility only, don't call update_schedule_ui to avoid recursion
+        schedule_type = self.schedule_type_combo.itemText(self.schedule_type_combo.currentIndex())
+        is_disabled = (schedule_type == "Вимкнено")
+        self.schedule_options_widget.setVisible(not is_disabled)
 
         # Initialize Windows scheduler status
         if hasattr(self, 'scheduler_status_label'):
@@ -6813,6 +6602,799 @@ class RunStatisticsDialog(QDialog):
             QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити папку: {e}")
 
 
+class VirtualEnvironmentDialog(QDialog):
+    """Standalone Virtual Environment Management Dialog"""
+
+    def __init__(self, parent_window):
+        super().__init__(parent_window)
+        self.parent_window = parent_window
+        self.setWindowTitle("Віртуальне Середовище")
+        self.setMinimumSize(750, 650)
+        self.resize(800, 700)
+
+        self._setup_ui()
+        self.refresh_venv_status()
+        self.refresh_package_list()
+
+    def _setup_ui(self):
+        """Setup the dialog UI"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: 1px solid #d0d0d0;
+                background-color: #ffffff;
+            }
+            QScrollBar:vertical {
+                background-color: #f8f8f8;
+                width: 14px;
+                border: 1px solid #e0e0e0;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #b0b0b0;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #909090;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+        """)
+
+        # Create content widget
+        content_widget = QWidget()
+        main_layout = QVBoxLayout(content_widget)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Environment Status Section
+        env_status_group = self._create_venv_status_section()
+        main_layout.addWidget(env_status_group)
+
+        # Package Management Section
+        package_mgmt_group = self._create_package_management_section()
+        main_layout.addWidget(package_mgmt_group)
+
+        # Environment Details Section
+        details_group = self._create_environment_details_section()
+        main_layout.addWidget(details_group)
+
+        main_layout.addStretch()
+
+        # Set up scroll area
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+
+        # Close button
+        close_btn = QPushButton("Закрити")
+        close_btn.clicked.connect(self.close)
+        close_btn.setFixedHeight(35)
+        layout.addWidget(close_btn)
+
+    def _create_venv_status_section(self) -> QGroupBox:
+        """Create virtual environment status section"""
+        group = QGroupBox("Статус Віртуального Середовища")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: black;
+            }
+        """)
+        layout = QVBoxLayout(group)
+        layout.setSpacing(15)
+        layout.setContentsMargins(15, 20, 15, 15)
+
+        # Status display
+        status_layout = QHBoxLayout()
+        self.venv_status_label = QLabel("Перевірка статусу...")
+        self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #666;")
+        status_layout.addWidget(self.venv_status_label)
+        status_layout.addStretch()
+
+        self.refresh_status_btn = QPushButton("Оновити")
+        self.refresh_status_btn.clicked.connect(self.refresh_venv_status)
+        self.refresh_status_btn.setFixedHeight(30)
+        self.refresh_status_btn.setMinimumWidth(80)
+        status_layout.addWidget(self.refresh_status_btn)
+        layout.addLayout(status_layout)
+
+        # Path display
+        self.venv_path_label = QLabel("")
+        self.venv_path_label.setWordWrap(True)
+        self.venv_path_label.setStyleSheet("font-size: 11px; color: black; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
+        layout.addWidget(self.venv_path_label)
+
+        # Administrator status
+        admin_layout = QHBoxLayout()
+        self.admin_status_label = QLabel("")
+        self.admin_status_label.setStyleSheet("font-size: 11px; color: #333; padding: 8px; background-color: #f8f8f8; border-radius: 4px; border: 1px solid #ddd;")
+        admin_layout.addWidget(self.admin_status_label)
+        admin_layout.addStretch()
+        layout.addLayout(admin_layout)
+
+        # Statistics
+        stats_layout = QHBoxLayout()
+        self.venv_stats_label = QLabel("Пакетів: 0 | Розмір: Обчислюється...")
+        self.venv_stats_label.setStyleSheet("font-size: 11px; color: #666;")
+        stats_layout.addWidget(self.venv_stats_label)
+        stats_layout.addStretch()
+        layout.addLayout(stats_layout)
+
+        # Quick actions
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(10)
+
+        self.repair_venv_btn = QPushButton("Відновити")
+        self.repair_venv_btn.clicked.connect(self.repair_virtual_environment)
+        self.repair_venv_btn.setFixedHeight(30)
+        self.repair_venv_btn.setMinimumWidth(80)
+
+        self.recreate_venv_btn = QPushButton("Видалити")
+        self.recreate_venv_btn.clicked.connect(self.recreate_virtual_environment)
+        self.recreate_venv_btn.setFixedHeight(30)
+        self.recreate_venv_btn.setMinimumWidth(90)
+
+        actions_layout.addWidget(self.repair_venv_btn)
+        actions_layout.addWidget(self.recreate_venv_btn)
+
+        # Add administrator restart button if not running as admin
+        if not is_running_as_admin():
+            self.restart_as_admin_btn = QPushButton("🔐 Перезапустити від адміністратора")
+            self.restart_as_admin_btn.clicked.connect(self.restart_as_administrator)
+            self.restart_as_admin_btn.setFixedHeight(30)
+            self.restart_as_admin_btn.setMinimumWidth(120)
+            self.restart_as_admin_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffc107;
+                    color: #212529;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #e0a800;
+                }
+            """)
+            actions_layout.addWidget(self.restart_as_admin_btn)
+
+        actions_layout.addStretch()
+        layout.addLayout(actions_layout)
+
+        return group
+
+    def _create_package_management_section(self) -> QGroupBox:
+        """Create package management section"""
+        group = QGroupBox("Управління Пакетами")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: black;
+            }
+        """)
+        layout = QVBoxLayout(group)
+        layout.setSpacing(15)
+        layout.setContentsMargins(15, 20, 15, 15)
+
+        # Search and filter
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Пошук:"))
+        self.package_search_edit = QLineEdit()
+        self.package_search_edit.setPlaceholderText("Введіть назву пакета...")
+        self.package_search_edit.textChanged.connect(self.filter_packages_list)
+        self.package_search_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 6px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #808080;
+            }
+        """)
+        search_layout.addWidget(self.package_search_edit)
+        layout.addLayout(search_layout)
+
+        # Package list
+        list_container = QWidget()
+        list_layout = QVBoxLayout(list_container)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.packages_list = QListWidget()
+        self.packages_list.setAlternatingRowColors(True)
+        self.packages_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.packages_list.setFixedHeight(180)
+        self.packages_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 11px;
+            }
+            QListWidget::item {
+                padding: 4px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QListWidget::item:selected {
+                background-color: #808080;
+                color: white;
+            }
+            QListWidget::item:alternate {
+                background-color: #f9f9f9;
+            }
+        """)
+        list_layout.addWidget(self.packages_list)
+
+        # Package statistics
+        self.package_stats_label = QLabel("Всього: 0 пакетів | Вибрано: 0")
+        self.package_stats_label.setStyleSheet("font-size: 10px; color: #666;")
+        list_layout.addWidget(self.package_stats_label)
+
+        layout.addWidget(list_container)
+
+        # Package installation
+        install_group = QGroupBox("Встановлення Пакета")
+        install_layout = QVBoxLayout(install_group)
+
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("Пакет:"))
+        self.package_input = QLineEdit()
+        self.package_input.setPlaceholderText("назва-пакету==версія")
+        self.package_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 6px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #808080;
+            }
+        """)
+        input_layout.addWidget(self.package_input)
+
+        self.install_package_btn = QPushButton("Встановити")
+        self.install_package_btn.clicked.connect(self.install_user_package)
+        self.install_package_btn.setFixedHeight(35)
+        input_layout.addWidget(self.install_package_btn)
+
+        install_layout.addLayout(input_layout)
+        layout.addWidget(install_group)
+
+        # Package management buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(10)
+
+        self.upgrade_packages_btn = QPushButton("Оновити Всі")
+        self.upgrade_packages_btn.clicked.connect(self.upgrade_all_packages)
+        self.upgrade_packages_btn.setFixedHeight(30)
+
+        self.uninstall_package_btn = QPushButton("Видалити Вибрані")
+        self.uninstall_package_btn.clicked.connect(self.uninstall_selected_packages)
+        self.uninstall_package_btn.setEnabled(False)
+        self.uninstall_package_btn.setFixedHeight(30)
+
+        self.refresh_packages_btn = QPushButton("Оновити Список")
+        self.refresh_packages_btn.clicked.connect(self.refresh_package_list)
+        self.refresh_packages_btn.setFixedHeight(30)
+
+        buttons_layout.addWidget(self.upgrade_packages_btn)
+        buttons_layout.addWidget(self.uninstall_package_btn)
+        buttons_layout.addWidget(self.refresh_packages_btn)
+        buttons_layout.addStretch()
+
+        layout.addLayout(buttons_layout)
+
+        # Connect selection change
+        self.packages_list.itemSelectionChanged.connect(self.update_package_buttons)
+
+        return group
+
+    def _create_environment_details_section(self) -> QGroupBox:
+        """Create environment details section"""
+        group = QGroupBox("Деталі Середовища")
+        group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid black;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: black;
+            }
+        """)
+        layout = QVBoxLayout(group)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 20, 15, 15)
+
+        # Python version
+        self.python_version_label = QLabel("Python: Обчислюється...")
+        self.python_version_label.setStyleSheet("font-size: 11px; color: black;")
+        layout.addWidget(self.python_version_label)
+
+        # Pip version
+        self.pip_version_label = QLabel("Pip: Обчислюється...")
+        self.pip_version_label.setStyleSheet("font-size: 11px; color: black;")
+        layout.addWidget(self.pip_version_label)
+
+        # Package usage
+        self.package_usage_text = QTextEdit()
+        self.package_usage_text.setReadOnly(True)
+        self.package_usage_text.setMaximumHeight(120)
+        self.package_usage_text.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: #f9f9f9;
+                font-size: 10px;
+                padding: 8px;
+            }
+        """)
+        layout.addWidget(self.package_usage_text)
+
+        return group
+
+    # Methods moved from SettingsDialog
+    def refresh_package_list(self):
+        """Refresh the package list and virtual environment information"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            if hasattr(self, 'venv_status_label'):
+                self.venv_status_label.setText("❌ Менеджер модулів недоступний")
+            return
+
+        venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+        # Update status using the enhanced method
+        if hasattr(self, 'refresh_venv_status'):
+            self.refresh_venv_status()
+
+        # Update packages list
+        self.packages_list.clear()
+        installed_packages = venv_manager.get_installed_packages()
+        if installed_packages:
+            for package in sorted(installed_packages):
+                self.packages_list.addItem(package)
+        else:
+            self.packages_list.addItem("Немає встановлених пакетів")
+
+        # Update package usage info
+        package_info = venv_manager.get_package_info()
+        package_modules = package_info.get('package_modules', {})
+
+        if hasattr(self, 'package_usage_text'):
+            if package_modules:
+                usage_text = "📋 Пакети та модулі, що їх використовують:\n\n"
+                for package, modules in package_modules.items():
+                    usage_text += f"• {package}: {', '.join(modules)}\n"
+            else:
+                usage_text = "📋 Немає активних пакетів або модулів"
+
+            self.package_usage_text.setText(usage_text)
+
+        # Update package statistics
+        if hasattr(self, 'package_stats_label'):
+            total_count = self.packages_list.count()
+            selected_count = len(self.packages_list.selectedItems())
+            self.package_stats_label.setText(f"Всього: {total_count} пакетів | Вибрано: {selected_count}")
+
+    def refresh_venv_status(self):
+        """Refresh virtual environment status and details"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            self.venv_status_label.setText("❌ Менеджер модулів недоступний")
+            return
+
+        venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+        # Update administrator status
+        if is_running_as_admin():
+            self.admin_status_label.setText("🔐 Запущено з правами адміністратора")
+            self.admin_status_label.setStyleSheet("font-size: 11px; color: #155724; padding: 8px; background-color: #d4edda; border-radius: 4px; border: 1px solid #c3e6cb;")
+        else:
+            self.admin_status_label.setText("⚠️ Запущено зі звичайними правами (можуть знадобитися права адміністратора)")
+            self.admin_status_label.setStyleSheet("font-size: 11px; color: #856404; padding: 8px; background-color: #fff3cd; border-radius: 4px; border: 1px solid #ffeaa7;")
+
+        # Update status
+        if os.path.exists(venv_manager.venv_dir):
+            self.venv_status_label.setText("✅ Віртуальне середовище створено")
+            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
+            self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
+
+            # Update statistics
+            try:
+                total_size = 0
+                for dirpath, dirnames, filenames in os.walk(venv_manager.venv_dir):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        try:
+                            total_size += os.path.getsize(fp)
+                        except:
+                            pass
+
+                size_mb = total_size / (1024 * 1024)
+                package_count = len(venv_manager.get_installed_packages())
+                self.venv_stats_label.setText(f"Пакетів: {package_count} | Розмір: {size_mb:.1f} MB")
+
+            except Exception:
+                self.venv_stats_label.setText("Пакетів: 0 | Розмір: Помилка обчислення")
+
+            # Update environment details
+            self._update_environment_details(venv_manager)
+
+        else:
+            self.venv_status_label.setText("⚠️ Віртуальне середовище не створено")
+            self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
+            self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
+            self.venv_stats_label.setText("Пакетів: 0 | Розмір: 0 MB")
+
+            # Clear environment details
+            self.python_version_label.setText("Python: Н/Д")
+            self.pip_version_label.setText("Pip: Н/Д")
+
+    def _update_environment_details(self, venv_manager):
+        """Update environment details section"""
+        try:
+            # Get Python version
+            result = subprocess.run([
+                venv_manager.get_pip_path().split()[0], '--version'
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+
+            if result.returncode == 0:
+                pip_version = result.stdout.strip()
+                self.pip_version_label.setText(f"Pip: {pip_version}")
+            else:
+                self.pip_version_label.setText("Pip: Помилка отримання версії")
+
+        except Exception:
+            self.pip_version_label.setText("Pip: Недоступний")
+
+        try:
+            # Get Python version from venv
+            python_exe = os.path.join(venv_manager.venv_dir, 'Scripts', 'python.exe')
+            if not os.path.exists(python_exe):
+                python_exe = os.path.join(venv_manager.venv_dir, 'bin', 'python')
+
+            if os.path.exists(python_exe):
+                result = subprocess.run([
+                    python_exe, '--version'
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+
+                if result.returncode == 0:
+                    python_version = result.stdout.strip() or result.stderr.strip()
+                    self.python_version_label.setText(f"Python: {python_version}")
+                else:
+                    self.python_version_label.setText("Python: Помилка отримання версії")
+            else:
+                self.python_version_label.setText("Python: Не знайдено")
+
+        except Exception:
+            self.python_version_label.setText("Python: Недоступний")
+
+    def filter_packages_list(self):
+        """Filter packages list based on search text"""
+        search_text = self.package_search_edit.text().lower()
+
+        for i in range(self.packages_list.count()):
+            item = self.packages_list.item(i)
+            item.setHidden(search_text not in item.text().lower())
+
+    def update_package_buttons(self):
+        """Update package management buttons based on selection"""
+        selected_count = len(self.packages_list.selectedItems())
+        has_selection = selected_count > 0
+
+        self.uninstall_package_btn.setEnabled(has_selection)
+
+        # Update statistics
+        total_count = self.packages_list.count()
+        self.package_stats_label.setText(f"Всього: {total_count} пакетів | Вибрано: {selected_count}")
+
+    def install_user_package(self):
+        """Install a user-specified package in the virtual environment"""
+        package_spec = self.package_input.text().strip()
+        if not package_spec:
+            QMessageBox.warning(self, "Помилка", "Будь ласка, введіть назву пакета")
+            return
+
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            QMessageBox.warning(self, "Помилка", "Менеджер модулів недоступний")
+            return
+
+        venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+        # Disable the install button and show progress
+        self.install_package_btn.setEnabled(False)
+        self.install_package_btn.setText("Встановлення...")
+        QApplication.processEvents()
+
+        try:
+            # Extract package name for display
+            package_name = package_spec.split('>=')[0].split('==')[0].split('<=')[0].split('~=')[0].strip().lower()
+
+            # Check if package is already installed
+            if venv_manager._is_package_installed(package_name):
+                reply = QMessageBox.question(
+                    self,
+                    "Пакет вже встановлено",
+                    f"Пакет '{package_name}' вже встановлено. Бажаєте оновити?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    self.install_package_btn.setEnabled(True)
+                    self.install_package_btn.setText("Встановити")
+                    return
+
+            # Install the package using the venv manager's install method
+            success = venv_manager.install_user_package(package_spec)
+
+            if success:
+                # Clear package cache to ensure modules can detect the newly installed package
+                if hasattr(venv_manager, '_package_cache'):
+                    venv_manager._package_cache.clear()
+                # Force sync with actual venv packages
+                venv_manager._sync_installed_packages()
+
+                QMessageBox.information(self, "Успіх", f"Пакет '{package_spec}' успішно встановлено")
+                self.package_input.clear()
+                self.refresh_package_list()
+            else:
+                QMessageBox.critical(self, "Помилка", f"Не вдалося встановити пакет '{package_spec}'")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося встановити пакет:\n{e}")
+
+        finally:
+            # Restore the install button
+            self.install_package_btn.setEnabled(True)
+            self.install_package_btn.setText("Встановити")
+
+    def uninstall_selected_packages(self):
+        """Uninstall multiple selected packages"""
+        selected_items = self.packages_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Помилка", "Будь ласка, виберіть пакети для видалення")
+            return
+
+        package_names = [item.text() for item in selected_items if item.text() != "Немає встановлених пакетів"]
+        if not package_names:
+            return
+
+        # Confirm uninstallation
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження Видалення",
+            f"Ви впевнені, що хочете видалити {len(package_names)} пакет(ів)?\n\n"
+            f"Пакети: {', '.join(package_names[:3])}" +
+            (f" та ще {len(package_names) - 3}..." if len(package_names) > 3 else ""),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+            success_count = 0
+
+            for package_name in package_names:
+                try:
+                    if venv_manager.uninstall_user_package(package_name):
+                        success_count += 1
+                except Exception as e:
+                    print(f"Помилка видалення {package_name}: {e}")
+
+            QMessageBox.information(self, "Результат",
+                f"Видалено {success_count} з {len(package_names)} пакетів")
+            self.refresh_package_list()
+
+    def upgrade_all_packages(self):
+        """Upgrade all installed packages"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            QMessageBox.warning(self, "Помилка", "Менеджер модулів недоступний")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження Оновлення",
+            "Ви впевнені, що хочете оновити всі встановлені пакети?\n\n"
+            "Це може зайняти тривалий час.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+            pip_path = venv_manager.get_pip_path()
+
+            if not pip_path:
+                QMessageBox.critical(self, "Помилка", "Pip не доступний")
+                return
+
+            # Show progress
+            self.upgrade_packages_btn.setEnabled(False)
+            self.upgrade_packages_btn.setText("Оновлення...")
+            QApplication.processEvents()
+
+            try:
+                # Run pip upgrade
+                result = subprocess.run([
+                    pip_path, 'install', '--upgrade', '-r', 'requirements.txt'
+                ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
+
+                if result.returncode == 0:
+                    QMessageBox.information(self, "Успіх", "Пакети успішно оновлено")
+                    self.refresh_package_list()
+                else:
+                    QMessageBox.critical(self, "Помилка", f"Не вдалося оновити пакети:\n{result.stderr}")
+
+            except subprocess.TimeoutExpired:
+                QMessageBox.critical(self, "Помилка", "Час очікування оновлення вичерпано")
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", f"Помилка оновлення:\n{str(e)}")
+
+            finally:
+                self.upgrade_packages_btn.setEnabled(True)
+                self.upgrade_packages_btn.setText("Оновити Всі")
+
+    def repair_virtual_environment(self):
+        """Repair virtual environment by reinstalling pip and validating setup"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            QMessageBox.warning(self, "Помилка", "Менеджер модулів недоступний")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження Відновлення",
+            "Відновити віртуальне середовище?\n\n"
+            "Це перевірить цілісність середовища та оновить pip при необхідності.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+                # Validate venv
+                if venv_manager._validate_venv():
+                    QMessageBox.information(self, "Успіх", "Віртуальне середовище в порядку")
+                else:
+                    # Attempt repair
+                    pip_path = venv_manager.get_pip_path()
+                    if pip_path:
+                        # Upgrade pip - handle list or string format
+                        if isinstance(pip_path, list):
+                            cmd = pip_path + ['install', '--upgrade', 'pip']
+                        else:
+                            if ' -m pip' in pip_path:
+                                cmd = pip_path.split() + ['install', '--upgrade', 'pip']
+                            else:
+                                cmd = [pip_path, 'install', '--upgrade', 'pip']
+
+                        subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+
+                        QMessageBox.information(self, "Успіх", "Віртуальне середовище відновлено")
+                    else:
+                        QMessageBox.warning(self, "Попередження", "Не вдалося відновити середовище автоматично")
+
+                self.refresh_venv_status()
+
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", f"Помилка відновлення:\n{str(e)}")
+
+    def recreate_virtual_environment(self):
+        """Recreate the virtual environment completely"""
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження Видалення",
+            "Ви впевнені, що хочете видалити віртуальне середовище?\n\n"
+            "Це повністю видалить поточне середовище та створить нове. "
+            "Усі встановлені пакети будуть втрачені.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.cleanup_virtual_environment()
+
+    def cleanup_virtual_environment(self):
+        """Clean up the virtual environment"""
+        if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
+            QMessageBox.warning(self, "Помилка", "Менеджер модулів недоступний")
+            return
+
+        venv_manager = self.parent_window.module_manager.get_virtual_env_manager()
+
+        try:
+            import shutil
+            if os.path.exists(venv_manager.venv_dir):
+                shutil.rmtree(venv_manager.venv_dir)
+                print(f"🗑️ Removed virtual environment: {venv_manager.venv_dir}")
+
+            # Reset package tracking
+            venv_manager.installed_packages.clear()
+            venv_manager.package_modules.clear()
+            venv_manager._save_package_info()
+
+            QMessageBox.information(self, "Успіх", "Віртуальне середовище видалено")
+            self.refresh_package_list()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося видалити віртуальне середовище:\n{e}")
+
+    def restart_as_administrator(self):
+        """Restart the application with administrator privileges"""
+        reply = QMessageBox.question(
+            self,
+            "Перезапуск з правами адміністратора",
+            "Перезапустити додаток з правами адміністратора?\n\n"
+            "Це може знадобитися для встановлення пакетів або керування "
+            "віртуальним середовищем. Додаток буде закритий і перезапущений "
+            "з підвищеними привілеями.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Request administrator privileges and restart
+                if request_admin_privileges():
+                    # Close the current application
+                    if self.parent_window:
+                        self.parent_window.close()
+                    QApplication.quit()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Неможливо отримати права адміністратора",
+                        "Не вдалося отримати права адміністратора. \n\n"
+                        "Будь ласка, запустіть додаток вручну з правами адміністратора:\n\n"
+                        "1. Клацніть правою кнопкою миші на іконку додатку\n"
+                        "2. Виберіть 'Запустити від імені адміністратора'"
+                    )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Помилка перезапуску",
+                    f"Не вдалося перезапустити додаток:\n{str(e)}"
+                )
+
+
 # --- Main Window ---
 # --- End of content ---
 
@@ -6904,13 +7486,62 @@ def is_scheduled_day(schedule_cfg):
     elif schedule_type == 'weekly':
         return now.isoweekday() == schedule_cfg.get('day_of_week', 1)
     elif schedule_type == 'monthly':
-        return now.day == schedule_cfg.get('day_of_month', 1)
+        target_day = schedule_cfg.get('day_of_month', 1)
+        # Get last day of current month
+        import calendar
+        last_day_of_month = calendar.monthrange(now.year, now.month)[1]
+        # If target day exceeds last day, run on last day of month
+        effective_day = min(target_day, last_day_of_month)
+        return now.day == effective_day
     elif schedule_type == 'quarterly':
-        quarter_month = schedule_cfg.get('quarter_month', 1)  # 1, 2, 3
+        quarter_month = schedule_cfg.get('quarter_month', 1)  # 1=Jan,Apr,Jul,Oct / 2=Feb,May,Aug,Nov / 3=Mar,Jun,Sep,Dec
         quarter_day = schedule_cfg.get('quarter_day', 1)
-        month_of_quarter = (now.month - 1) % 3 + 1
-        return month_of_quarter == quarter_month and now.day == quarter_day
+
+        # Calculate which months match: quarter_month (1-3) in each quarter
+        # Q1: months 1,2,3  Q2: months 4,5,6  Q3: months 7,8,9  Q4: months 10,11,12
+        target_months = [quarter_month, quarter_month + 3, quarter_month + 6, quarter_month + 9]
+
+        if now.month not in target_months:
+            return False
+
+        # Get last day of current month
+        import calendar
+        last_day_of_month = calendar.monthrange(now.year, now.month)[1]
+        # If target day exceeds last day, run on last day of month
+        effective_day = min(quarter_day, last_day_of_month)
+        return now.day == effective_day
     return False
+
+
+def was_scheduled_day(schedule_cfg, check_date):
+    """Check if a specific date was a scheduled day"""
+    schedule_type = schedule_cfg.get('type', 'disabled')
+
+    if schedule_type == 'daily':
+        return True
+    elif schedule_type == 'weekly':
+        # check_date is a date object, convert to check weekday
+        return check_date.isoweekday() == schedule_cfg.get('day_of_week', 1)
+    elif schedule_type == 'monthly':
+        target_day = schedule_cfg.get('day_of_month', 1)
+        import calendar
+        last_day_of_month = calendar.monthrange(check_date.year, check_date.month)[1]
+        effective_day = min(target_day, last_day_of_month)
+        return check_date.day == effective_day
+    elif schedule_type == 'quarterly':
+        quarter_month = schedule_cfg.get('quarter_month', 1)
+        quarter_day = schedule_cfg.get('quarter_day', 1)
+        target_months = [quarter_month, quarter_month + 3, quarter_month + 6, quarter_month + 9]
+
+        if check_date.month not in target_months:
+            return False
+
+        import calendar
+        last_day_of_month = calendar.monthrange(check_date.year, check_date.month)[1]
+        effective_day = min(quarter_day, last_day_of_month)
+        return check_date.day == effective_day
+    return False
+
 
 # --- Background Task Runner ---
 class BackgroundTaskRunner:
@@ -7054,7 +7685,7 @@ class BackgroundTaskRunner:
 class MainWindow(QMainWindow):
     def __init__(self, is_scheduled_run=False):
         super().__init__()
-        add_splash_message("📋 Loading configuration...")
+        add_splash_message("📋 Завантаження конфігурації...")
         self.settings = load_settings()
         self.mover_thread = None
         self.module_windows = {}  # Stores instances of opened module windows
@@ -7064,7 +7695,7 @@ class MainWindow(QMainWindow):
         self.tray_icon = None
         self.tray_menu = None
 
-        add_splash_message("🔧 Initializing module manager...")
+        add_splash_message("🔧 Ініціалізація менеджера модулів...")
         # Initialize Module Manager
         self.module_manager = ModuleManager(self.get_module_dir(), self, self.settings)
         self.module_manager.module_loaded.connect(self.on_module_loaded)
@@ -7081,25 +7712,32 @@ class MainWindow(QMainWindow):
         self.e_exists = False
         self.last_scheduled_run_date = None
 
-        add_splash_message("🖼️ Creating user interface...")
+        # Store original settings before scheduler was enabled (for restoration)
+        self._original_minimize_to_tray = None
+        self._original_autorun_enabled = None
+
+        add_splash_message("🖼️ Створення інтерфейсу користувача...")
         self.initUI()  # Create UI elements first
 
         # Initialize system tray after UI is ready
         self.setup_system_tray()
 
         # Check for first startup and handle Python setup (after UI is ready)
-        add_splash_message("🐍 Checking Python environment...")
+        add_splash_message("🐍 Перевірка середовища Python...")
         self.check_first_startup_and_python_setup()
 
-        add_splash_message("🔍 Discovering modules...")
+        add_splash_message("🔍 Виявлення модулів...")
         self.discover_and_load_modules()  # Discover and load modules dynamically
 
-        add_splash_message("⚙️ Applying settings...")
+        add_splash_message("⚙️ Застосування налаштувань...")
         self.apply_settings_to_ui()  # Apply loaded settings to UI
         self._log_current_schedule_settings(self.settings.get('schedule', DEFAULT_SETTINGS['schedule']))
 
         QTimer.singleShot(500, self.auto_configure_start)  # Existing delayed config
         self.schedule_timer.start(60000) # Check every minute
+
+        # Check for missed scheduled runs on startup
+        QTimer.singleShot(2000, self.check_and_run_missed_schedule)  # Check after 2 seconds
 
         if is_scheduled_run:
             self.log_message("ℹ️ Запущено за розкладом. Початок процесу переміщення.")
@@ -7111,17 +7749,18 @@ class MainWindow(QMainWindow):
 
         # Check if this is actually the first run OR if virtual environment doesn't exist
         venv_exists = os.path.exists(os.path.join(CONFIG_DIR, 'modules_venv'))
-        first_run = not self.settings.get(first_run_key, False)
+        config_exists = os.path.exists(CONFIG_FILE)
+        first_run = not self.settings.get(first_run_key, True) if config_exists else True
 
         if first_run or not venv_exists:
             if first_run:
-                self.log_message("🎉 Welcome! First startup detected.")
+                self.log_message("🎉 Ласкаво просимо! Виявлено перший запуск.")
             else:
-                self.log_message("🔧 Virtual environment not found, setting up Python environment...")
+                self.log_message("🔧 Віртуальне середовище не знайдено, налаштування середовища Python...")
 
             # Check if we have a working Python setup before prompting
             if self.check_current_python_setup():
-                self.log_message("✅ Current Python setup is working, skipping setup dialog.")
+                self.log_message("✅ Поточна конфігурація Python працює, діалогове вікно налаштування пропущено.")
                 # Mark first run as completed since we have a working setup
                 if first_run:
                     self.settings[first_run_key] = True
@@ -7139,7 +7778,7 @@ class MainWindow(QMainWindow):
             if setup_completed and first_run:
                 self.settings[first_run_key] = True
                 save_settings(self.settings)
-                self.log_message("✅ Python setup completed successfully.")
+                self.log_message("✅ Налаштування Python успішно завершено.")
 
             # Show splash screen again if it exists
             if 'global_splash' in globals() and globals()['global_splash']:
@@ -7154,13 +7793,13 @@ class MainWindow(QMainWindow):
             venv_python = os.path.join(venv_dir, 'Scripts', 'python.exe')
 
             if os.path.exists(venv_dir) and os.path.exists(venv_python):
-                self.log_message(f"🔍 Checking virtual environment at {venv_dir}")
+                self.log_message(f"🔍 Перевірка віртуального середовища за адресою {venv_dir}")
 
                 # Try to validate the virtual environment
                 if hasattr(self, 'module_manager') and self.module_manager:
                     venv_manager = self.module_manager.venv_manager
                     if venv_manager and venv_manager._validate_venv():
-                        self.log_message("✅ Virtual environment validation passed.")
+                        self.log_message("✅ Перевірку віртуального середовища пройдено.")
 
                         # Test basic Python functionality in the venv
                         try:
@@ -7175,26 +7814,26 @@ class MainWindow(QMainWindow):
                             else:
                                 self.log_message(msg_formatter.venv_python_error(result.stderr))
                         except subprocess.TimeoutExpired:
-                            self.log_message("⚠️ VENV Python test timed out.")
+                            self.log_message("⚠️ VENV Час очікування тесту Python минув.")
                         except Exception as e:
                             self.log_message(msg_formatter.venv_python_test_failed(str(e)))
                     else:
-                        self.log_message("⚠️ Virtual environment validation failed.")
+                        self.log_message("⚠️ Не вдалося виконати перевірку віртуального середовища.")
                 else:
-                    self.log_message("⚠️ Module manager not available for venv validation.")
+                    self.log_message("⚠️ Менеджер модулів недоступний для перевірки venv.")
 
             # Check if system Python is working
             try:
                 import sys
-                self.log_message(f"✅ System Python {sys.version} is working correctly.")
+                self.log_message(f"✅ Системний Python {sys.version} працює правильно.")
 
                 # If system Python works but no venv, that's still OK for first run
                 if not os.path.exists(venv_dir):
-                    self.log_message("ℹ️ No virtual environment found, but system Python is working.")
+                    self.log_message("ℹ️ Віртуальне середовище не знайдено, але система Python працює.")
                 return True
 
             except Exception as e:
-                self.log_message(f"❌ Error checking system Python: {str(e)}")
+                self.log_message(f"❌ Система перевірки помилок Python: {str(e)}")
                 return False
 
         except Exception as e:
@@ -7206,32 +7845,32 @@ class MainWindow(QMainWindow):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QGroupBox
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Python Environment Setup")
+        dialog.setWindowTitle("Налаштування середовища Python")
         dialog.setFixedSize(450, 300)
         dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
 
         layout = QVBoxLayout()
 
         # Title and description
-        title_label = QLabel("Python Environment Setup")
+        title_label = QLabel("Налаштування середовища Python")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title_label)
 
-        desc_label = QLabel("This application requires Python to run modules. Choose how you want to set up Python:")
+        desc_label = QLabel("Для запуску модулів цієї програми потрібен Python. Виберіть, як налаштувати Python:")
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet("margin-bottom: 20px;")
         layout.addWidget(desc_label)
 
         # Options group
-        options_group = QGroupBox("Installation Options")
+        options_group = QGroupBox("Варіанти встановлення")
         options_layout = QVBoxLayout()
 
-        self.use_existing_radio = QRadioButton("Use existing Python installation (recommended)")
+        self.use_existing_radio = QRadioButton("Використовувати існуючу інсталяцію Python (рекомендовано)")
         self.use_existing_radio.setChecked(True)
         self.use_existing_radio.setStyleSheet("margin: 5px;")
         options_layout.addWidget(self.use_existing_radio)
 
-        self.download_python_radio = QRadioButton("Download and install Python 3.12.6 automatically")
+        self.download_python_radio = QRadioButton("Автоматичне завантаження та встановлення Python 3.12.6")
         self.download_python_radio.setStyleSheet("margin: 5px;")
         options_layout.addWidget(self.download_python_radio)
 
@@ -7440,9 +8079,20 @@ class MainWindow(QMainWindow):
             # Create system tray icon
             self.tray_icon = QSystemTrayIcon(self)
 
-            # Create a simple icon using the application's style
-            # You can replace this with a custom .ico file if available
-            icon = self.style().standardIcon(getattr(QStyle, 'SP_ComputerIcon', None))
+            # Create custom icon with letter "D"
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setBrush(QBrush(QColor(66, 133, 244)))  # Blue color
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(2, 2, 28, 28)
+            painter.setPen(QPen(QColor(255, 255, 255), 2))
+            font = QFont("Arial", 18, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(pixmap.rect(), Qt.AlignCenter, "D")
+            painter.end()
+            icon = QIcon(pixmap)
             self.tray_icon.setIcon(icon)
 
             # Create tray menu - no global styling to avoid conflicts
@@ -7505,7 +8155,6 @@ class MainWindow(QMainWindow):
             self.tray_tooltip_timer.timeout.connect(self.update_tray_tooltip)
             self.tray_tooltip_timer.start(60000)  # Update every minute
 
-            self.log_message("✅ System tray initialized successfully")
 
         except Exception as e:
             self.log_message(f"❌ Failed to initialize system tray: {e}")
@@ -7695,20 +8344,18 @@ class MainWindow(QMainWindow):
 
     def discover_and_load_modules(self):
         """Discover and load all available modules dynamically."""
-        add_splash_message("🔍 Scanning for modules...")
-        self.log_message("🔍 Discovering modules...")
+        add_splash_message("🔍 Сканування модулів...")
         discovered_modules = self.module_manager.discover_modules()
 
         if discovered_modules:
-            add_splash_message(f"📦 Found {len(discovered_modules)} module(s)")
-            self.log_message(f"📦 Found {len(discovered_modules)} module(s)")
+            add_splash_message(f"📦 Знайдено {len(discovered_modules)} модулів")
 
             # Validate and repair dependencies before loading
-            add_splash_message("🔧 Validating dependencies...")
+            add_splash_message("🔧 Перевірка залежностей...")
             self.module_manager.validate_and_repair_dependencies()
 
             # Load all discovered modules
-            add_splash_message("🚀 Loading modules...")
+            add_splash_message("🚀 Завантаження модулів...")
             self.module_manager.load_all_modules()
 
             # Update system tray menu with loaded modules
@@ -7717,8 +8364,8 @@ class MainWindow(QMainWindow):
                 self.update_tray_tooltip()
 
         else:
-            add_splash_message("ℹ️ No modules found")
-            self.log_message("ℹ️ No modules found")
+            add_splash_message("ℹ️ Модулів не знайдено")
+            self.log_message("ℹ️ Модулів не знайдено")
 
             # Update system tray menu to show no modules
             if hasattr(self, 'tray_icon') and self.tray_icon:
@@ -7728,7 +8375,6 @@ class MainWindow(QMainWindow):
     def on_module_discovered(self, module_name: str, module_info: dict):
         """Called when a module is discovered"""
         add_splash_message(f"🔍 Знайдено: {module_name} v{module_info.get('version', 'Невідомо')}")
-        self.log_message(f"🔍 Знайдено модуль: {module_name} v{module_info.get('version', 'Невідомо')}")
 
     def on_module_loaded(self, module_name: str, module_class):
         """Called when a module is successfully loaded"""
@@ -7779,7 +8425,7 @@ class MainWindow(QMainWindow):
             self.modules_menu.addAction(close_all_action)
 
             # Add delete module action
-            delete_module_action = QAction('Видалити модуль...', self)
+            delete_module_action = QAction('Видалити модуль', self)
             delete_module_action.triggered.connect(self.show_delete_module_dialog)
             delete_module_action.setEnabled(len(discovered_modules) > 0)
             self.modules_menu.addAction(delete_module_action)
@@ -8151,9 +8797,14 @@ class MainWindow(QMainWindow):
 
         # --- File Menu ---
         file_menu = menubar.addMenu('&Файл')
-        settings_action = QAction('&Налаштування...', self)
+        settings_action = QAction('&Налаштування', self)
         settings_action.triggered.connect(self.open_settings_dialog)
         file_menu.addAction(settings_action)
+        # --- Add Virtual Environment Action ---
+        venv_action = QAction('&Віртуальне Середовище', self)
+        venv_action.triggered.connect(self.open_virtual_environment_dialog)
+        file_menu.addAction(venv_action)
+        file_menu.addSeparator()
         # --- Add Import Module Action ---
         import_module_action = QAction('&Імпортувати додатковий модуль', self)
         import_module_action.triggered.connect(self.import_modules_to_standard_dir)
@@ -8627,6 +9278,11 @@ class MainWindow(QMainWindow):
         dialog.settings_applied.connect(self.handle_settings_applied)
         dialog.exec_()
 
+    def open_virtual_environment_dialog(self):
+        """Open the virtual environment management dialog"""
+        dialog = VirtualEnvironmentDialog(self)
+        dialog.exec_()
+
 
     def show_install_placeholder(self):
         QMessageBox.information(self, "Встановлення програм", "Ця функція ще не реалізована.")
@@ -8770,6 +9426,82 @@ class MainWindow(QMainWindow):
         self.timer_label.setText(f"До автоматичного старту: {self.format_time()}")
 
 
+    def load_last_run_date(self):
+        """Load the last scheduled run date from file"""
+        try:
+            with open(LAST_RUN_FILE, 'r') as f:
+                date_str = f.read().strip()
+                return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (FileNotFoundError, ValueError):
+            return None
+
+    def save_last_run_date(self, date):
+        """Save the last scheduled run date to file"""
+        try:
+            with open(LAST_RUN_FILE, 'w') as f:
+                f.write(date.strftime('%Y-%m-%d'))
+        except Exception as e:
+            self.log_message(f"❌ Помилка збереження дати останнього запуску: {e}")
+
+    def check_and_run_missed_schedule(self):
+        """Check if any scheduled runs were missed (e.g., PC was off) and run if needed"""
+        app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
+        schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        schedule_type = schedule_cfg.get('type', 'disabled')
+
+        # Do not run if schedule is disabled or autostart timer is disabled
+        if schedule_type == 'disabled' or not app_settings.get('autostart_timer_enabled', True):
+            return
+
+        # Load last run date
+        last_run = self.load_last_run_date()
+        if last_run is None:
+            # No previous run recorded, nothing to check
+            return
+
+        today = datetime.now().date()
+        # Check if last run was before today
+        if last_run >= today:
+            # Already ran today or in future, nothing to check
+            return
+
+        # Check days from last_run + 1 to yesterday
+        from datetime import timedelta
+        check_date = last_run + timedelta(days=1)
+        missed_dates = []
+
+        # Limit how far back we check (max 30 days to avoid very long runs)
+        max_check_date = today - timedelta(days=30)
+        if check_date < max_check_date:
+            check_date = max_check_date
+
+        while check_date < today:
+            if was_scheduled_day(schedule_cfg, check_date):
+                missed_dates.append(check_date)
+            check_date += timedelta(days=1)
+
+        if missed_dates:
+            self.log_message(f"📅 Виявлено пропущені заплановані запуски: {len(missed_dates)} днів")
+            for missed_date in missed_dates[-5:]:  # Show last 5 missed dates
+                self.log_message(f"   - {missed_date.strftime('%Y-%m-%d')}")
+
+            # Check if we're within a reasonable time to run (not in middle of night if user is active)
+            current_time = QTime.currentTime()
+            start_time = QTime.fromString(schedule_cfg.get('time_start', '16:00'), "HH:mm")
+            end_time = QTime.fromString(schedule_cfg.get('time_end', '23:59'), "HH:mm")
+
+            # If current time is before start time, schedule for later
+            if current_time < start_time:
+                self.log_message(f"⏰ Пропущені запуски будуть виконані о {start_time.toString('HH:mm')}")
+                # Don't run now, wait for scheduled time
+                return
+
+            # Run the missed schedule
+            self.log_message("🚀 Запуск пропущеного запланованого завдання...")
+            self.start_process()
+            self.last_scheduled_run_date = today
+            self.save_last_run_date(today)
+
     def format_time(self):
         mins, secs = divmod(self.remaining_time, 60)
         return f"{mins:02}:{secs:02}"
@@ -8811,14 +9543,14 @@ class MainWindow(QMainWindow):
             cpu_usage = psutil.cpu_percent(interval=1)
             self.log_message(f"ℹ️ У вікні розкладу. ЦП: {cpu_usage}%.")
             if cpu_usage < 15.0:
-                self.log_message("⏰ Низьке завантаження ЦП. Запуск таймера за розкладом.")
-                self.start_auto_timer()
+                self.log_message("⏰ Низьке завантаження ЦП. Запуск очищення за розкладом.")
+                self.start_process()
                 self.last_scheduled_run_date = today
                 self.save_last_run_date(today)
         # If we are past the window and haven't run, run now.
         elif current_time > end_time:
-            self.log_message("⚠️ Вікно розкладу пропущено. Запускаємо таймер зараз, оскільки він не був запущений через високе завантаження ЦП.")
-            self.start_auto_timer()
+            self.log_message("⚠️ Вікно розкладу пропущено. Запускаємо очищення зараз, оскільки воно не було запущено через високе завантаження ЦП.")
+            self.start_process()
             self.last_scheduled_run_date = today
             self.save_last_run_date(today)
 

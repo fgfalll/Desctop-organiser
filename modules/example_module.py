@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt
   "description": "Приклад модуля для демонстрації архітектури з вбудованим маніфестом",
   "author": "Desktop Organizer Team",
   "category": "Demo",
-  "menu_text": "&Приклад Модуля...",
+  "menu_text": "&Приклад Модуля",
   "main_class": "ExampleModule",
   "dependencies": [],
   "python_version": "3.8+",

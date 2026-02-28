@@ -48,6 +48,13 @@ Desktop Organizer provides automated file organization with support for schedule
 - **Automatic Cleanup**: Package removal when modules are unloaded
 - **Hot Reloading**: Reload modules without restarting the application
 
+### NGIT Package Tools (`Pakage utils/`)
+- **ngit_package_gui.py**: Graphical interface for creating and validating NGIT packages
+- **ngit_package_packer.py**: Command-line tool for packaging modules, validation, and extraction
+- **launch_package_gui.bat**: Windows launcher for the package GUI
+
+NGIT packages provide a standardized format for distributing Desktop Organizer modules with embedded manifests and dependencies.
+
 ### Available Modules
 - `desktop_cleanup_helper.py`: Advanced file analysis, duplicate detection, and archive management
 - `license_manager.py`: License validation and management
@@ -75,7 +82,7 @@ pip install -r requirements.txt
 2. Install dependencies from `requirements.txt`
 3. Run the application:
    ```bash
-   python v4.2.py
+   python "Desctop organiser.py"
    ```
 
 ## Usage
@@ -165,27 +172,30 @@ Access through Settings → "Віртуальне Середовище":
 
 ```
 Desktop Organizer/
-├── Desctop organiser.py              # Main application
-├── requirements.txt                  # Core dependencies
-├── UPDATE.md                         # Version updates
-├── README.md                         # Documentation
-├── modules/                         # Module directory
-│   ├── desktop_cleanup_helper.py    # File analysis and cleanup tools
-│   ├── license_manager.py           # License management
-│   ├── license_test.py              # License checking
-│   ├── program_install.py           # Program installation
-│   └── example_module.py            # Example module
-├── .DesktopOrganizer/               # Configuration directory
-│   ├── config.yaml                  # Application settings
-│   ├── last_run.txt                 # Schedule tracking
-│   ├── module_packages.json         # Package usage tracking
-│   └── modules_venv/                # Shared virtual environment
-│       ├── lib/python3.x/site-packages/
-│       ├── Scripts/
-│       └── pyvenv.cfg
-└── docs/                           # Documentation
-    ├── UPDATE.md
-    └── README.md
+├── 🐍 Desctop organiser.py              # Main application
+├── 📦 requirements.txt                  # Core dependencies
+├── 📄 README.md                         # Documentation
+├── 📁 Pakage utils/                    # Package tools
+│   ├── 🖥️ ngit_package_gui.py         # GUI for creating NGIT packages
+│   ├── 🐍 ngit_package_packer.py      # CLI packaging tool
+│   └── 🔧 launch_package_gui.bat      # Launcher script
+├── 📁 modules/                         # Module directory
+│   ├── 🐍 desktop_cleanup_helper.py    # File analysis and cleanup tools
+│   ├── 🐍 license_manager.py           # License management
+│   ├── 🐍 license_test.py              # License checking
+│   ├── 🐍 program_install.py           # Program installation
+│   └── 🐍 example_module.py            # Example module
+├── 📁 .DesktopOrganizer/               # Configuration directory
+│   ├── 📋 config.yaml                  # Application settings
+│   ├── 📄 last_run.txt                 # Schedule tracking
+│   ├── 📋 module_packages.json         # Package usage tracking
+│   └── 📁 modules_venv/                # Shared virtual environment
+│       ├── 📁 lib/python3.x/site-packages/
+│       ├── 📁 Scripts/
+│       └── ⚙️ pyvenv.cfg
+└── 📁 docs/                           # Documentation
+    ├── 📄 UPDATE.md
+    └── 📄 README.md
 ```
 
 ## Troubleshooting
