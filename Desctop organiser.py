@@ -44,6 +44,33 @@ import subprocess
 import json
 from pathlib import Path
 
+# --- Helper Functions for subprocess without console popup on Windows ---
+def run_subprocess_silent(command: list, **kwargs) -> subprocess.CompletedProcess:
+    """Run subprocess without showing console window on Windows"""
+    if platform.system() == "Windows":
+        import ctypes
+        from subprocess import STARTUPINFO, STARTF_USESHOWWINDOW, SW_HIDE
+
+        startupinfo = STARTUPINFO()
+        startupinfo.dwFlags |= STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = SW_HIDE
+        kwargs['startupinfo'] = startupinfo
+
+    return subprocess.run(command, **kwargs)
+
+def popen_subprocess_silent(command: list, **kwargs):
+    """Popen subprocess without showing console window on Windows"""
+    if platform.system() == "Windows":
+        import ctypes
+        from subprocess import STARTUPINFO, STARTF_USESHOWWINDOW, SW_HIDE
+
+        startupinfo = STARTUPINFO()
+        startupinfo.dwFlags |= STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = SW_HIDE
+        kwargs['startupinfo'] = startupinfo
+
+    return subprocess.Popen(command, **kwargs)
+
 # --- Administrator Privilege Functions ---
 def is_running_as_admin() -> bool:
     """Check if the current process is running with administrator privileges"""
@@ -636,7 +663,7 @@ class SharedVirtualEnvironmentManager:
                 else:
                     cmd = [pip_path, 'list', '--format=json']
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
+            result = run_subprocess_silent(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
             if result.returncode == 0:
                 import json
@@ -688,7 +715,7 @@ class SharedVirtualEnvironmentManager:
                 else:
                     cmd = [pip_path, 'show', package_name]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+            result = run_subprocess_silent(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             return result.returncode == 0
         except Exception:
             return False
@@ -706,7 +733,7 @@ class SharedVirtualEnvironmentManager:
             else:
                 cmd = [pip_path, 'show', package_name]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+            result = run_subprocess_silent(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if line.startswith('Version:'):
@@ -1224,7 +1251,7 @@ class SharedVirtualEnvironmentManager:
                     else:
                         cmd = [pip_path, 'uninstall', package, '-y']
 
-                result = subprocess.run(cmd, encoding='utf-8', errors='replace',
+                result = run_subprocess_silent(cmd, encoding='utf-8', errors='replace',
                                       capture_output=True, text=True, timeout=900)
                 if result.returncode != 0:
                     print(f"⚠️ Failed to uninstall {package}: {result.stderr}")
@@ -1276,7 +1303,7 @@ class SharedVirtualEnvironmentManager:
 
             # Try to install with current privileges first
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=900)
+                result = run_subprocess_silent(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=900)
             except subprocess.TimeoutExpired:
                 print(f"❌ Installation of {package_spec} timed out")
                 return False
@@ -2279,6 +2306,10 @@ class SettingsDialog(QDialog):
         # Flag to prevent recursive calls during initialization
         self._loading_settings = True
 
+        # Cache for venv size to avoid slow recalculation
+        self._venv_size_cache = None
+        self._venv_size_cache_time = None
+
         self._setup_ui()
         self._create_tabs()
         self._setup_buttons()
@@ -2688,12 +2719,10 @@ class SettingsDialog(QDialog):
             self.drive_status_label.setText("Оновлення інформації про диски...")
 
             def check_drive_exists(drive_letter):
-                import subprocess
-                import platform
                 if platform.system() == "Windows":
                     try:
-                        result = subprocess.run(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
-                                               capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                        result = run_subprocess_silent(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
+                                                     capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
                         return result.returncode == 0
                     except:
                         return os.path.exists(f"{drive_letter}:\\")
@@ -2842,7 +2871,7 @@ class SettingsDialog(QDialog):
                     import platform
                     if platform.system() == "Windows":
                         try:
-                            result = subprocess.run(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
+                            result = run_subprocess_silent(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
                                                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
                             return result.returncode == 0
                         except:
@@ -2873,7 +2902,7 @@ class SettingsDialog(QDialog):
                     import platform
                     if platform.system() == "Windows":
                         try:
-                            result = subprocess.run(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
+                            result = run_subprocess_silent(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
                                                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
                             return result.returncode == 0
                         except:
@@ -2907,12 +2936,10 @@ class SettingsDialog(QDialog):
             self.drive_status_label.setText("🔍 Перевірка доступності дисків (симуляція)...")
 
             def check_drive_exists(drive_letter):
-                import subprocess
-                import platform
                 if platform.system() == "Windows":
                     try:
-                        result = subprocess.run(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
-                                               capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                        result = run_subprocess_silent(['cmd', '/c', f'if exist {drive_letter}:\\nul echo exists'],
+                                                     capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
                         return result.returncode == 0
                     except:
                         return os.path.exists(f"{drive_letter}:\\")
@@ -3520,16 +3547,16 @@ class SettingsDialog(QDialog):
                         # Method 2: Use explorer with full path
                         windir = os.environ.get('WINDIR', 'C:\\Windows')
                         explorer_path = os.path.join(windir, 'explorer.exe')
-                        subprocess.run([explorer_path, CONFIG_DIR], shell=False)
+                        run_subprocess_silent([explorer_path, CONFIG_DIR], shell=False)
                     except Exception:
                         try:
                             # Method 3: Use shell=True with start command
-                            subprocess.run(['cmd', '/c', 'start', '', CONFIG_DIR], shell=True)
+                            run_subprocess_silent(['cmd', '/c', 'start', '', CONFIG_DIR], shell=True)
                         except Exception:
                             # Method 4: Fallback to shell=True with explorer
-                            subprocess.run(['explorer', CONFIG_DIR], shell=True)
+                            run_subprocess_silent(['explorer', CONFIG_DIR], shell=True)
             else:
-                subprocess.run(['xdg-open', CONFIG_DIR])
+                run_subprocess_silent(['xdg-open', CONFIG_DIR])
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося відкрити папку конфігурації:\n{e}")
 
@@ -3686,7 +3713,7 @@ class SettingsDialog(QDialog):
                 current_script = os.path.abspath(__file__)
 
                 # Restart with startup-to-tray argument
-                subprocess.Popen([
+                popen_subprocess_silent([
                     current_exe, current_script, "--startup-to-tray"
                 ])
 
@@ -4526,7 +4553,7 @@ class SettingsDialog(QDialog):
     def _check_task_exists(self) -> bool:
         """Check if the Windows Task exists"""
         try:
-            result = subprocess.run([
+            result = run_subprocess_silent([
                 'schtasks', '/Query', '/TN', 'DesktopOrganizer'
             ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             return result.returncode == 0
@@ -4598,7 +4625,7 @@ class SettingsDialog(QDialog):
             )
 
             if reply == QMessageBox.Yes:
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     'schtasks', '/Delete', '/TN', 'DesktopOrganizer', '/F'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15)
 
@@ -4622,7 +4649,7 @@ class SettingsDialog(QDialog):
         """Open Windows Task Scheduler application"""
         try:
             if platform.system() == "Windows":
-                subprocess.run(['taskschd.msc'], shell=True)
+                run_subprocess_silent(['taskschd.msc'], shell=True)
             else:
                 QMessageBox.information(self, "Інформація",
                                       "Windows Task Scheduler доступний тільки на Windows")
@@ -4909,9 +4936,16 @@ class SettingsDialog(QDialog):
         scroll_area.setWidget(tab_venv)
         self.tabs.addTab(scroll_area, "Віртуальне Середовище")
 
-        # Initialize the tab
-        self.refresh_package_list()
-        self.refresh_venv_status()
+        # Defer initial refresh to after UI is shown (prevent loading hang)
+        QTimer.singleShot(100, lambda: self._deferred_venv_refresh())
+
+    def _deferred_venv_refresh(self):
+        """Deferred refresh of venv status - called after UI is shown"""
+        try:
+            self.refresh_package_list()
+            self.refresh_venv_status()
+        except Exception:
+            pass  # Silently handle errors during deferred refresh
 
     def _create_enhanced_venv_status_section(self) -> QGroupBox:
         """Create enhanced virtual environment status section"""
@@ -4944,7 +4978,7 @@ class SettingsDialog(QDialog):
         status_layout.addStretch()
 
         self.refresh_status_btn = QPushButton("Оновити")
-        self.refresh_status_btn.clicked.connect(self.refresh_venv_status)
+        self.refresh_status_btn.clicked.connect(lambda: self.refresh_venv_status(force_refresh=True))
         self.refresh_status_btn.setFixedHeight(30)
         self.refresh_status_btn.setMinimumWidth(80)
         status_layout.addWidget(self.refresh_status_btn)
@@ -5383,8 +5417,12 @@ class SettingsDialog(QDialog):
                 QMessageBox.critical(self, "Помилка", f"Не вдалося видалити пакет:\n{e}")
 
     # New enhanced virtual environment functionality
-    def refresh_venv_status(self):
-        """Refresh virtual environment status and details"""
+    def refresh_venv_status(self, force_refresh=False):
+        """Refresh virtual environment status and details
+
+        Args:
+            force_refresh: If True, recalculate venv size even if cached
+        """
         if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
             self.venv_status_label.setText("❌ Менеджер модулів недоступний")
             return
@@ -5405,18 +5443,24 @@ class SettingsDialog(QDialog):
             self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
             self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
 
-            # Update statistics
+            # Update statistics - use cached size if available and not forcing refresh
             try:
-                total_size = 0
-                for dirpath, dirnames, filenames in os.walk(venv_manager.venv_dir):
-                    for f in filenames:
-                        fp = os.path.join(dirpath, f)
-                        try:
-                            total_size += os.path.getsize(fp)
-                        except:
-                            pass
+                size_mb = 0
+                if force_refresh or self._venv_size_cache is None:
+                    total_size = 0
+                    for dirpath, dirnames, filenames in os.walk(venv_manager.venv_dir):
+                        for f in filenames:
+                            fp = os.path.join(dirpath, f)
+                            try:
+                                total_size += os.path.getsize(fp)
+                            except:
+                                pass
+                    size_mb = total_size / (1024 * 1024)
+                    self._venv_size_cache = size_mb
+                    self._venv_size_cache_time = datetime.now()
+                else:
+                    size_mb = self._venv_size_cache
 
-                size_mb = total_size / (1024 * 1024)
                 package_count = len(venv_manager.get_installed_packages())
                 self.venv_stats_label.setText(f"Пакетів: {package_count} | Розмір: {size_mb:.1f} MB")
 
@@ -5440,7 +5484,7 @@ class SettingsDialog(QDialog):
         """Update environment details section"""
         try:
             # Get Python version
-            result = subprocess.run([
+            result = run_subprocess_silent([
                 venv_manager.get_pip_path().split()[0], '--version'
             ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
@@ -5460,7 +5504,7 @@ class SettingsDialog(QDialog):
                 python_exe = os.path.join(venv_manager.venv_dir, 'bin', 'python')
 
             if os.path.exists(python_exe):
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     python_exe, '--version'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
@@ -5524,7 +5568,7 @@ class SettingsDialog(QDialog):
 
             try:
                 # Run pip upgrade
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     pip_path, 'install', '--upgrade', '-r', 'requirements.txt'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
 
@@ -5603,7 +5647,7 @@ class SettingsDialog(QDialog):
                     return
 
                 # Export to requirements.txt
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     pip_path, 'freeze'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
@@ -5649,7 +5693,7 @@ class SettingsDialog(QDialog):
                         return
 
                     # Import from requirements.txt
-                    result = subprocess.run([
+                    result = run_subprocess_silent([
                         pip_path, 'install', '-r', file_path
                     ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
 
@@ -6612,9 +6656,14 @@ class VirtualEnvironmentDialog(QDialog):
         self.setMinimumSize(750, 650)
         self.resize(800, 700)
 
+        # Cache for venv size to avoid slow recalculation
+        self._venv_size_cache = None
+        self._venv_size_cache_time = None
+
         self._setup_ui()
-        self.refresh_venv_status()
-        self.refresh_package_list()
+
+        # Defer initial refresh to after UI is shown (prevent loading hang)
+        QTimer.singleShot(100, lambda: self._deferred_venv_refresh())
 
     def _setup_ui(self):
         """Setup the dialog UI"""
@@ -6681,6 +6730,14 @@ class VirtualEnvironmentDialog(QDialog):
         close_btn.setFixedHeight(35)
         layout.addWidget(close_btn)
 
+    def _deferred_venv_refresh(self):
+        """Deferred refresh of venv status - called after UI is shown"""
+        try:
+            self.refresh_venv_status()
+            self.refresh_package_list()
+        except Exception:
+            pass  # Silently handle errors during deferred refresh
+
     def _create_venv_status_section(self) -> QGroupBox:
         """Create virtual environment status section"""
         group = QGroupBox("Статус Віртуального Середовища")
@@ -6712,7 +6769,7 @@ class VirtualEnvironmentDialog(QDialog):
         status_layout.addStretch()
 
         self.refresh_status_btn = QPushButton("Оновити")
-        self.refresh_status_btn.clicked.connect(self.refresh_venv_status)
+        self.refresh_status_btn.clicked.connect(lambda: self.refresh_venv_status(force_refresh=True))
         self.refresh_status_btn.setFixedHeight(30)
         self.refresh_status_btn.setMinimumWidth(80)
         status_layout.addWidget(self.refresh_status_btn)
@@ -7014,8 +7071,12 @@ class VirtualEnvironmentDialog(QDialog):
             selected_count = len(self.packages_list.selectedItems())
             self.package_stats_label.setText(f"Всього: {total_count} пакетів | Вибрано: {selected_count}")
 
-    def refresh_venv_status(self):
-        """Refresh virtual environment status and details"""
+    def refresh_venv_status(self, force_refresh=False):
+        """Refresh virtual environment status and details
+
+        Args:
+            force_refresh: If True, recalculate venv size even if cached
+        """
         if not self.parent_window or not hasattr(self.parent_window, 'module_manager'):
             self.venv_status_label.setText("❌ Менеджер модулів недоступний")
             return
@@ -7036,18 +7097,24 @@ class VirtualEnvironmentDialog(QDialog):
             self.venv_status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: black;")
             self.venv_path_label.setText(f"📁 Шлях: {venv_manager.venv_dir}")
 
-            # Update statistics
+            # Update statistics - use cached size if available and not forcing refresh
             try:
-                total_size = 0
-                for dirpath, dirnames, filenames in os.walk(venv_manager.venv_dir):
-                    for f in filenames:
-                        fp = os.path.join(dirpath, f)
-                        try:
-                            total_size += os.path.getsize(fp)
-                        except:
-                            pass
+                size_mb = 0
+                if force_refresh or self._venv_size_cache is None:
+                    total_size = 0
+                    for dirpath, dirnames, filenames in os.walk(venv_manager.venv_dir):
+                        for f in filenames:
+                            fp = os.path.join(dirpath, f)
+                            try:
+                                total_size += os.path.getsize(fp)
+                            except:
+                                pass
+                    size_mb = total_size / (1024 * 1024)
+                    self._venv_size_cache = size_mb
+                    self._venv_size_cache_time = datetime.now()
+                else:
+                    size_mb = self._venv_size_cache
 
-                size_mb = total_size / (1024 * 1024)
                 package_count = len(venv_manager.get_installed_packages())
                 self.venv_stats_label.setText(f"Пакетів: {package_count} | Розмір: {size_mb:.1f} MB")
 
@@ -7071,7 +7138,7 @@ class VirtualEnvironmentDialog(QDialog):
         """Update environment details section"""
         try:
             # Get Python version
-            result = subprocess.run([
+            result = run_subprocess_silent([
                 venv_manager.get_pip_path().split()[0], '--version'
             ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
@@ -7091,7 +7158,7 @@ class VirtualEnvironmentDialog(QDialog):
                 python_exe = os.path.join(venv_manager.venv_dir, 'bin', 'python')
 
             if os.path.exists(python_exe):
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     python_exe, '--version'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
 
@@ -7252,7 +7319,7 @@ class VirtualEnvironmentDialog(QDialog):
 
             try:
                 # Run pip upgrade
-                result = subprocess.run([
+                result = run_subprocess_silent([
                     pip_path, 'install', '--upgrade', '-r', 'requirements.txt'
                 ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
 
@@ -7651,7 +7718,7 @@ class BackgroundTaskRunner:
             
             # Use sys.executable to ensure the same Python interpreter is used
             # Pass a special argument to indicate it's a scheduled run
-            subprocess.Popen([sys.executable, script_path, '--scheduled-run'])
+            popen_subprocess_silent([sys.executable, script_path, '--scheduled-run'])
             
             # Since we are launching a new process, the background runner can exit
             QCoreApplication.instance().quit()
@@ -7694,6 +7761,11 @@ class MainWindow(QMainWindow):
         # System tray functionality
         self.tray_icon = None
         self.tray_menu = None
+
+        # Set window icon
+        window_icon = self._load_icon_from_file('window')
+        if not window_icon.isNull():
+            self.setWindowIcon(window_icon)
 
         add_splash_message("🔧 Ініціалізація менеджера модулів...")
         # Initialize Module Manager
@@ -7803,7 +7875,7 @@ class MainWindow(QMainWindow):
 
                         # Test basic Python functionality in the venv
                         try:
-                            result = subprocess.run([
+                            result = run_subprocess_silent([
                                 venv_python,
                                 '-c', 'import sys; print(f"Python {sys.version}"); print("Basic Python functionality working")'
                             ], capture_output=True, text=True, timeout=15)
@@ -8003,7 +8075,7 @@ class MainWindow(QMainWindow):
                 'Include_test=0'
             ]
 
-            result = subprocess.run(install_args, capture_output=True, text=True, timeout=300)
+            result = run_subprocess_silent(install_args, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0:
                 self.python_status_label.setText("✅ Python 3.12.6 installed successfully!")
@@ -8059,6 +8131,28 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.log_message(f"⚠️ Could not update Python path: {str(e)}")
 
+    def _load_icon_from_file(self, icon_type='window') -> QIcon:
+        """Load icon from file based on type (window, tray, build)."""
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+
+        # Icon mapping for different purposes
+        icon_map = {
+            'window': ['icons/window_icon.png', 'icons/window_icon.ico', 'icons/window_icon.svg'],
+            'tray': ['icons/tray_icon.png', 'icons/tray_icon.ico', 'icons/tray_icon.svg'],
+            'build': ['icons/build_icon.png', 'icons/build_icon.ico', 'icons/build_icon.svg']
+        }
+
+        icons_to_try = icon_map.get(icon_type, icon_map['window'])
+
+        for icon_name in icons_to_try:
+            icon_path = os.path.join(base_path, icon_name)
+            if os.path.exists(icon_path):
+                return QIcon(icon_path)
+        return QIcon()
+
     def get_module_dir(self):
         """Determines the path to the 'modules' directory relative to the script or executable."""
         if getattr(sys, 'frozen', False):
@@ -8079,20 +8173,23 @@ class MainWindow(QMainWindow):
             # Create system tray icon
             self.tray_icon = QSystemTrayIcon(self)
 
-            # Create custom icon with letter "D"
-            pixmap = QPixmap(32, 32)
-            pixmap.fill(Qt.transparent)
-            painter = QPainter(pixmap)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setBrush(QBrush(QColor(66, 133, 244)))  # Blue color
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(2, 2, 28, 28)
-            painter.setPen(QPen(QColor(255, 255, 255), 2))
-            font = QFont("Arial", 18, QFont.Bold)
-            painter.setFont(font)
-            painter.drawText(pixmap.rect(), Qt.AlignCenter, "D")
-            painter.end()
-            icon = QIcon(pixmap)
+            # Try to load icon from file first, fall back to programmatic icon
+            icon = self._load_icon_from_file('tray')
+            if icon.isNull():
+                # Create custom icon with letter "D" as fallback
+                pixmap = QPixmap(32, 32)
+                pixmap.fill(Qt.transparent)
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setBrush(QBrush(QColor(66, 133, 244)))  # Blue color
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(2, 2, 28, 28)
+                painter.setPen(QPen(QColor(255, 255, 255), 2))
+                font = QFont("Arial", 18, QFont.Bold)
+                painter.setFont(font)
+                painter.drawText(pixmap.rect(), Qt.AlignCenter, "D")
+                painter.end()
+                icon = QIcon(pixmap)
             self.tray_icon.setIcon(icon)
 
             # Create tray menu - no global styling to avoid conflicts
