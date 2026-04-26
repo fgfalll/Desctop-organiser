@@ -37,8 +37,13 @@ class NGITPackageSpec:
 
     # Required manifest fields
     REQUIRED_FIELDS = [
-        "name", "version", "description", "author",
-        "main_class", "dependencies", "python_version"
+        "name",
+        "version",
+        "description",
+        "author",
+        "main_class",
+        "dependencies",
+        "python_version",
     ]
 
     # Optional fields with defaults
@@ -52,12 +57,13 @@ class NGITPackageSpec:
         "repository": "",
         "keywords": [],
         "entry_point": "main.py",
-        "package_type": "module"  # module, theme, plugin
+        "package_type": "module",  # module, theme, plugin
     }
 
 
 class PackageValidationError(Exception):
     """Raised when package validation fails"""
+
     pass
 
 
@@ -100,6 +106,18 @@ class PackageCreator:
             self.errors.append("Directory module must have main.py or __init__.py")
             return False
 
+        # Check that directory contains files
+        try:
+            all_files = os.listdir(module_path)
+            valid_files = [f for f in all_files if not f.startswith(".")]
+            if not valid_files:
+                self.errors.append("Module directory is empty")
+                return False
+            print(f"  Directory contains {len(valid_files)} items")
+        except Exception as e:
+            self.errors.append(f"Cannot read module directory: {e}")
+            return False
+
         # Extract and validate manifest
         manifest = self._extract_manifest(module_path, is_directory=True)
         if not manifest:
@@ -112,8 +130,19 @@ class PackageCreator:
         """Validate single file module"""
         print("  Type: File module")
 
-        if not module_path.endswith('.py'):
+        if not module_path.endswith(".py"):
             self.errors.append("File module must be a Python file (.py)")
+            return False
+
+        # Check that file exists and has content
+        try:
+            file_size = os.path.getsize(module_path)
+            if file_size == 0:
+                self.errors.append("Module file is empty (0 bytes)")
+                return False
+            print(f"  File size: {file_size} bytes")
+        except Exception as e:
+            self.errors.append(f"Cannot read module file: {e}")
             return False
 
         # Extract and validate manifest
@@ -137,7 +166,7 @@ class PackageCreator:
                         return manifest
 
                 if os.path.exists(manifest_json_file):
-                    with open(manifest_json_file, 'r', encoding='utf-8') as f:
+                    with open(manifest_json_file, "r", encoding="utf-8") as f:
                         return json.load(f)
 
                 self.errors.append("No manifest found in main.py or package.json")
@@ -156,12 +185,12 @@ class PackageCreator:
     def _extract_from_file(self, file_path: str) -> Optional[Dict]:
         """Extract manifest from Python file"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # Look for embedded manifest
-            start_marker = 'MODULE_MANIFEST_START'
-            end_marker = 'MODULE_MANIFEST_END'
+            start_marker = "MODULE_MANIFEST_START"
+            end_marker = "MODULE_MANIFEST_END"
 
             start_idx = content.find(start_marker)
             if start_idx == -1:
@@ -178,7 +207,9 @@ class PackageCreator:
         except Exception:
             return None
 
-    def _validate_module_structure(self, module_path: str, manifest: Dict, is_directory: bool) -> bool:
+    def _validate_module_structure(
+        self, module_path: str, manifest: Dict, is_directory: bool
+    ) -> bool:
         """Validate module structure and manifest"""
         print("  Validating manifest...")
 
@@ -188,50 +219,60 @@ class PackageCreator:
                 self.errors.append(f"Missing required field: {field}")
 
         # Validate field values
-        if 'name' in manifest:
-            name = manifest['name']
+        if "name" in manifest:
+            name = manifest["name"]
             if not name or not isinstance(name, str):
                 self.errors.append("Module name must be a non-empty string")
-            elif not name.replace('_', '').replace('-', '').isalnum():
-                self.warnings.append("Module name should contain only alphanumeric characters, underscores, and hyphens")
+            elif not name.replace("_", "").replace("-", "").isalnum():
+                self.warnings.append(
+                    "Module name should contain only alphanumeric characters, underscores, and hyphens"
+                )
 
-        if 'version' in manifest:
-            version = manifest['version']
+        if "version" in manifest:
+            version = manifest["version"]
             if not isinstance(version, str) or not version:
                 self.errors.append("Version must be a non-empty string")
 
-        if 'main_class' in manifest:
-            main_class = manifest['main_class']
+        if "main_class" in manifest:
+            main_class = manifest["main_class"]
             if not isinstance(main_class, str) or not main_class:
                 self.errors.append("Main class must be a non-empty string")
 
         # Validate dependencies
-        if 'dependencies' in manifest:
-            deps = manifest['dependencies']
+        if "dependencies" in manifest:
+            deps = manifest["dependencies"]
             if not isinstance(deps, list):
                 self.errors.append("Dependencies must be a list")
             else:
                 for dep in deps:
                     if not isinstance(dep, str):
-                        self.errors.append(f"Invalid dependency: {dep} (must be string)")
+                        self.errors.append(
+                            f"Invalid dependency: {dep} (must be string)"
+                        )
 
         # For directory modules, check if main class exists
-        if is_directory and 'main_class' in manifest:
-            entry_file = os.path.join(module_path, manifest.get('entry_point', 'main.py'))
-            if not self._check_main_class_exists(entry_file, manifest['main_class']):
-                self.errors.append(f"Main class '{manifest['main_class']}' not found in entry point")
+        if is_directory and "main_class" in manifest:
+            entry_file = os.path.join(
+                module_path, manifest.get("entry_point", "main.py")
+            )
+            if not self._check_main_class_exists(entry_file, manifest["main_class"]):
+                self.errors.append(
+                    f"Main class '{manifest['main_class']}' not found in entry point"
+                )
 
         # Test import (basic validation)
         if is_directory:
             if not self._test_module_import(module_path):
-                self.warnings.append("Module has import issues - may not load correctly")
+                self.warnings.append(
+                    "Module has import issues - may not load correctly"
+                )
 
         return len(self.errors) == 0
 
     def _check_main_class_exists(self, entry_file: str, main_class: str) -> bool:
         """Check if main class exists in entry file"""
         try:
-            with open(entry_file, 'r', encoding='utf-8') as f:
+            with open(entry_file, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # Simple check - look for class definition
@@ -249,8 +290,9 @@ class PackageCreator:
 
             # Try to import the module
             module_name = os.path.basename(module_path)
-            spec = importlib.util.spec_from_file_location(f"test_{module_name}",
-                                                         os.path.join(module_path, "main.py"))
+            spec = importlib.util.spec_from_file_location(
+                f"test_{module_name}", os.path.join(module_path, "main.py")
+            )
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
                 # Don't execute - just check if it can be loaded
@@ -266,7 +308,9 @@ class PackageCreator:
 
         return False
 
-    def create_package(self, module_path: str, output_path: Optional[str] = None) -> bool:
+    def create_package(
+        self, module_path: str, output_path: Optional[str] = None
+    ) -> bool:
         """Create NGIT package from module"""
         print(f"Creating package from: {module_path}")
 
@@ -284,7 +328,7 @@ class PackageCreator:
 
         # Determine output path
         if not output_path:
-            module_name = os.path.basename(module_path.rstrip('/\\'))
+            module_name = os.path.basename(module_path.rstrip("/\\"))
             output_path = f"{module_name}{NGITPackageSpec.PACKAGE_EXT}"
 
         # Create package
@@ -298,26 +342,45 @@ class PackageCreator:
                     shutil.copytree(module_path, module_temp_dir)
                 else:
                     os.makedirs(module_temp_dir)
-                    shutil.copy2(module_path, os.path.join(module_temp_dir, os.path.basename(module_path)))
+                    shutil.copy2(
+                        module_path,
+                        os.path.join(module_temp_dir, os.path.basename(module_path)),
+                    )
+
+                # Validate that module files were actually copied
+                if not os.path.exists(module_temp_dir):
+                    raise Exception(
+                        f"Failed to create module directory: {module_temp_dir}"
+                    )
+                module_files = [
+                    f for f in os.listdir(module_temp_dir) if not f.startswith(".")
+                ]
+                if not module_files:
+                    raise Exception(
+                        f"Module directory is empty or contains no valid files: {module_path}"
+                    )
+                print(f"  Module contains {len(module_files)} top-level items")
 
                 # Create package manifest
-                manifest = self._extract_manifest(module_path, os.path.isdir(module_path))
+                manifest = self._extract_manifest(
+                    module_path, os.path.isdir(module_path)
+                )
                 package_manifest = self._create_package_manifest(manifest, module_path)
 
                 # Write package manifest
                 manifest_path = os.path.join(temp_dir, NGITPackageSpec.MANIFEST_FILE)
-                with open(manifest_path, 'w', encoding='utf-8') as f:
+                with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(package_manifest, f, indent=2)
 
                 # Calculate checksums
                 checksums = self._calculate_checksums(temp_dir)
                 checksum_path = os.path.join(temp_dir, NGITPackageSpec.CHECKSUM_FILE)
-                with open(checksum_path, 'w', encoding='utf-8') as f:
+                with open(checksum_path, "w", encoding="utf-8") as f:
                     json.dump(checksums, f, indent=2)
 
                 # Create package zip
                 print(f"  Creating package: {output_path}")
-                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                     for root, dirs, files in os.walk(temp_dir):
                         for file in files:
                             file_path = os.path.join(root, file)
@@ -326,9 +389,13 @@ class PackageCreator:
 
                 # Verify package
                 if self._verify_package(output_path):
-                    size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+                    size = os.path.getsize(output_path)
+                    if size < 1024 * 1024:
+                        size_str = f"{size / 1024:.2f} KB"
+                    else:
+                        size_str = f"{size / (1024 * 1024):.2f} MB"
                     print(f"  Package created successfully: {output_path}")
-                    print(f"  Package size: {size:.2f} MB")
+                    print(f"  Package size: {size_str}")
                     return True
                 else:
                     print("  ERROR: Package verification failed")
@@ -344,7 +411,7 @@ class PackageCreator:
             "format_version": "1.0",
             "created_at": datetime.now().isoformat(),
             "created_by": "NGIT Package Packer v1.0",
-            "module": module_manifest
+            "module": module_manifest,
         }
 
         # Add optional fields with defaults
@@ -370,34 +437,45 @@ class PackageCreator:
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, directory)
                 # Convert to forward slashes for consistent zip paths
-                rel_path = rel_path.replace(os.sep, '/')
+                rel_path = rel_path.replace(os.sep, "/")
 
                 try:
-                    with open(file_path, 'rb') as f:
+                    with open(file_path, "rb") as f:
                         file_hash = hashlib.sha256(f.read()).hexdigest()
                         checksums[rel_path] = file_hash
                 except Exception as e:
-                    print(f"    Warning: Could not calculate checksum for {rel_path}: {e}")
+                    print(
+                        f"    Warning: Could not calculate checksum for {rel_path}: {e}"
+                    )
 
         return checksums
 
     def _verify_package(self, package_path: str) -> bool:
         """Verify created package"""
         try:
-            with zipfile.ZipFile(package_path, 'r') as zipf:
+            with zipfile.ZipFile(package_path, "r") as zipf:
                 # Check required files exist
                 required_files = [
                     NGITPackageSpec.MANIFEST_FILE,
                     NGITPackageSpec.CHECKSUM_FILE,
-                    "module/"
+                    "module/",
                 ]
 
                 file_list = zipf.namelist()
                 for req_file in required_files:
-                    if req_file.endswith('/'):
-                        # Check directory exists
+                    if req_file.endswith("/"):
+                        # Check directory exists AND has content
                         if not any(f.startswith(req_file) for f in file_list):
                             print(f"    Missing directory: {req_file}")
+                            return False
+                        # Verify directory has at least one file
+                        dir_files = [
+                            f
+                            for f in file_list
+                            if f.startswith(req_file) and f != req_file
+                        ]
+                        if not dir_files:
+                            print(f"    Directory is empty: {req_file}")
                             return False
                     else:
                         if req_file not in file_list:
@@ -407,12 +485,12 @@ class PackageCreator:
                 # Verify checksums
                 checksum_data = {}
                 with zipf.open(NGITPackageSpec.CHECKSUM_FILE) as f:
-                    checksum_data = json.loads(f.read().decode('utf-8'))
+                    checksum_data = json.loads(f.read().decode("utf-8"))
 
                 for file_path, expected_hash in checksum_data.items():
                     try:
                         # Convert forward slashes to backslashes for Windows compatibility
-                        zip_path = file_path.replace('/', os.sep)
+                        zip_path = file_path.replace("/", os.sep)
                         with zipf.open(zip_path) as f:
                             file_hash = hashlib.sha256(f.read()).hexdigest()
                             if file_hash != expected_hash:
@@ -444,10 +522,10 @@ class PackageInspector:
     def get_package_info(package_path: str) -> Dict:
         """Get information about a package"""
         try:
-            with zipfile.ZipFile(package_path, 'r') as zipf:
+            with zipfile.ZipFile(package_path, "r") as zipf:
                 # Read manifest
                 with zipf.open(NGITPackageSpec.MANIFEST_FILE) as f:
-                    manifest = json.loads(f.read().decode('utf-8'))
+                    manifest = json.loads(f.read().decode("utf-8"))
 
                 # Get file list
                 files = zipf.namelist()
@@ -460,7 +538,7 @@ class PackageInspector:
                     "file_count": len(files),
                     "size_bytes": size,
                     "size_mb": round(size / (1024 * 1024), 2),
-                    "files": files
+                    "files": files,
                 }
 
         except Exception as e:
@@ -475,7 +553,7 @@ class PackageInspector:
 
             print(f"Extracting package to: {output_path}")
 
-            with zipfile.ZipFile(package_path, 'r') as zipf:
+            with zipfile.ZipFile(package_path, "r") as zipf:
                 zipf.extractall(output_path)
 
             print(f"Package extracted successfully to: {output_path}")
@@ -507,28 +585,30 @@ Examples:
 
   # Extract package contents
   python ngit_package_packer.py extract my_module.ngitpac
-        """
+        """,
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Create command
-    create_parser = subparsers.add_parser('create', help='Create package from module')
-    create_parser.add_argument('module_path', help='Path to module (file or directory)')
-    create_parser.add_argument('output_path', nargs='?', help='Output package path')
+    create_parser = subparsers.add_parser("create", help="Create package from module")
+    create_parser.add_argument("module_path", help="Path to module (file or directory)")
+    create_parser.add_argument("output_path", nargs="?", help="Output package path")
 
     # Validate command
-    validate_parser = subparsers.add_parser('validate', help='Validate module')
-    validate_parser.add_argument('module_path', help='Path to module (file or directory)')
+    validate_parser = subparsers.add_parser("validate", help="Validate module")
+    validate_parser.add_argument(
+        "module_path", help="Path to module (file or directory)"
+    )
 
     # Info command
-    info_parser = subparsers.add_parser('info', help='Get package information')
-    info_parser.add_argument('package_path', help='Path to .ngitpac package')
+    info_parser = subparsers.add_parser("info", help="Get package information")
+    info_parser.add_argument("package_path", help="Path to .ngitpac package")
 
     # Extract command
-    extract_parser = subparsers.add_parser('extract', help='Extract package contents')
-    extract_parser.add_argument('package_path', help='Path to .ngitpac package')
-    extract_parser.add_argument('output_path', nargs='?', help='Output directory')
+    extract_parser = subparsers.add_parser("extract", help="Extract package contents")
+    extract_parser.add_argument("package_path", help="Path to .ngitpac package")
+    extract_parser.add_argument("output_path", nargs="?", help="Output directory")
 
     args = parser.parse_args()
 
@@ -537,12 +617,12 @@ Examples:
         return 1
 
     # Execute command
-    if args.command == 'create':
+    if args.command == "create":
         creator = PackageCreator()
         success = creator.create_package(args.module_path, args.output_path)
         return 0 if success else 1
 
-    elif args.command == 'validate':
+    elif args.command == "validate":
         creator = PackageCreator()
         success = creator.validate_module(args.module_path)
         if success:
@@ -557,14 +637,14 @@ Examples:
                 print(f"  - {error}")
         return 0 if success else 1
 
-    elif args.command == 'info':
+    elif args.command == "info":
         info = PackageInspector.get_package_info(args.package_path)
-        if 'error' in info:
+        if "error" in info:
             print(f"Error: {info['error']}")
             return 1
 
-        manifest = info['manifest']
-        module = manifest.get('module', {})
+        manifest = info["manifest"]
+        module = manifest.get("module", {})
 
         print(f"Package Information: {args.package_path}")
         print("=" * 50)
@@ -579,14 +659,14 @@ Examples:
         print(f"File Count: {info['file_count']}")
         print(f"Created: {manifest.get('created_at', 'Unknown')}")
 
-        if module.get('dependencies'):
+        if module.get("dependencies"):
             print("\nDependencies:")
-            for dep in module.get('dependencies', []):
+            for dep in module.get("dependencies", []):
                 print(f"  - {dep}")
 
         return 0
 
-    elif args.command == 'extract':
+    elif args.command == "extract":
         success = PackageInspector.extract_package(args.package_path, args.output_path)
         return 0 if success else 1
 

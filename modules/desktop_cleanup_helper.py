@@ -39,22 +39,80 @@ from typing import Dict, List, Tuple, Optional
 import humanize
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QPushButton, QTextEdit, QTreeWidget, QTreeWidgetItem,
-    QProgressBar, QSpinBox, QCheckBox, QComboBox, QLineEdit,
-    QGroupBox, QSplitter, QTableWidget, QTableWidgetItem,
-    QHeaderView, QMessageBox, QFileDialog, QFrame, QGridLayout,
-    QScrollArea, QSizePolicy, QSlider, QDateEdit, QDialog, QMenu, QListWidget, QListWidgetItem,
-    QApplication, QToolTip
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTabWidget,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QProgressBar,
+    QSpinBox,
+    QCheckBox,
+    QComboBox,
+    QLineEdit,
+    QGroupBox,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QMessageBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QDateEdit,
+    QDialog,
+    QMenu,
+    QListWidget,
+    QListWidgetItem,
+    QApplication,
+    QToolTip,
 )
 from PyQt5.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QDate, QMutex, QMutexLocker, QRect, QPropertyAnimation, QEasingCurve
+    Qt,
+    QThread,
+    pyqtSignal,
+    QTimer,
+    QDate,
+    QMutex,
+    QMutexLocker,
+    QRect,
+    QPropertyAnimation,
+    QEasingCurve,
 )
 from PyQt5.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen, QBrush, QCursor
+
+import logging
+import logging.handlers
+
+LOG_DIR = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer", "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+    handlers=[
+        logging.handlers.RotatingFileHandler(
+            os.path.join(LOG_DIR, "modules.log"),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+            errors="replace",
+        ),
+        logging.StreamHandler(sys.stderr),
+    ],
+)
+logger = logging.getLogger("DesktopOrganizer.Modules")
 
 # Import dependencies with fallback handling
 try:
     import pandas as pd
+
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
@@ -63,12 +121,14 @@ except ImportError:
 
 try:
     from tqdm import tqdm
+
     TQDM_AVAILABLE = True
 except ImportError:
     TQDM_AVAILABLE = False
 
 try:
     import compress
+
     COMPRESS_AVAILABLE = True
 except ImportError:
     COMPRESS_AVAILABLE = False
@@ -77,13 +137,16 @@ except ImportError:
 
 try:
     import humanize
+
     HUMANIZE_AVAILABLE = True
 except ImportError:
     HUMANIZE_AVAILABLE = False
     humanize = None
 
+
 class SpinningWheel(QWidget):
     """Custom spinning wheel widget"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.angle = 0
@@ -116,12 +179,16 @@ class SpinningWheel(QWidget):
         rect = QRect(5, 5, 30, 30)
         painter.drawArc(rect, self.angle * 16, 120 * 16)
 
+
 class ScanSplashScreen(QWidget):
     """Splash screen for scan operations"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # Use different window flags to ensure visibility
-        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         # Auto-sizing will be calculated after UI initialization
@@ -154,6 +221,7 @@ class ScanSplashScreen(QWidget):
             else:
                 # Center on desktop
                 from PyQt5.QtWidgets import QDesktopWidget
+
                 screen = QDesktopWidget().screenGeometry()
                 splash_width = self.width()
                 splash_height = self.height()
@@ -180,7 +248,9 @@ class ScanSplashScreen(QWidget):
             }
         """)
         container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
+        container_layout.setContentsMargins(
+            30, 25, 30, 25
+        )  # More vertical space for text
 
         # Title and spinner layout
         title_layout = QHBoxLayout()
@@ -241,14 +311,20 @@ class ScanSplashScreen(QWidget):
         progress_width = self.progress_label.sizeHint().width()
 
         # Add margins and padding
-        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = (
+            max(title_width, progress_width) + 100
+        )  # Extra space for spinner and margins
         required_width = max(350, min(600, required_width))  # Clamp between min and max
 
         # Calculate height based on content
         title_height = self.title_label.sizeHint().height()
         progress_height = self.progress_label.sizeHint().height()
-        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
-        required_height = max(100, min(200, required_height))  # Clamp between min and max
+        required_height = (
+            title_height + progress_height + 80
+        )  # Extra space for margins and spinner
+        required_height = max(
+            100, min(200, required_height)
+        )  # Clamp between min and max
 
         self.setFixedSize(required_width, required_height)
 
@@ -264,12 +340,16 @@ class ScanSplashScreen(QWidget):
         super().hideEvent(event)
         self.spinning_wheel.stop_rotation()
 
+
 class ArchiveSplashScreen(QWidget):
     """Splash screen for archive viewer operations"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # Use different window flags to ensure visibility
-        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         # Auto-sizing will be calculated after UI initialization
@@ -302,6 +382,7 @@ class ArchiveSplashScreen(QWidget):
             else:
                 # Center on desktop
                 from PyQt5.QtWidgets import QDesktopWidget
+
                 screen = QDesktopWidget().screenGeometry()
                 splash_width = self.width()
                 splash_height = self.height()
@@ -328,7 +409,9 @@ class ArchiveSplashScreen(QWidget):
             }
         """)
         container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
+        container_layout.setContentsMargins(
+            30, 25, 30, 25
+        )  # More vertical space for text
 
         # Title and spinner layout
         title_layout = QHBoxLayout()
@@ -389,14 +472,20 @@ class ArchiveSplashScreen(QWidget):
         progress_width = self.progress_label.sizeHint().width()
 
         # Add margins and padding
-        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = (
+            max(title_width, progress_width) + 100
+        )  # Extra space for spinner and margins
         required_width = max(350, min(600, required_width))  # Clamp between min and max
 
         # Calculate height based on content
         title_height = self.title_label.sizeHint().height()
         progress_height = self.progress_label.sizeHint().height()
-        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
-        required_height = max(100, min(200, required_height))  # Clamp between min and max
+        required_height = (
+            title_height + progress_height + 80
+        )  # Extra space for margins and spinner
+        required_height = max(
+            100, min(200, required_height)
+        )  # Clamp between min and max
 
         self.setFixedSize(required_width, required_height)
 
@@ -417,12 +506,16 @@ class ArchiveSplashScreen(QWidget):
         super().hideEvent(event)
         self.spinning_wheel.stop_rotation()
 
+
 class DuplicateFinderSplashScreen(QWidget):
     """Splash screen for duplicate finder operations"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # Use different window flags to ensure visibility
-        self.setWindowFlags(Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         # Auto-sizing will be calculated after UI initialization
@@ -455,6 +548,7 @@ class DuplicateFinderSplashScreen(QWidget):
             else:
                 # Center on desktop
                 from PyQt5.QtWidgets import QDesktopWidget
+
                 screen = QDesktopWidget().screenGeometry()
                 splash_width = self.width()
                 splash_height = self.height()
@@ -481,7 +575,9 @@ class DuplicateFinderSplashScreen(QWidget):
             }
         """)
         container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(30, 25, 30, 25)  # More vertical space for text
+        container_layout.setContentsMargins(
+            30, 25, 30, 25
+        )  # More vertical space for text
 
         # Title and spinner layout
         title_layout = QHBoxLayout()
@@ -542,14 +638,20 @@ class DuplicateFinderSplashScreen(QWidget):
         progress_width = self.progress_label.sizeHint().width()
 
         # Add margins and padding
-        required_width = max(title_width, progress_width) + 100  # Extra space for spinner and margins
+        required_width = (
+            max(title_width, progress_width) + 100
+        )  # Extra space for spinner and margins
         required_width = max(350, min(600, required_width))  # Clamp between min and max
 
         # Calculate height based on content
         title_height = self.title_label.sizeHint().height()
         progress_height = self.progress_label.sizeHint().height()
-        required_height = title_height + progress_height + 80  # Extra space for margins and spinner
-        required_height = max(100, min(200, required_height))  # Clamp between min and max
+        required_height = (
+            title_height + progress_height + 80
+        )  # Extra space for margins and spinner
+        required_height = max(
+            100, min(200, required_height)
+        )  # Clamp between min and max
 
         self.setFixedSize(required_width, required_height)
 
@@ -573,11 +675,14 @@ class DuplicateFinderSplashScreen(QWidget):
 
 class ArchiveTreeBuilder(QThread):
     """Thread for building archive tree structure"""
+
     progress_updated = pyqtSignal(int, str)
     tree_built = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, scan_path: str, search_term: str = "", filters: dict = None, parent=None):
+    def __init__(
+        self, scan_path: str, search_term: str = "", filters: dict = None, parent=None
+    ):
         super().__init__(parent)
         self.scan_path = scan_path
         self.search_term = search_term
@@ -588,12 +693,14 @@ class ArchiveTreeBuilder(QThread):
         """Build archive tree in background thread"""
         try:
             current_time = time.time()
-            use_cache = (hasattr(self.parent(), '_last_scan_path') and
-                         self.parent()._last_scan_path == self.scan_path and
-                         hasattr(self.parent(), '_file_cache') and
-                         self.parent()._file_cache and
-                         hasattr(self.parent(), '_cache_timestamp') and
-                         current_time - self.parent()._cache_timestamp < 300)
+            use_cache = (
+                hasattr(self.parent(), "_last_scan_path")
+                and self.parent()._last_scan_path == self.scan_path
+                and hasattr(self.parent(), "_file_cache")
+                and self.parent()._file_cache
+                and hasattr(self.parent(), "_cache_timestamp")
+                and current_time - self.parent()._cache_timestamp < 300
+            )
 
             if not use_cache:
                 self.progress_updated.emit(25, "Сканування файлів")
@@ -610,9 +717,9 @@ class ArchiveTreeBuilder(QThread):
 
     def _build_file_cache(self):
         """Build a cache of the file structure for fast searching"""
-        if not hasattr(self.parent(), '_file_cache'):
+        if not hasattr(self.parent(), "_file_cache"):
             self.parent()._file_cache = {}
-        if not hasattr(self.parent(), '_search_index'):
+        if not hasattr(self.parent(), "_search_index"):
             self.parent()._search_index = {}
 
         self.parent()._file_cache.clear()
@@ -636,25 +743,29 @@ class ArchiveTreeBuilder(QThread):
                             stat_info = os.stat(item_path)
                             file_size = stat_info.st_size
                             modified_time = stat_info.st_mtime
-                            modified_str = datetime.fromtimestamp(modified_time).strftime("%Y-%m-%d %H:%M")
+                            modified_str = datetime.fromtimestamp(
+                                modified_time
+                            ).strftime("%Y-%m-%d %H:%M")
                         except (OSError, PermissionError):
                             file_size = None
                             modified_time = None
                             modified_str = "Невідомо"
 
                         cache_dict[item_path] = {
-                            'path': item_path,
-                            'is_dir': is_dir,
-                            'name_lower': item_name.lower(),
-                            'size': file_size,
-                            'modified_timestamp': modified_time,
-                            'modified': modified_str
+                            "path": item_path,
+                            "is_dir": is_dir,
+                            "name_lower": item_name.lower(),
+                            "size": file_size,
+                            "modified_timestamp": modified_time,
+                            "modified": modified_str,
                         }
 
                         # Add to search index for faster lookups
                         name_lower = item_name.lower()
                         for i in range(len(name_lower)):
-                            for j in range(i + 1, min(i + 20, len(name_lower) + 1)):  # Limit substring length
+                            for j in range(
+                                i + 1, min(i + 20, len(name_lower) + 1)
+                            ):  # Limit substring length
                                 substring = name_lower[i:j]
                                 if substring not in self.parent()._search_index:
                                     self.parent()._search_index[substring] = []
@@ -685,31 +796,37 @@ class ArchiveTreeBuilder(QThread):
             # First, find all files that match the filters
             matching_files = set()
             for item_path, item_data in all_cached_paths.items():
-                if item_data.get('is_dir', False):
+                if item_data.get("is_dir", False):
                     continue
 
                 # Apply text search on file name
-                if self.search_term and self.search_term.lower() not in item_data['name_lower']:
+                if (
+                    self.search_term
+                    and self.search_term.lower() not in item_data["name_lower"]
+                ):
                     continue
-                
+
                 # Apply file type filter
-                if self.filters.get('file_types'):
-                    ext = os.path.splitext(item_data['name_lower'])[1]
-                    if ext not in self.filters['file_types']:
+                if self.filters.get("file_types"):
+                    ext = os.path.splitext(item_data["name_lower"])[1]
+                    if ext not in self.filters["file_types"]:
                         continue
-                
+
                 # Apply date filter
-                if item_data.get('modified_timestamp') and item_data['modified_timestamp'] is not None:
-                    ts = item_data['modified_timestamp']
-                    min_date = self.filters.get('min_date')
-                    max_date = self.filters.get('max_date')
+                if (
+                    item_data.get("modified_timestamp")
+                    and item_data["modified_timestamp"] is not None
+                ):
+                    ts = item_data["modified_timestamp"]
+                    min_date = self.filters.get("min_date")
+                    max_date = self.filters.get("max_date")
                     if min_date and ts < min_date.timestamp():
                         continue
                     if max_date and ts > max_date.timestamp():
                         continue
-                
+
                 matching_files.add(item_path)
-            
+
             visible_paths.update(matching_files)
 
             # Second, add all parent directories of matching files
@@ -717,20 +834,23 @@ class ArchiveTreeBuilder(QThread):
             for path_str in matching_files:
                 try:
                     p = Path(path_str).parent
-                    while p != p.parent: # Stop at root
-                        if p in visible_paths: # Optimization
+                    while p != p.parent:  # Stop at root
+                        if p in visible_paths:  # Optimization
                             break
                         visible_paths.add(str(p))
                         if p == scan_path_obj:
                             break
                         p = p.parent
                 except Exception:
-                    continue # Ignore errors from invalid paths
-            
+                    continue  # Ignore errors from invalid paths
+
             # Third, add any directories that match the text search term directly
             if self.search_term:
                 for item_path, item_data in all_cached_paths.items():
-                    if item_data.get('is_dir', False) and self.search_term.lower() in item_data['name_lower']:
+                    if (
+                        item_data.get("is_dir", False)
+                        and self.search_term.lower() in item_data["name_lower"]
+                    ):
                         visible_paths.add(item_path)
 
         # Step 2: Build the tree using only the visible paths
@@ -743,20 +863,24 @@ class ArchiveTreeBuilder(QThread):
             for p in visible_paths:
                 if os.path.dirname(p) == path:
                     child_paths.append(p)
-            
+
             if not child_paths:
                 return
 
-            child_data = [all_cached_paths[p] for p in child_paths if p in all_cached_paths]
-            child_data.sort(key=lambda x: (not x.get('is_dir', False), x.get('name_lower', '')))
+            child_data = [
+                all_cached_paths[p] for p in child_paths if p in all_cached_paths
+            ]
+            child_data.sort(
+                key=lambda x: (not x.get("is_dir", False), x.get("name_lower", ""))
+            )
 
             for item_data in child_data:
                 if self.should_stop:
                     return
 
-                item_path = item_data['path']
+                item_path = item_data["path"]
                 item_name = os.path.basename(item_path)
-                is_dir = item_data['is_dir']
+                is_dir = item_data["is_dir"]
 
                 tree_item = QTreeWidgetItem(parent_item)
                 tree_item.setData(0, Qt.UserRole, item_path)
@@ -769,33 +893,56 @@ class ArchiveTreeBuilder(QThread):
                     file_ext = os.path.splitext(item_name)[1].lower()
                     icon = self._get_file_icon(file_ext)
                     tree_item.setText(0, f"{icon} {item_name}")
-                    
+
                     size_str = "Невідомо"
-                    if item_data.get('size') is not None:
+                    if item_data.get("size") is not None:
                         try:
-                            size_str = humanize.naturalsize(item_data['size'])
+                            size_str = humanize.naturalsize(item_data["size"])
                         except (TypeError, ValueError):
                             pass
                     tree_item.setData(1, Qt.DisplayRole, size_str)
-                    tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
-        
+                    tree_item.setData(
+                        2, Qt.DisplayRole, item_data.get("modified", "Невідомо")
+                    )
+
         _build_level(self.scan_path, tree_widget.invisibleRootItem())
         return tree_widget
-
-
 
     def _get_file_icon(self, extension: str) -> str:
         """Get appropriate icon for file extension"""
         icon_map = {
-            '.txt': '📄', '.doc': '📝', '.docx': '📝', '.pdf': '📋',
-            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️', '.bmp': '🖼️',
-            '.mp4': '🎬', '.avi': '🎬', '.mkv': '🎬', '.mov': '🎬',
-            '.mp3': '🎵', '.wav': '🎵', '.flac': '🎵', '.aac': '🎵',
-            '.zip': '🗜️', '.rar': '🗜️', '.7z': '🗜️', '.tar': '🗜️', '.gz': '🗜️',
-            '.exe': '⚙️', '.msi': '⚙️', '.bat': '⚙️', '.cmd': '⚙️',
-            '.py': '🐍', '.js': '🌐', '.html': '🌐', '.css': '🎨',
+            ".txt": "📄",
+            ".doc": "📝",
+            ".docx": "📝",
+            ".pdf": "📋",
+            ".jpg": "🖼️",
+            ".jpeg": "🖼️",
+            ".png": "🖼️",
+            ".gif": "🖼️",
+            ".bmp": "🖼️",
+            ".mp4": "🎬",
+            ".avi": "🎬",
+            ".mkv": "🎬",
+            ".mov": "🎬",
+            ".mp3": "🎵",
+            ".wav": "🎵",
+            ".flac": "🎵",
+            ".aac": "🎵",
+            ".zip": "🗜️",
+            ".rar": "🗜️",
+            ".7z": "🗜️",
+            ".tar": "🗜️",
+            ".gz": "🗜️",
+            ".exe": "⚙️",
+            ".msi": "⚙️",
+            ".bat": "⚙️",
+            ".cmd": "⚙️",
+            ".py": "🐍",
+            ".js": "🌐",
+            ".html": "🌐",
+            ".css": "🎨",
         }
-        return icon_map.get(extension, '📄')
+        return icon_map.get(extension, "📄")
 
     def stop(self):
         """Stop the tree building process"""
@@ -804,6 +951,7 @@ class ArchiveTreeBuilder(QThread):
 
 class FileScanner(QThread):
     """Thread for scanning files and directories"""
+
     progress_updated = pyqtSignal(int, str)
     file_found = pyqtSignal(object)
     scanning_finished = pyqtSignal(object)
@@ -811,7 +959,7 @@ class FileScanner(QThread):
     def __init__(self, scan_path: str, file_types: List[str] = None):
         super().__init__()
         self.scan_path = scan_path
-        self.file_types = file_types or ['*']
+        self.file_types = file_types or ["*"]
         self.should_stop = False
         self.results = {}
         self.scanned_files = 0
@@ -848,12 +996,12 @@ class FileScanner(QThread):
     def _scan_directory(self, directory: str) -> Dict:
         """Recursively scan directory and collect file information"""
         files_data = {
-            'total_files': 0,
-            'total_size': 0,
-            'file_types': {},
-            'large_files': [],
-            'old_files': [],
-            'files': []
+            "total_files": 0,
+            "total_size": 0,
+            "file_types": {},
+            "large_files": [],
+            "old_files": [],
+            "files": [],
         }
 
         try:
@@ -867,32 +1015,46 @@ class FileScanner(QThread):
                         if os.path.exists(file_path):
                             file_info = self._analyze_file(file_path)
                             if file_info:
-                                files_data['files'].append(file_info)
-                                files_data['total_files'] += 1
-                                files_data['total_size'] += file_info['size']
+                                files_data["files"].append(file_info)
+                                files_data["total_files"] += 1
+                                files_data["total_size"] += file_info["size"]
 
                                 # Categorize by file type
-                                ext = file_info['extension'].lower()
-                                if ext not in files_data['file_types']:
-                                    files_data['file_types'][ext] = {'count': 0, 'size': 0}
-                                files_data['file_types'][ext]['count'] += 1
-                                files_data['file_types'][ext]['size'] += file_info['size']
+                                ext = file_info["extension"].lower()
+                                if ext not in files_data["file_types"]:
+                                    files_data["file_types"][ext] = {
+                                        "count": 0,
+                                        "size": 0,
+                                    }
+                                files_data["file_types"][ext]["count"] += 1
+                                files_data["file_types"][ext]["size"] += file_info[
+                                    "size"
+                                ]
 
                                 # Track large files (>10MB)
-                                if file_info['size'] > 10 * 1024 * 1024:
-                                    files_data['large_files'].append(file_info)
+                                if file_info["size"] > 10 * 1024 * 1024:
+                                    files_data["large_files"].append(file_info)
 
                                 # Track old files (>1 year)
-                                file_age = datetime.now() - file_info['modified']
+                                file_age = datetime.now() - file_info["modified"]
                                 if file_age.days > 365:
-                                    files_data['old_files'].append(file_info)
+                                    files_data["old_files"].append(file_info)
 
                                 self.scanned_files += 1
                                 # Calculate progress as percentage
-                                progress_percentage = min(int((self.scanned_files / self.total_estimated_files) * 100), 95)  # Cap at 95% until completion
+                                progress_percentage = min(
+                                    int(
+                                        (
+                                            self.scanned_files
+                                            / self.total_estimated_files
+                                        )
+                                        * 100
+                                    ),
+                                    95,
+                                )  # Cap at 95% until completion
                                 self.progress_updated.emit(
                                     progress_percentage,
-                                    f"Сканування: {file_info['name']}"
+                                    f"Сканування: {file_info['name']}",
                                 )
                     except Exception as e:
                         continue
@@ -907,13 +1069,13 @@ class FileScanner(QThread):
         try:
             stat = os.stat(file_path)
             return {
-                'path': file_path,
-                'name': os.path.basename(file_path),
-                'size': stat.st_size,
-                'modified': datetime.fromtimestamp(stat.st_mtime),
-                'created': datetime.fromtimestamp(stat.st_ctime),
-                'extension': os.path.splitext(file_path)[1],
-                'is_directory': os.path.isdir(file_path)
+                "path": file_path,
+                "name": os.path.basename(file_path),
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime),
+                "created": datetime.fromtimestamp(stat.st_ctime),
+                "extension": os.path.splitext(file_path)[1],
+                "is_directory": os.path.isdir(file_path),
             }
         except Exception:
             return None
@@ -922,8 +1084,10 @@ class FileScanner(QThread):
         """Stop the scanning process"""
         self.should_stop = True
 
+
 class DuplicateFileFinder(QThread):
     """Thread for finding duplicate files"""
+
     progress_updated = pyqtSignal(int, str)
     duplicate_found = pyqtSignal(str, object)
     finished = pyqtSignal(object)
@@ -944,7 +1108,7 @@ class DuplicateFileFinder(QThread):
             try:
                 self.progress_updated.emit(0, f"Error finding duplicates: {str(e)}")
             except Exception:
-                pass # Signal might be disconnected
+                pass  # Signal might be disconnected
         finally:
             # Always emit finished signal to unblock UI
             self.finished.emit(self.duplicates)
@@ -953,28 +1117,33 @@ class DuplicateFileFinder(QThread):
         """Find duplicate files by size, and optionally by hash."""
         files_by_size = {}
         total_files = len(self.file_list)
-        
+
         # --- Pass 1: Group files by size ---
         for i, file_path in enumerate(self.file_list):
             if self.should_stop:
                 return
-            
-            self.progress_updated.emit(int((i / total_files) * 20), f"Аналіз розміру: {os.path.basename(file_path)}") # Progress up to 20%
-            
+
+            self.progress_updated.emit(
+                int((i / total_files) * 20),
+                f"Аналіз розміру: {os.path.basename(file_path)}",
+            )  # Progress up to 20%
+
             try:
                 # Skip zero-byte files
                 file_size = os.path.getsize(file_path)
                 if file_size == 0:
                     continue
-                
+
                 if file_size not in files_by_size:
                     files_by_size[file_size] = []
                 files_by_size[file_size].append(file_path)
             except OSError:
-                continue # Skip files that can't be accessed
+                continue  # Skip files that can't be accessed
 
         # --- Pass 2: Find duplicates in same-size groups ---
-        potential_duplicates = {size: files for size, files in files_by_size.items() if len(files) > 1}
+        potential_duplicates = {
+            size: files for size, files in files_by_size.items() if len(files) > 1
+        }
 
         if not self.check_content:
             # If not checking content, report all same-sized files as duplicates
@@ -983,7 +1152,9 @@ class DuplicateFileFinder(QThread):
                 group_key = f"size:{size}"
                 self.duplicate_found.emit(group_key, files)
                 self.duplicates[group_key] = files
-            self.progress_updated.emit(100, "Знайдено потенційні дублікати за розміром.")
+            self.progress_updated.emit(
+                100, "Знайдено потенційні дублікати за розміром."
+            )
             return
 
         # If checking content, proceed to hash
@@ -993,15 +1164,21 @@ class DuplicateFileFinder(QThread):
         for size, files in potential_duplicates.items():
             if self.should_stop:
                 return
-            
+
             file_hashes = {}
             for file_path in files:
                 if self.should_stop:
                     return
 
                 # Update progress based on number of files to be hashed
-                progress = 20 + int((processed_files / num_potential_files) * 80) if num_potential_files > 0 else 100
-                self.progress_updated.emit(progress, f"Хешування: {os.path.basename(file_path)}")
+                progress = (
+                    20 + int((processed_files / num_potential_files) * 80)
+                    if num_potential_files > 0
+                    else 100
+                )
+                self.progress_updated.emit(
+                    progress, f"Хешування: {os.path.basename(file_path)}"
+                )
 
                 file_hash = self._calculate_file_hash(file_path)
                 processed_files += 1
@@ -1017,11 +1194,13 @@ class DuplicateFileFinder(QThread):
                     self.duplicate_found.emit(file_hash, hashed_files)
                     self.duplicates[file_hash] = hashed_files
 
-    def _calculate_file_hash(self, file_path: str, chunk_size: int = 8192) -> Optional[str]:
+    def _calculate_file_hash(
+        self, file_path: str, chunk_size: int = 8192
+    ) -> Optional[str]:
         """Calculate SHA256 hash of a file"""
         try:
             hash_sha256 = hashlib.sha256()
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 for chunk in iter(lambda: f.read(chunk_size), b""):
                     hash_sha256.update(chunk)
             return hash_sha256.hexdigest()
@@ -1032,12 +1211,16 @@ class DuplicateFileFinder(QThread):
         """Stop the duplicate finding process"""
         self.should_stop = True
 
+
 class FileCompressor(QThread):
     """Thread for compressing files using compress package"""
+
     progress_updated = pyqtSignal(int, str)
     compression_finished = pyqtSignal(str, bool)
 
-    def __init__(self, files_to_compress: List[str], output_path: str, compression_level: int = 6):
+    def __init__(
+        self, files_to_compress: List[str], output_path: str, compression_level: int = 6
+    ):
         super().__init__()
         self.files_to_compress = files_to_compress
         self.output_path = output_path
@@ -1065,24 +1248,24 @@ class FileCompressor(QThread):
             processed = 0
 
             # Determine compression format based on file extension
-            if self.output_path.endswith('.zip'):
-                format_type = 'zip'
-            elif self.output_path.endswith('.tar.gz') or self.output_path.endswith('.tgz'):
-                format_type = 'tar.gz'
-            elif self.output_path.endswith('.tar.bz2'):
-                format_type = 'tar.bz2'
-            elif self.output_path.endswith('.tar.xz'):
-                format_type = 'tar.xz'
-            elif self.output_path.endswith('.7z'):
-                format_type = '7z'
+            if self.output_path.endswith(".zip"):
+                format_type = "zip"
+            elif self.output_path.endswith(".tar.gz") or self.output_path.endswith(
+                ".tgz"
+            ):
+                format_type = "tar.gz"
+            elif self.output_path.endswith(".tar.bz2"):
+                format_type = "tar.bz2"
+            elif self.output_path.endswith(".tar.xz"):
+                format_type = "tar.xz"
+            elif self.output_path.endswith(".7z"):
+                format_type = "7z"
             else:
-                format_type = 'zip'  # Default to ZIP
+                format_type = "zip"  # Default to ZIP
 
             # Create archive using compress package
             archive = compress.Archive(
-                self.output_path,
-                format=format_type,
-                level=self.compression_level
+                self.output_path, format=format_type, level=self.compression_level
             )
 
             # Add files to archive
@@ -1106,17 +1289,17 @@ class FileCompressor(QThread):
                         progress = int((processed / total_files) * 100)
                         self.progress_updated.emit(
                             progress,
-                            f"Compressing: {os.path.basename(file_path)} ({format_type.upper()})"
+                            f"Compressing: {os.path.basename(file_path)} ({format_type.upper()})",
                         )
                     else:
                         self.progress_updated.emit(
                             progress,
-                            f"Skipping: {os.path.basename(file_path)} (not found)"
+                            f"Skipping: {os.path.basename(file_path)} (not found)",
                         )
                 except Exception as e:
                     self.progress_updated.emit(
                         progress,
-                        f"Warning: Failed to add {os.path.basename(file_path)}: {str(e)}"
+                        f"Warning: Failed to add {os.path.basename(file_path)}: {str(e)}",
                     )
                     continue
 
@@ -1124,7 +1307,10 @@ class FileCompressor(QThread):
             archive.close()
 
             # Verify the archive was created successfully
-            if os.path.exists(self.output_path) and os.path.getsize(self.output_path) > 0:
+            if (
+                os.path.exists(self.output_path)
+                and os.path.getsize(self.output_path) > 0
+            ):
                 return True
             else:
                 return False
@@ -1141,7 +1327,12 @@ class FileCompressor(QThread):
             total_files = len(self.files_to_compress)
             processed = 0
 
-            with zipfile.ZipFile(self.output_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=self.compression_level) as zipf:
+            with zipfile.ZipFile(
+                self.output_path,
+                "w",
+                zipfile.ZIP_DEFLATED,
+                compresslevel=self.compression_level,
+            ) as zipf:
                 for file_path in self.files_to_compress:
                     if self.should_stop:
                         return False
@@ -1155,8 +1346,7 @@ class FileCompressor(QThread):
                                     for file in files:
                                         full_path = os.path.join(root, file)
                                         arcname = os.path.relpath(
-                                            full_path,
-                                            os.path.dirname(file_path)
+                                            full_path, os.path.dirname(file_path)
                                         )
                                         zipf.write(full_path, arcname)
 
@@ -1164,7 +1354,7 @@ class FileCompressor(QThread):
                         progress = int((processed / total_files) * 100)
                         self.progress_updated.emit(
                             progress,
-                            f"Compressing (fallback): {os.path.basename(file_path)}"
+                            f"Compressing (fallback): {os.path.basename(file_path)}",
                         )
                     except Exception as e:
                         continue
@@ -1176,6 +1366,7 @@ class FileCompressor(QThread):
     def stop(self):
         """Stop the compression process"""
         self.should_stop = True
+
 
 class CleanupHelperWidget(QWidget):
     """Main widget for the Desktop Cleanup Helper module"""
@@ -1201,9 +1392,9 @@ class CleanupHelperWidget(QWidget):
         # Search parameters
         self.current_search_term = ""
         self.archive_filters = {
-            'file_types': [],
-            'min_date': None,
-            'max_date': None,
+            "file_types": [],
+            "min_date": None,
+            "max_date": None,
         }
 
         # Performance optimization: Add caching
@@ -1223,50 +1414,46 @@ class CleanupHelperWidget(QWidget):
         """Load configuration from main application"""
         try:
             config_file = os.path.join(
-                os.path.expanduser("~"),
-                ".DesktopOrganizer",
-                "config.yaml"
+                os.path.expanduser("~"), ".DesktopOrganizer", "config.yaml"
             )
             if os.path.exists(config_file):
-                with open(config_file, 'r', encoding='utf-8') as f:
+                with open(config_file, "r", encoding="utf-8") as f:
                     return yaml.safe_load(f)
         except Exception:
             pass
 
         # Return default configuration if loading fails
         return {
-            'drives': {'main_drive_policy': 'D'},
-            'file_manager': {
-                'max_file_size_mb': 100,
-                'allowed_extensions': ['.lnk'],
-                'allowed_filenames': []
-            }
+            "drives": {"main_drive_policy": "D"},
+            "file_manager": {
+                "max_file_size_mb": 100,
+                "allowed_extensions": [".lnk"],
+                "allowed_filenames": [],
+            },
         }
 
     def _detect_archive_path(self) -> str:
         """Detect the main archive folder path from configuration"""
         try:
             # Get drive policy from config
-            drive_policy = self.config.get('drives', {}).get('main_drive_policy', 'D')
+            drive_policy = self.config.get("drives", {}).get("main_drive_policy", "D")
 
             # Determine the drive to use
-            if drive_policy == 'auto':
+            if drive_policy == "auto":
                 # Try D: first, then E:, then C:
-                for drive in ['D', 'E', 'C']:
+                for drive in ["D", "E", "C"]:
                     if os.path.exists(f"{drive}:\\"):
                         base_drive = drive
                         break
                 else:
-                    base_drive = 'C'
+                    base_drive = "C"
             else:
                 base_drive = drive_policy
 
             # Construct the archive path
             current_year = datetime.now().year
             archive_path = os.path.join(
-                f"{base_drive}:\\",
-                "Робочі столи",
-                f"Робочий стіл {current_year}"
+                f"{base_drive}:\\", "Робочі столи", f"Робочий стіл {current_year}"
             )
 
             if os.path.exists(archive_path):
@@ -1276,7 +1463,7 @@ class CleanupHelperWidget(QWidget):
                 fallback_paths = [
                     f"C:\\Users\\{os.getenv('USERNAME')}\\Desktop\\Archives",
                     f"{base_drive}:\\Archives",
-                    os.path.expanduser("~/Desktop/Archives")
+                    os.path.expanduser("~/Desktop/Archives"),
                 ]
 
                 for path in fallback_paths:
@@ -1284,14 +1471,16 @@ class CleanupHelperWidget(QWidget):
                         return path
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Error detecting archive path: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Error detecting archive path: {e}"
+                )
 
         return ""
 
     def get_compression_level_text(self, level: int) -> str:
         """Get descriptive text for compression level"""
-        levels = ['Найшвидший', 'Швидкий', 'Нормальний', 'Хороший', 'Найкращий']
+        levels = ["Найшвидший", "Швидкий", "Нормальний", "Хороший", "Найкращий"]
         index = min(level // 2, 4)
         return levels[index]
 
@@ -1302,8 +1491,10 @@ class CleanupHelperWidget(QWidget):
             # Update path fields in all tabs
             self.update_all_path_fields()
             # Log to main application
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Робочий шлях змінено на: {path}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Робочий шлях змінено на: {path}"
+                )
 
     def get_working_path(self) -> str:
         """Get the current working path"""
@@ -1313,25 +1504,27 @@ class CleanupHelperWidget(QWidget):
         """Update path fields in all tabs"""
         try:
             # Update analytics tab
-            if hasattr(self, 'scan_path_edit'):
+            if hasattr(self, "scan_path_edit"):
                 self.scan_path_edit.setText(self.working_path)
 
             # Update duplicate finder tab
-            if hasattr(self, 'duplicate_path_edit'):
+            if hasattr(self, "duplicate_path_edit"):
                 self.duplicate_path_edit.setText(self.working_path)
 
             # Update default scan path in settings
-            if hasattr(self, 'default_scan_path_edit'):
+            if hasattr(self, "default_scan_path_edit"):
                 self.default_scan_path_edit.setText(self.working_path)
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка оновлення полів шляху: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка оновлення полів шляху: {e}"
+                )
 
     def on_scan_path_changed(self, new_path: str):
         """Handle scan path change - update working path"""
         # Use a timer to avoid rapid updates while typing
-        if not hasattr(self, 'path_update_timer'):
+        if not hasattr(self, "path_update_timer"):
             self.path_update_timer = QTimer()
             self.path_update_timer.setSingleShot(True)
             self.path_update_timer.timeout.connect(self._delayed_path_update)
@@ -1459,8 +1652,6 @@ class CleanupHelperWidget(QWidget):
         controls_layout.addStretch()
         layout.addLayout(controls_layout)
 
-        
-
         # Results area
         results_splitter = QSplitter(Qt.Horizontal)
 
@@ -1522,10 +1713,18 @@ class CleanupHelperWidget(QWidget):
 
         self.file_types_table = QTableWidget()
         self.file_types_table.setColumnCount(3)
-        self.file_types_table.setHorizontalHeaderLabels(["Розширення", "Кількість", "Розмір"])
-        self.file_types_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.file_types_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.file_types_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.file_types_table.setHorizontalHeaderLabels(
+            ["Розширення", "Кількість", "Розмір"]
+        )
+        self.file_types_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
+        self.file_types_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents
+        )
+        self.file_types_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.Stretch
+        )
         self.file_types_table.setMaximumHeight(200)
 
         file_types_layout = QVBoxLayout(self.file_types_group)
@@ -1572,13 +1771,17 @@ class CleanupHelperWidget(QWidget):
 
         self.large_files_table = QTableWidget()
         self.large_files_table.setColumnCount(4)
-        self.large_files_table.setHorizontalHeaderLabels(["Назва файлу", "Розмір", "Змінено", "Шлях"])
+        self.large_files_table.setHorizontalHeaderLabels(
+            ["Назва файлу", "Розмір", "Змінено", "Шлях"]
+        )
         self.large_files_table.horizontalHeader().setStretchLastSection(True)
         self.large_files_table.setAlternatingRowColors(True)
         self.large_files_table.setSortingEnabled(True)
         self.large_files_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.large_files_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.large_files_table.customContextMenuRequested.connect(self.show_large_files_context_menu)
+        self.large_files_table.customContextMenuRequested.connect(
+            self.show_large_files_context_menu
+        )
 
         # Add tooltip support
         self.large_files_table.setMouseTracking(True)
@@ -1602,15 +1805,19 @@ class CleanupHelperWidget(QWidget):
         """Handle archive tree build error."""
         if self.archive_splash:
             self.archive_splash.hide()
-        QMessageBox.critical(self, "Помилка побудови дерева", f"Не вдалося побудувати дерево архівів: {error_message}")
+        QMessageBox.critical(
+            self,
+            "Помилка побудови дерева",
+            f"Не вдалося побудувати дерево архівів: {error_message}",
+        )
 
     def reset_all_filters(self):
         """Resets all search and filter criteria and refreshes the tree."""
         self.search_edit.clear()
         self.archive_filters = {
-            'file_types': [],
-            'min_date': None,
-            'max_date': None,
+            "file_types": [],
+            "min_date": None,
+            "max_date": None,
         }
         # TODO: Reset advanced filter dialog UI if it exists and is open
         self.refresh_archive_tree()
@@ -1619,20 +1826,29 @@ class CleanupHelperWidget(QWidget):
         """Apply a predefined quick filter and refresh the tree."""
         # Toggling behavior: if the same filter is clicked again, clear it.
         filter_map = {
-            "oil_gas": ['.las', '.dlis', '.prj', '.dat', '.ini', '.xtf'],
-            "images": ['.png', '.jpg', '.jpeg', '.gif', '.bmp'],
-            "documents": ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt'],
-            "video": ['.mp4', '.avi', '.mkv', '.mov'],
-            "archives": ['.zip', '.rar', '.7z', '.tar', '.gz']
+            "oil_gas": [".las", ".dlis", ".prj", ".dat", ".ini", ".xtf"],
+            "images": [".png", ".jpg", ".jpeg", ".gif", ".bmp"],
+            "documents": [
+                ".pdf",
+                ".doc",
+                ".docx",
+                ".xls",
+                ".xlsx",
+                ".ppt",
+                ".pptx",
+                ".txt",
+            ],
+            "video": [".mp4", ".avi", ".mkv", ".mov"],
+            "archives": [".zip", ".rar", ".7z", ".tar", ".gz"],
         }
-        
+
         new_filter = filter_map.get(filter_type, [])
-        
-        if self.archive_filters.get('file_types') == new_filter:
-            self.archive_filters['file_types'] = []
+
+        if self.archive_filters.get("file_types") == new_filter:
+            self.archive_filters["file_types"] = []
         else:
-            self.archive_filters['file_types'] = new_filter
-            
+            self.archive_filters["file_types"] = new_filter
+
         self.refresh_archive_tree()
 
     def create_archive_browser_tab(self):
@@ -1676,7 +1892,9 @@ class CleanupHelperWidget(QWidget):
         # Enable multiple selection
         self.archive_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.archive_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.archive_tree.customContextMenuRequested.connect(self.show_archive_context_menu)
+        self.archive_tree.customContextMenuRequested.connect(
+            self.show_archive_context_menu
+        )
         self.archive_tree.itemDoubleClicked.connect(self.open_file_location)
 
         # Ensure expand controls are always visible for directories
@@ -1719,7 +1937,6 @@ class CleanupHelperWidget(QWidget):
 
         # Action buttons
         actions_layout = QHBoxLayout()
-
 
         open_btn = QPushButton("📂 Відкрити місцезнаходження")
         open_btn.clicked.connect(self.open_selected_location)
@@ -1803,7 +2020,9 @@ class CleanupHelperWidget(QWidget):
         # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
-        separator.setStyleSheet("QFrame { background-color: rgba(189, 195, 199, 0.3); max-height: 1px; }")
+        separator.setStyleSheet(
+            "QFrame { background-color: rgba(189, 195, 199, 0.3); max-height: 1px; }"
+        )
         filter_layout.addWidget(separator)
 
         layout.addWidget(self.filter_widget)
@@ -1848,7 +2067,9 @@ class CleanupHelperWidget(QWidget):
         options_layout.addWidget(QLabel("Мінімальний розмір файлу:"))
         options_layout.addWidget(self.min_file_size_spin)
 
-        self.check_content_hash = QCheckBox("Порівнювати вміст файлів (повільніше, але точніше)")
+        self.check_content_hash = QCheckBox(
+            "Порівнювати вміст файлів (повільніше, але точніше)"
+        )
         self.check_content_hash.setChecked(True)
         options_layout.addWidget(self.check_content_hash)
 
@@ -1868,7 +2089,9 @@ class CleanupHelperWidget(QWidget):
         # Enable context menu for duplicate tree
         self.duplicate_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.duplicate_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.duplicate_tree.customContextMenuRequested.connect(self.show_duplicate_context_menu)
+        self.duplicate_tree.customContextMenuRequested.connect(
+            self.show_duplicate_context_menu
+        )
 
         duplicate_results_layout.addWidget(self.duplicate_tree)
 
@@ -1892,17 +2115,21 @@ class CleanupHelperWidget(QWidget):
 
     def update_duplicate_progress(self, value, message):
         """Update duplicate finder progress on splash screen"""
-        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
+        if hasattr(self, "duplicate_splash") and self.duplicate_splash:
             self.duplicate_splash.update_progress(value, message)
 
     def on_duplicates_finished(self, duplicates):
         """Handle duplicate finder finished signal"""
         self.find_duplicates_btn.setEnabled(True)
-        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
+        if hasattr(self, "duplicate_splash") and self.duplicate_splash:
             self.duplicate_splash.hide()
 
         if not duplicates:
-            QMessageBox.information(self, "Дублікати не знайдено", "У вказаній папці не знайдено дублікатів файлів.")
+            QMessageBox.information(
+                self,
+                "Дублікати не знайдено",
+                "У вказаній папці не знайдено дублікатів файлів.",
+            )
 
     def add_duplicate_item(self, file_hash: str, file_list: list):
         """Add a new duplicate item to the tree"""
@@ -1915,7 +2142,7 @@ class CleanupHelperWidget(QWidget):
             root_item = root_items[0]
         else:
             root_item = QTreeWidgetItem(self.duplicate_tree)
-            root_item.setText(0, file_hash[:12]) # Display truncated hash
+            root_item.setText(0, file_hash[:12])  # Display truncated hash
             self.duplicate_tree.addTopLevelItem(root_item)
 
         # Clear existing children for this hash and re-add (in case of updates)
@@ -1924,18 +2151,22 @@ class CleanupHelperWidget(QWidget):
         total_size = 0
         for file_path in file_list:
             child_item = QTreeWidgetItem(root_item)
-            child_item.setText(1, file_path) # Full path in column 1
-            child_item.setData(1, Qt.UserRole, file_path) # Store full path in UserRole
+            child_item.setText(1, file_path)  # Full path in column 1
+            child_item.setData(1, Qt.UserRole, file_path)  # Store full path in UserRole
 
             try:
                 file_size = os.path.getsize(file_path)
                 total_size += file_size
-                child_item.setText(2, humanize.naturalsize(file_size)) # Size in column 2
+                child_item.setText(
+                    2, humanize.naturalsize(file_size)
+                )  # Size in column 2
             except OSError:
                 child_item.setText(2, "N/A")
 
-        root_item.setText(2, humanize.naturalsize(total_size)) # Total size for the hash group
-        root_item.setExpanded(True) # Expand the hash group by default
+        root_item.setText(
+            2, humanize.naturalsize(total_size)
+        )  # Total size for the hash group
+        root_item.setExpanded(True)  # Expand the hash group by default
 
     def create_compression_tab(self):
         """Create the file compression tab"""
@@ -1947,7 +2178,9 @@ class CleanupHelperWidget(QWidget):
         selection_layout.addWidget(QLabel("📦 Виберіть файли для стиснення:"))
 
         self.compression_files_edit = QLineEdit()
-        self.compression_files_edit.setPlaceholderText("Перетягніть файли або натисніть огляд...")
+        self.compression_files_edit.setPlaceholderText(
+            "Перетягніть файли або натисніть огляд..."
+        )
         self.compression_files_edit.setReadOnly(True)
         selection_layout.addWidget(self.compression_files_edit)
 
@@ -1961,7 +2194,11 @@ class CleanupHelperWidget(QWidget):
         status_layout = QHBoxLayout()
         status_layout.addWidget(QLabel("Рушій стиснення:"))
 
-        compress_status_label = QLabel("🟢 Розширений (compress package)" if COMPRESS_AVAILABLE else "🟡 Базовий (zipfile)")
+        compress_status_label = QLabel(
+            "🟢 Розширений (compress package)"
+            if COMPRESS_AVAILABLE
+            else "🟡 Базовий (zipfile)"
+        )
 
         # Set different styles based on availability
         if COMPRESS_AVAILABLE:
@@ -2013,14 +2250,20 @@ class CleanupHelperWidget(QWidget):
 
         self.compression_level_label = QLabel("6 (Нормальний)")
         self.compression_level_slider.valueChanged.connect(
-            lambda v: self.compression_level_label.setText(f"{v} ({self.get_compression_level_text(v)})")
+            lambda v: self.compression_level_label.setText(
+                f"{v} ({self.get_compression_level_text(v)})"
+            )
         )
         options_layout.addWidget(self.compression_level_label, 1, 2)
 
         # Supported formats info
         if COMPRESS_AVAILABLE:
-            formats_label = QLabel("Підтримувані формати: ZIP, TAR.GZ, TAR.BZ2, TAR.XZ, 7Z")
-            formats_label.setStyleSheet("color: #6c757d; font-size: 11px; font-style: italic;")
+            formats_label = QLabel(
+                "Підтримувані формати: ZIP, TAR.GZ, TAR.BZ2, TAR.XZ, 7Z"
+            )
+            formats_label.setStyleSheet(
+                "color: #6c757d; font-size: 11px; font-style: italic;"
+            )
             options_layout.addWidget(formats_label, 2, 0, 1, 3)
 
         layout.addWidget(options_group)
@@ -2153,7 +2396,9 @@ class CleanupHelperWidget(QWidget):
 
     def browse_duplicate_path(self):
         """Browse for duplicate finder path"""
-        path = QFileDialog.getExistingDirectory(self, "Оберіть каталог для пошуку дублікатів")
+        path = QFileDialog.getExistingDirectory(
+            self, "Оберіть каталог для пошуку дублікатів"
+        )
         if path:
             self.duplicate_path_edit.setText(path)
 
@@ -2172,7 +2417,9 @@ class CleanupHelperWidget(QWidget):
 
     def browse_default_scan_path(self):
         """Browse for default scan path"""
-        path = QFileDialog.getExistingDirectory(self, "Оберіть каталог сканування за замовчуванням")
+        path = QFileDialog.getExistingDirectory(
+            self, "Оберіть каталог сканування за замовчуванням"
+        )
         if path:
             self.default_scan_path_edit.setText(path)
             self.set_working_path(path)
@@ -2187,7 +2434,9 @@ class CleanupHelperWidget(QWidget):
         """Start file scanning"""
         scan_path = self.scan_path_edit.text().strip()
         if not scan_path or not os.path.exists(scan_path):
-            QMessageBox.warning(self, "Помилка", "Будь ласка, введіть коректний шлях для сканування.")
+            QMessageBox.warning(
+                self, "Помилка", "Будь ласка, введіть коректний шлях для сканування."
+            )
             return
 
         self.scan_btn.setEnabled(False)
@@ -2206,6 +2455,7 @@ class CleanupHelperWidget(QWidget):
         """Update scan progress"""
         if self.scan_splash and self.scan_splash.isVisible():
             self.scan_splash.update_progress(progress, message)
+
     def on_file_found(self, file_info):
         """Handle file found during scan"""
         pass  # Could update real-time stats here
@@ -2233,7 +2483,7 @@ class CleanupHelperWidget(QWidget):
         self.scan_btn.setEnabled(True)
 
         # Log to main application
-        if hasattr(self.main_window, 'log_message'):
+        if hasattr(self.main_window, "log_message"):
             self.main_window.log_message(
                 f"CleanupHelper: Scanned {self.analytics_scan_results['total_files']} files, "
                 f"total size: {humanize.naturalsize(self.analytics_scan_results['total_size'])}"
@@ -2267,7 +2517,9 @@ class CleanupHelperWidget(QWidget):
             self.scan_splash.deleteLater()
             self.scan_splash = None
 
-    def show_archive_splash(self, title="📂 Пошук в архівах...", message="Підготовка..."):
+    def show_archive_splash(
+        self, title="📂 Пошук в архівах...", message="Підготовка..."
+    ):
         """Show archive splash screen"""
         if self.archive_splash:
             self.hide_archive_splash()
@@ -2293,8 +2545,13 @@ class CleanupHelperWidget(QWidget):
 
     def load_scan_results_to_archive(self):
         """Load analytics scan results into the archive browser"""
-        if not hasattr(self, 'analytics_scan_results') or not self.analytics_scan_results:
-            QMessageBox.warning(self, "Попередження", "Немає результатів сканування для завантаження.")
+        if (
+            not hasattr(self, "analytics_scan_results")
+            or not self.analytics_scan_results
+        ):
+            QMessageBox.warning(
+                self, "Попередження", "Немає результатів сканування для завантаження."
+            )
             return
 
         # Switch to archive browser tab
@@ -2308,7 +2565,7 @@ class CleanupHelperWidget(QWidget):
 
         # Group files by directory for tree structure
         directory_tree = {}
-        scanned_files = self.analytics_scan_results.get('files', [])
+        scanned_files = self.analytics_scan_results.get("files", [])
 
         # Add a special root item to indicate this is from analytics scan
         root_item = QTreeWidgetItem(self.archive_tree)
@@ -2325,15 +2582,14 @@ class CleanupHelperWidget(QWidget):
         root_item.setExpanded(True)
 
         if not scanned_files:
-                        return
+            return
 
         # Build directory structure from scan results
         for i, file_info in enumerate(scanned_files):
-            file_path = file_info.get('path', file_info.get('full_path', ''))
+            file_path = file_info.get("path", file_info.get("full_path", ""))
             if not file_path or not os.path.exists(file_path):
                 continue
 
-            
             # Extract directory and filename
             dir_path = os.path.dirname(file_path)
             file_name = os.path.basename(file_path)
@@ -2341,20 +2597,24 @@ class CleanupHelperWidget(QWidget):
             # Add to directory tree structure
             if dir_path not in directory_tree:
                 directory_tree[dir_path] = []
-            directory_tree[dir_path].append({
-                'name': file_name,
-                'path': file_path,
-                'size': file_info.get('size', 0),
-                'modified': file_info.get('modified', datetime.now()),
-                'extension': file_info.get('extension', ''),
-                'type': file_info.get('type', 'unknown')
-            })
+            directory_tree[dir_path].append(
+                {
+                    "name": file_name,
+                    "path": file_path,
+                    "size": file_info.get("size", 0),
+                    "modified": file_info.get("modified", datetime.now()),
+                    "extension": file_info.get("extension", ""),
+                    "type": file_info.get("type", "unknown"),
+                }
+            )
 
         # Populate archive tree with the results
         self._populate_archive_tree_from_scan_results(directory_tree, root_item)
 
         # Update status and hide progress
-        self.archive_status_label.setText(f"📊 Режим перегляду результатів аналітики: {len(scanned_files)} файлів")
+        self.archive_status_label.setText(
+            f"📊 Режим перегляду результатів аналітики: {len(scanned_files)} файлів"
+        )
 
         # Set a special flag to indicate this is analytics data
         self.is_showing_analytics_results = True
@@ -2382,9 +2642,12 @@ class CleanupHelperWidget(QWidget):
             self.archive_tree.resizeColumnToContents(i)
 
         # Show success message
-        QMessageBox.information(self, "Завантаження завершено",
-                               f"Завантажено {len(scanned_files)} файлів до огляду архівів.\n\n"
-                               f"Файли згруповані за каталогами для зручного перегляду.")
+        QMessageBox.information(
+            self,
+            "Завантаження завершено",
+            f"Завантажено {len(scanned_files)} файлів до огляду архівів.\n\n"
+            f"Файли згруповані за каталогами для зручного перегляду.",
+        )
 
     def switch_to_normal_mode(self):
         """Clear analytics results and return to normal archive browsing"""
@@ -2407,22 +2670,31 @@ class CleanupHelperWidget(QWidget):
         self.refresh_archive_tree()
 
         # Log the mode change
-        if hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message("CleanupHelper: Переключено на звичайний режим перегляду архівів")
+        if hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                "CleanupHelper: Переключено на звичайний режим перегляду архівів"
+            )
 
     def send_selection_to_duplicate_finder(self):
         """Send selected files to duplicate finder tab"""
         # Get selected items from archive tree
         selected_items = self.archive_tree.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть файли для пошуку дублікатів.")
+            QMessageBox.warning(
+                self,
+                "Попередження",
+                "Будь ласка, виберіть файли для пошуку дублікатів.",
+            )
             return
 
         # Check if we're in analytics mode - don't allow duplicate search in analytics mode
         if self.is_showing_analytics_results:
-            QMessageBox.information(self, "Інформація",
+            QMessageBox.information(
+                self,
+                "Інформація",
                 "У режимі аналітики пошук дублікатів недоступний.\n"
-                "Спочатку поверніться до звичайного режиму.")
+                "Спочатку поверніться до звичайного режиму.",
+            )
             return
 
         # Extract unique directory paths from selected items
@@ -2436,27 +2708,35 @@ class CleanupHelperWidget(QWidget):
                     directories.add(file_path)
 
         if not directories:
-            QMessageBox.warning(self, "Попередження", "Не вдалося визначити шлях для пошуку дублікатів.")
+            QMessageBox.warning(
+                self, "Попередження", "Не вдалося визначити шлях для пошуку дублікатів."
+            )
             return
 
         # Use the first selected directory (or working path if none selected)
         search_path = directories.pop() if directories else self.working_path
         # Add back any remaining directories if multiple
         for d in directories:
-            search_path = self.working_path  # If multiple dirs, use working path instead
+            search_path = (
+                self.working_path
+            )  # If multiple dirs, use working path instead
 
         # Switch to duplicate finder tab (index 2)
         self.tab_widget.setCurrentIndex(2)
 
         # Set the search path in duplicate finder
-        if hasattr(self, 'duplicate_path_edit'):
+        if hasattr(self, "duplicate_path_edit"):
             self.duplicate_path_edit.setText(search_path)
 
         # Log the action
-        if hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message(f"CleanupHelper: Переключено на пошук дублікатів: {search_path}")
+        if hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                f"CleanupHelper: Переключено на пошук дублікатів: {search_path}"
+            )
 
-    def _populate_archive_tree_from_scan_results(self, directory_tree: dict, parent_item: QTreeWidgetItem):
+    def _populate_archive_tree_from_scan_results(
+        self, directory_tree: dict, parent_item: QTreeWidgetItem
+    ):
         """Populate archive tree with scan results grouped by directory"""
         if not directory_tree:
             return
@@ -2475,22 +2755,33 @@ class CleanupHelperWidget(QWidget):
             dir_item.setText(0, f"{folder_info['icon']} {folder_info['name']}")
             dir_item.setText(1, f"{len(files)} файлів")  # Count instead of size
             dir_item.setText(2, f"Скановано")  # Type indicator
-            dir_item.setText(3, datetime.now().strftime("%Y-%m-%d %H:%M"))  # Current time
+            dir_item.setText(
+                3, datetime.now().strftime("%Y-%m-%d %H:%M")
+            )  # Current time
             dir_item.setText(4, dir_path)  # Store full path
 
             # Calculate total size of files in this directory
-            total_size = sum(f['size'] for f in files)
-            dir_item.setText(1, f"{len(files)} файлів ({humanize.naturalsize(total_size)})")
+            total_size = sum(f["size"] for f in files)
+            dir_item.setText(
+                1, f"{len(files)} файлів ({humanize.naturalsize(total_size)})"
+            )
 
             # Add files as children
             for file_data in files:
                 file_item = QTreeWidgetItem(dir_item)
-                file_icon = self.get_file_icon(file_data['path'], file_data['extension'])
+                file_icon = self.get_file_icon(
+                    file_data["path"], file_data["extension"]
+                )
                 file_item.setText(0, f"{file_icon} {file_data['name']}")
-                file_item.setText(1, humanize.naturalsize(file_data['size']))
-                file_item.setText(2, file_data['extension'].upper() if file_data['extension'] else "FILE")
-                file_item.setText(3, file_data['modified'].strftime("%Y-%m-%d %H:%M"))
-                file_item.setText(4, file_data['path'])  # Store full path
+                file_item.setText(1, humanize.naturalsize(file_data["size"]))
+                file_item.setText(
+                    2,
+                    file_data["extension"].upper()
+                    if file_data["extension"]
+                    else "FILE",
+                )
+                file_item.setText(3, file_data["modified"].strftime("%Y-%m-%d %H:%M"))
+                file_item.setText(4, file_data["path"])  # Store full path
 
             # Keep directory items collapsed by default
             dir_item.setExpanded(False)
@@ -2502,46 +2793,56 @@ class CleanupHelperWidget(QWidget):
     def update_analytics_display(self, results):
         """Update analytics display with scan results"""
         # Update summary
-        self.total_files_label.setText(str(results['total_files']))
-        self.total_size_label.setText(humanize.naturalsize(results['total_size']))
-        self.file_types_label.setText(str(len(results['file_types'])))
-        self.large_files_label.setText(str(len(results['large_files'])))
+        self.total_files_label.setText(str(results["total_files"]))
+        self.total_size_label.setText(humanize.naturalsize(results["total_size"]))
+        self.file_types_label.setText(str(len(results["file_types"])))
+        self.large_files_label.setText(str(len(results["large_files"])))
 
         # Update file types table
-        self.file_types_table.setRowCount(len(results['file_types']))
-        for i, (ext, data) in enumerate(results['file_types'].items()):
-            self.file_types_table.setItem(i, 0, QTableWidgetItem(ext or "(no extension)"))
-            self.file_types_table.setItem(i, 1, QTableWidgetItem(str(data['count'])))
-            self.file_types_table.setItem(i, 2, QTableWidgetItem(humanize.naturalsize(data['size'])))
+        self.file_types_table.setRowCount(len(results["file_types"]))
+        for i, (ext, data) in enumerate(results["file_types"].items()):
+            self.file_types_table.setItem(
+                i, 0, QTableWidgetItem(ext or "(no extension)")
+            )
+            self.file_types_table.setItem(i, 1, QTableWidgetItem(str(data["count"])))
+            self.file_types_table.setItem(
+                i, 2, QTableWidgetItem(humanize.naturalsize(data["size"]))
+            )
 
         # Show "Load to Archive Browser" button if scan has results
-        if results.get('files') and len(results['files']) > 0:
+        if results.get("files") and len(results["files"]) > 0:
             self.load_to_archive_btn.setVisible(True)
-            self.load_to_archive_btn.setText(f"📂 Завантажити {results['total_files']} файлів до огляду архівів")
+            self.load_to_archive_btn.setText(
+                f"📂 Завантажити {results['total_files']} файлів до огляду архівів"
+            )
         else:
             self.load_to_archive_btn.setVisible(False)
 
         # Update large files table
-        self.large_files_table.setRowCount(len(results['large_files']))
-        for i, file_info in enumerate(results['large_files']):
-            self.large_files_table.setItem(i, 0, QTableWidgetItem(file_info['name']))
-            self.large_files_table.setItem(i, 1, QTableWidgetItem(humanize.naturalsize(file_info['size'])))
-            self.large_files_table.setItem(i, 2, QTableWidgetItem(
-                file_info['modified'].strftime("%Y-%m-%d %H:%M")
-            ))
-            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info['path']))
+        self.large_files_table.setRowCount(len(results["large_files"]))
+        for i, file_info in enumerate(results["large_files"]):
+            self.large_files_table.setItem(i, 0, QTableWidgetItem(file_info["name"]))
+            self.large_files_table.setItem(
+                i, 1, QTableWidgetItem(humanize.naturalsize(file_info["size"]))
+            )
+            self.large_files_table.setItem(
+                i, 2, QTableWidgetItem(file_info["modified"].strftime("%Y-%m-%d %H:%M"))
+            )
+            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info["path"]))
 
         # Store current analytics data for export and filtering
         self.current_analytics_data = results
 
-
     def filter_large_files(self, text):
         """Filter large files table based on search text"""
-        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+        if (
+            not hasattr(self, "current_analytics_data")
+            or not self.current_analytics_data
+        ):
             return
 
         search_text = text.lower().strip()
-        large_files = self.current_analytics_data['large_files']
+        large_files = self.current_analytics_data["large_files"]
 
         if not search_text:
             # Show all files
@@ -2549,22 +2850,26 @@ class CleanupHelperWidget(QWidget):
         else:
             # Filter by filename or path
             filtered_files = [
-                file_info for file_info in large_files
-                if search_text in file_info['name'].lower() or search_text in file_info['path'].lower()
+                file_info
+                for file_info in large_files
+                if search_text in file_info["name"].lower()
+                or search_text in file_info["path"].lower()
             ]
 
         # Update table with filtered results
         self.large_files_table.setRowCount(len(filtered_files))
         for i, file_info in enumerate(filtered_files):
-            self.large_files_table.setItem(i, 0, QTableWidgetItem(file_info['name']))
-            self.large_files_table.setItem(i, 1, QTableWidgetItem(humanize.naturalsize(file_info['size'])))
-            self.large_files_table.setItem(i, 2, QTableWidgetItem(
-                file_info['modified'].strftime("%Y-%m-%d %H:%M")
-            ))
-            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info['path']))
+            self.large_files_table.setItem(i, 0, QTableWidgetItem(file_info["name"]))
+            self.large_files_table.setItem(
+                i, 1, QTableWidgetItem(humanize.naturalsize(file_info["size"]))
+            )
+            self.large_files_table.setItem(
+                i, 2, QTableWidgetItem(file_info["modified"].strftime("%Y-%m-%d %H:%M"))
+            )
+            self.large_files_table.setItem(i, 3, QTableWidgetItem(file_info["path"]))
 
         # Update status
-        if hasattr(self, 'analytics_status_label'):
+        if hasattr(self, "analytics_status_label"):
             self.analytics_status_label.setText(
                 f"Показано {len(filtered_files)} з {len(large_files)} великих файлів"
             )
@@ -2587,7 +2892,9 @@ class CleanupHelperWidget(QWidget):
 
         # Open containing folder
         open_folder_action = menu.addAction("📁 Відкрити папку")
-        open_folder_action.triggered.connect(lambda: self.open_containing_folder(file_path))
+        open_folder_action.triggered.connect(
+            lambda: self.open_containing_folder(file_path)
+        )
 
         # Copy path
         copy_path_action = menu.addAction("📋 Копіювати шлях")
@@ -2597,28 +2904,33 @@ class CleanupHelperWidget(QWidget):
 
         # File properties
         props_action = menu.addAction("ℹ️ Властивості файлу")
-        props_action.triggered.connect(lambda: self.show_file_properties(file_path, file_name))
+        props_action.triggered.connect(
+            lambda: self.show_file_properties(file_path, file_name)
+        )
 
         menu.exec_(self.large_files_table.mapToGlobal(position))
 
     def show_file_tooltip(self, row, column):
         """Show detailed tooltip for file in table"""
-        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+        if (
+            not hasattr(self, "current_analytics_data")
+            or not self.current_analytics_data
+        ):
             return
 
         try:
-            if row >= len(self.current_analytics_data['large_files']):
+            if row >= len(self.current_analytics_data["large_files"]):
                 return
 
-            file_info = self.current_analytics_data['large_files'][row]
+            file_info = self.current_analytics_data["large_files"][row]
 
             tooltip_text = f"""
-<b>📁 {file_info['name']}</b><br/>
-📍 <b>Шлях:</b> {file_info['path']}<br/>
-📏 <b>Розмір:</b> {humanize.naturalsize(file_info['size'])}<br/>
-📅 <b>Створено:</b> {file_info.get('created', 'N/A').strftime('%Y-%m-%d %H:%M') if file_info.get('created') else 'N/A'}<br/>
-✏️ <b>Змінено:</b> {file_info['modified'].strftime('%Y-%m-%d %H:%M')}<br/>
-🏷️ <b>Тип:</b> {os.path.splitext(file_info['name'])[1] or '(немає розширення)'}
+<b>📁 {file_info["name"]}</b><br/>
+📍 <b>Шлях:</b> {file_info["path"]}<br/>
+📏 <b>Розмір:</b> {humanize.naturalsize(file_info["size"])}<br/>
+📅 <b>Створено:</b> {file_info.get("created", "N/A").strftime("%Y-%m-%d %H:%M") if file_info.get("created") else "N/A"}<br/>
+✏️ <b>Змінено:</b> {file_info["modified"].strftime("%Y-%m-%d %H:%M")}<br/>
+🏷️ <b>Тип:</b> {os.path.splitext(file_info["name"])[1] or "(немає розширення)"}
             """.strip()
 
             QToolTip.showText(QCursor.pos(), tooltip_text)
@@ -2632,9 +2944,9 @@ class CleanupHelperWidget(QWidget):
             if sys.platform == "win32":
                 os.startfile(file_path)
             elif sys.platform == "darwin":
-                subprocess.run(['open', file_path])
+                subprocess.run(["open", file_path])
             else:
-                subprocess.run(['xdg-open', file_path])
+                subprocess.run(["xdg-open", file_path])
         except Exception as e:
             QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити файл:\n{str(e)}")
 
@@ -2643,13 +2955,15 @@ class CleanupHelperWidget(QWidget):
         try:
             folder_path = os.path.dirname(file_path)
             if sys.platform == "win32":
-                subprocess.run(['explorer', '/select,', file_path])
+                subprocess.run(["explorer", "/select,", file_path])
             elif sys.platform == "darwin":
-                subprocess.run(['open', folder_path])
+                subprocess.run(["open", folder_path])
             else:
-                subprocess.run(['xdg-open', folder_path])
+                subprocess.run(["xdg-open", folder_path])
         except Exception as e:
-            QMessageBox.warning(self, "Помилка", f"Не вдалося відкрити папку:\n{str(e)}")
+            QMessageBox.warning(
+                self, "Помилка", f"Не вдалося відкрити папку:\n{str(e)}"
+            )
 
     def copy_to_clipboard(self, text):
         """Copy text to clipboard"""
@@ -2657,7 +2971,7 @@ class CleanupHelperWidget(QWidget):
         clipboard.setText(text)
 
         # Show brief confirmation
-        if hasattr(self, 'analytics_status_label'):
+        if hasattr(self, "analytics_status_label"):
             self.analytics_status_label.setText(f"Скопійовано: {text}")
             QTimer.singleShot(2000, lambda: self.analytics_status_label.setText(""))
 
@@ -2665,7 +2979,9 @@ class CleanupHelperWidget(QWidget):
         """Show detailed file properties dialog"""
         try:
             if not os.path.exists(file_path):
-                QMessageBox.warning(self, "Файл не знайдено", f"Файл не існує:\n{file_path}")
+                QMessageBox.warning(
+                    self, "Файл не знайдено", f"Файл не існує:\n{file_path}"
+                )
                 return
 
             stat = os.stat(file_path)
@@ -2676,9 +2992,9 @@ class CleanupHelperWidget(QWidget):
 🏷️ <b>Назва:</b> {file_name}
 📍 <b>Повний шлях:</b> {file_path}
 📏 <b>Розмір:</b> {humanize.naturalsize(stat.st_size)} ({stat.st_size:,} байт)
-📅 <b>Створено:</b> {datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')}
-✏️ <b>Змінено:</b> {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}
-🔍 <b>Доступно:</b> {datetime.fromtimestamp(stat.st_atime).strftime('%Y-%m-%d %H:%M:%S')}
+📅 <b>Створено:</b> {datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")}
+✏️ <b>Змінено:</b> {datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")}
+🔍 <b>Доступно:</b> {datetime.fromtimestamp(stat.st_atime).strftime("%Y-%m-%d %H:%M:%S")}
 🔒 <b>Атрибути:</b> {oct(stat.st_mode)[-3:]}
             """.strip()
 
@@ -2690,11 +3006,16 @@ class CleanupHelperWidget(QWidget):
             msg.exec_()
 
         except Exception as e:
-            QMessageBox.warning(self, "Помилка", f"Не вдалося отримати властивості файлу:\n{str(e)}")
+            QMessageBox.warning(
+                self, "Помилка", f"Не вдалося отримати властивості файлу:\n{str(e)}"
+            )
 
     def export_analytics(self):
         """Export analytics data to CSV file"""
-        if not hasattr(self, 'current_analytics_data') or not self.current_analytics_data:
+        if (
+            not hasattr(self, "current_analytics_data")
+            or not self.current_analytics_data
+        ):
             QMessageBox.warning(self, "Немає даних", "Немає даних для експорту.")
             return
 
@@ -2704,7 +3025,9 @@ class CleanupHelperWidget(QWidget):
             file_dialog.setAcceptMode(QFileDialog.AcceptSave)
             file_dialog.setNameFilter("CSV файли (*.csv)")
             file_dialog.setDefaultSuffix("csv")
-            file_dialog.selectFile(f"analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+            file_dialog.selectFile(
+                f"analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
 
             if file_dialog.exec_() != QFileDialog.Accepted:
                 return
@@ -2715,46 +3038,73 @@ class CleanupHelperWidget(QWidget):
             export_data = []
 
             # Add summary
-            export_data.append(['Підсумки'])
-            export_data.append(['Загальна кількість файлів', self.current_analytics_data['total_files']])
-            export_data.append(['Загальний розмір', self.current_analytics_data['total_size']])
-            export_data.append(['Кількість типів файлів', len(self.current_analytics_data['file_types'])])
+            export_data.append(["Підсумки"])
+            export_data.append(
+                [
+                    "Загальна кількість файлів",
+                    self.current_analytics_data["total_files"],
+                ]
+            )
+            export_data.append(
+                ["Загальний розмір", self.current_analytics_data["total_size"]]
+            )
+            export_data.append(
+                [
+                    "Кількість типів файлів",
+                    len(self.current_analytics_data["file_types"]),
+                ]
+            )
             export_data.append([])
 
             # Add file types breakdown
-            export_data.append(['Типи файлів'])
-            export_data.append(['Розширення', 'Кількість', 'Розмір'])
-            for ext, data in self.current_analytics_data['file_types'].items():
-                export_data.append([ext or '(без розширення)', data['count'], data['size']])
+            export_data.append(["Типи файлів"])
+            export_data.append(["Розширення", "Кількість", "Розмір"])
+            for ext, data in self.current_analytics_data["file_types"].items():
+                export_data.append(
+                    [ext or "(без розширення)", data["count"], data["size"]]
+                )
             export_data.append([])
 
             # Add large files
-            export_data.append(['Великі файли (>10МБ)'])
-            export_data.append(['Назва', 'Розмір', 'Шлях', 'Дата зміни'])
-            for file_info in self.current_analytics_data['large_files']:
-                export_data.append([
-                    file_info['name'],
-                    file_info['size'],
-                    file_info['path'],
-                    file_info['modified'].strftime('%Y-%m-%d %H:%M:%S')
-                ])
+            export_data.append(["Великі файли (>10МБ)"])
+            export_data.append(["Назва", "Розмір", "Шлях", "Дата зміни"])
+            for file_info in self.current_analytics_data["large_files"]:
+                export_data.append(
+                    [
+                        file_info["name"],
+                        file_info["size"],
+                        file_info["path"],
+                        file_info["modified"].strftime("%Y-%m-%d %H:%M:%S"),
+                    ]
+                )
 
             # Write to CSV
-            with open(save_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+            with open(save_path, "w", newline="", encoding="utf-8-sig") as csvfile:
                 import csv
+
                 writer = csv.writer(csvfile)
                 writer.writerows(export_data)
 
-            QMessageBox.information(self, "Експорт завершено", f"Дані аналітики експортовано до:\n{save_path}")
+            QMessageBox.information(
+                self,
+                "Експорт завершено",
+                f"Дані аналітики експортовано до:\n{save_path}",
+            )
 
             # Offer to open the file
-            reply = QMessageBox.question(self, "Відкрити файл?", "Відкрити експортований файл?",
-                                       QMessageBox.Yes | QMessageBox.No)
+            reply = QMessageBox.question(
+                self,
+                "Відкрити файл?",
+                "Відкрити експортований файл?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
             if reply == QMessageBox.Yes:
                 self.open_file(save_path)
 
         except Exception as e:
-            QMessageBox.critical(self, "Помилка експорту", f"Не вдалося експортувати дані:\n{str(e)}")
+            QMessageBox.critical(
+                self, "Помилка експорту", f"Не вдалося експортувати дані:\n{str(e)}"
+            )
 
     def find_duplicates(self):
         """Find duplicate files"""
@@ -2778,13 +3128,19 @@ class CleanupHelperWidget(QWidget):
         except Exception as e:
             if self.duplicate_splash:
                 self.duplicate_splash.hide()
-            QMessageBox.critical(self, "Помилка", f"Помилка під час сканування файлів: {e}")
+            QMessageBox.critical(
+                self, "Помилка", f"Помилка під час сканування файлів: {e}"
+            )
             return
 
         if not file_list:
             if self.duplicate_splash:
                 self.duplicate_splash.hide()
-            QMessageBox.information(self, "Файли не знайдено", "У вказаній папці немає файлів для перевірки.")
+            QMessageBox.information(
+                self,
+                "Файли не знайдено",
+                "У вказаній папці немає файлів для перевірки.",
+            )
             return
 
         self.duplicate_splash.update_progress(0, f"Аналіз {len(file_list)} файлів...")
@@ -2792,8 +3148,12 @@ class CleanupHelperWidget(QWidget):
         self.duplicate_tree.clear()
 
         check_content = self.check_content_hash.isChecked()
-        self.duplicate_finder_thread = DuplicateFileFinder(file_list, check_content=check_content)
-        self.duplicate_finder_thread.progress_updated.connect(self.update_duplicate_progress)
+        self.duplicate_finder_thread = DuplicateFileFinder(
+            file_list, check_content=check_content
+        )
+        self.duplicate_finder_thread.progress_updated.connect(
+            self.update_duplicate_progress
+        )
         self.duplicate_finder_thread.duplicate_found.connect(self.add_duplicate_item)
         self.duplicate_finder_thread.finished.connect(self.on_duplicates_finished)
         self.duplicate_finder_thread.start()
@@ -2808,8 +3168,10 @@ class CleanupHelperWidget(QWidget):
         self.duplicate_results = results
 
         # Update and hide duplicate splash screen
-        if hasattr(self, 'duplicate_splash') and self.duplicate_splash:
-            self.duplicate_splash.update_progress(100, f"✅ Знайдено {len(results)} груп дублікатів!")
+        if hasattr(self, "duplicate_splash") and self.duplicate_splash:
+            self.duplicate_splash.update_progress(
+                100, f"✅ Знайдено {len(results)} груп дублікатів!"
+            )
             QTimer.singleShot(1500, self.duplicate_splash.hide)
 
         # Update duplicate tree
@@ -2828,20 +3190,29 @@ class CleanupHelperWidget(QWidget):
                     child = QTreeWidgetItem(item)
                     child.setText(0, "")
                     child.setText(1, file_path)
-                    child.setText(2, humanize.naturalsize(os.path.getsize(file_path)) if os.path.exists(file_path) else "N/A")
+                    child.setText(
+                        2,
+                        humanize.naturalsize(os.path.getsize(file_path))
+                        if os.path.exists(file_path)
+                        else "N/A",
+                    )
 
                 item.setExpanded(True)
 
         self.find_duplicates_btn.setEnabled(True)
 
         # Log to main application
-        if hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message(f"CleanupHelper: Found {len(results)} groups of duplicate files")
+        if hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                f"CleanupHelper: Found {len(results)} groups of duplicate files"
+            )
 
     def compress_files(self):
         """Compress selected files"""
-        if not hasattr(self, 'compression_files') or not self.compression_files:
-            QMessageBox.warning(self, "Помилка", "Будь ласка, оберіть файли для стиснення.")
+        if not hasattr(self, "compression_files") or not self.compression_files:
+            QMessageBox.warning(
+                self, "Помилка", "Будь ласка, оберіть файли для стиснення."
+            )
             return
 
         # Get compression level from slider
@@ -2871,83 +3242,157 @@ class CleanupHelperWidget(QWidget):
 
         # Ensure file has proper extension
         if COMPRESS_AVAILABLE:
-            if not any(output_path.endswith(ext) for ext in ['.zip', '.tar.gz', '.tgz', '.tar.bz2', '.tar.xz', '.7z']):
+            if not any(
+                output_path.endswith(ext)
+                for ext in [".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".7z"]
+            ):
                 # Default to .zip if no extension provided
-                output_path += '.zip'
+                output_path += ".zip"
         else:
-            if not output_path.endswith('.zip'):
-                output_path += '.zip'
+            if not output_path.endswith(".zip"):
+                output_path += ".zip"
 
         self.compress_btn.setEnabled(False)
         self.compression_log.clear()
 
         # Start compression thread with compression level
         self.compressor_thread = FileCompressor(
-            self.compression_files,
-            output_path,
-            compression_level
+            self.compression_files, output_path, compression_level
         )
-        self.compressor_thread.progress_updated.connect(self.update_compression_progress)
-        self.compressor_thread.compression_finished.connect(self.on_compression_finished)
+        self.compressor_thread.progress_updated.connect(
+            self.update_compression_progress
+        )
+        self.compressor_thread.compression_finished.connect(
+            self.on_compression_finished
+        )
         self.compressor_thread.start()
 
     def update_compression_progress(self, progress, message):
         """Update compression progress"""
-        self.compression_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        self.compression_log.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
+        )
 
     def on_compression_finished(self, output_path, success):
         """Handle compression completion"""
         self.compress_btn.setEnabled(True)
-        
+
         if success:
-            self.compression_log.append(f"✅ Successfully created archive: {output_path}")
-            QMessageBox.information(self, "Успіх", f"Файли успішно стиснено!\nЗбережено в: {output_path}")
+            self.compression_log.append(
+                f"✅ Successfully created archive: {output_path}"
+            )
+            QMessageBox.information(
+                self, "Успіх", f"Файли успішно стиснено!\nЗбережено в: {output_path}"
+            )
 
             # Log to main application
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Compressed {len(self.compression_files)} files to {output_path}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Compressed {len(self.compression_files)} files to {output_path}"
+                )
         else:
             self.compression_log.append("❌ Compression failed!")
-            QMessageBox.critical(self, "Помилка", "Стиснення не вдалося. Будь ласка, перевірте журнал для деталей.")
+            QMessageBox.critical(
+                self,
+                "Помилка",
+                "Стиснення не вдалося. Будь ласка, перевірте журнал для деталей.",
+            )
 
     def get_file_category(self, file_path: str) -> str:
         """Get file category based on extension"""
         ext = os.path.splitext(file_path)[1].lower()
 
         # Documents
-        if ext in ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.xls', '.xlsx', '.ppt', '.pptx', '.ods', '.odp']:
+        if ext in [
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".txt",
+            ".rtf",
+            ".odt",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".ods",
+            ".odp",
+        ]:
             return "Документи"
 
         # Images
-        elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', '.ico']:
+        elif ext in [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".tiff",
+            ".svg",
+            ".webp",
+            ".ico",
+        ]:
             return "Зображення"
 
         # Videos
-        elif ext in ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp']:
+        elif ext in [
+            ".mp4",
+            ".avi",
+            ".mkv",
+            ".mov",
+            ".wmv",
+            ".flv",
+            ".webm",
+            ".m4v",
+            ".3gp",
+        ]:
             return "Відео"
 
         # Audio
-        elif ext in ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a', '.opus']:
+        elif ext in [".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".opus"]:
             return "Аудіо"
 
         # Archives
-        elif ext in ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.tar.gz', '.tar.bz2', '.tar.xz']:
+        elif ext in [
+            ".zip",
+            ".rar",
+            ".7z",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".tar.gz",
+            ".tar.bz2",
+            ".tar.xz",
+        ]:
             return "Архіви"
 
         # Programs
-        elif ext in ['.exe', '.msi', '.deb', '.rpm', '.dmg', '.pkg', '.app']:
+        elif ext in [".exe", ".msi", ".deb", ".rpm", ".dmg", ".pkg", ".app"]:
             return "Програми"
 
         # Text files
-        elif ext in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.css', '.js', '.py', '.java', '.cpp', '.c']:
+        elif ext in [
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+            ".xml",
+            ".html",
+            ".css",
+            ".js",
+            ".py",
+            ".java",
+            ".cpp",
+            ".c",
+        ]:
             return "Тексти"
 
         # Spreadsheets
-        elif ext in ['.csv', '.xls', '.xlsx', '.ods']:
+        elif ext in [".csv", ".xls", ".xlsx", ".ods"]:
             return "Документи"
 
         # Presentations
-        elif ext in ['.ppt', '.pptx', '.odp']:
+        elif ext in [".ppt", ".pptx", ".odp"]:
             return "Документи"
 
         else:
@@ -2958,12 +3403,15 @@ class CleanupHelperWidget(QWidget):
         folder_name = os.path.basename(folder_path)
 
         # Check if it's a "Робочі столі" folder
-        if "робочі столи" in folder_name.lower() or "робочий стіл" in folder_name.lower():
+        if (
+            "робочі столи" in folder_name.lower()
+            or "робочий стіл" in folder_name.lower()
+        ):
             return {
-                'type': 'archive_root',
-                'name': folder_name,
-                'icon': '📂',
-                'description': 'Корінь архіву'
+                "type": "archive_root",
+                "name": folder_name,
+                "icon": "📂",
+                "description": "Корінь архіву",
             }
 
         # Check if it's a year folder
@@ -2971,81 +3419,100 @@ class CleanupHelperWidget(QWidget):
             year = int(folder_name)
             if 2000 <= year <= datetime.now().year:
                 return {
-                    'type': 'year',
-                    'name': folder_name,
-                    'icon': '📅',
-                    'description': f'Архіви за {year} рік'
+                    "type": "year",
+                    "name": folder_name,
+                    "icon": "📅",
+                    "description": f"Архіви за {year} рік",
                 }
 
         # Check if it's a date folder (DD-MM-YYYY or DD-MM-YYYY HH-MM)
         date_patterns = [
-            r'^\d{2}-\d{2}-\d{4}$',  # DD-MM-YYYY
-            r'^\d{2}-\d{2}-\d{4} \d{2}-\d{2}$',  # DD-MM-YYYY HH-MM
-            r'^\d{4}-\d{2}-\d{2}$',  # YYYY-MM-DD
+            r"^\d{2}-\d{2}-\d{4}$",  # DD-MM-YYYY
+            r"^\d{2}-\d{2}-\d{4} \d{2}-\d{2}$",  # DD-MM-YYYY HH-MM
+            r"^\d{4}-\d{2}-\d{2}$",  # YYYY-MM-DD
         ]
 
         import re
+
         for pattern in date_patterns:
             if re.match(pattern, folder_name):
                 return {
-                    'type': 'date',
-                    'name': folder_name,
-                    'icon': '📁',
-                    'description': f'Архів за {folder_name}'
+                    "type": "date",
+                    "name": folder_name,
+                    "icon": "📁",
+                    "description": f"Архів за {folder_name}",
                 }
 
         # Default folder
         # Check for common folder types
         folder_name_lower = folder_name.lower()
-        if any(keyword in folder_name_lower for keyword in ['download', 'завантаж', 'отриман']):
+        if any(
+            keyword in folder_name_lower
+            for keyword in ["download", "завантаж", "отриман"]
+        ):
             return {
-                'type': 'downloads',
-                'name': folder_name,
-                'icon': '⬇️',
-                'description': 'Завантаження'
+                "type": "downloads",
+                "name": folder_name,
+                "icon": "⬇️",
+                "description": "Завантаження",
             }
-        elif any(keyword in folder_name_lower for keyword in ['document', 'документ', 'текст']):
+        elif any(
+            keyword in folder_name_lower
+            for keyword in ["document", "документ", "текст"]
+        ):
             return {
-                'type': 'documents',
-                'name': folder_name,
-                'icon': '📄',
-                'description': 'Документи'
+                "type": "documents",
+                "name": folder_name,
+                "icon": "📄",
+                "description": "Документи",
             }
-        elif any(keyword in folder_name_lower for keyword in ['picture', 'зображення', 'фото', 'photo', 'image']):
+        elif any(
+            keyword in folder_name_lower
+            for keyword in ["picture", "зображення", "фото", "photo", "image"]
+        ):
             return {
-                'type': 'images',
-                'name': folder_name,
-                'icon': '🖼️',
-                'description': 'Зображення'
+                "type": "images",
+                "name": folder_name,
+                "icon": "🖼️",
+                "description": "Зображення",
             }
-        elif any(keyword in folder_name_lower for keyword in ['video', 'відео', 'фільм', 'movie']):
+        elif any(
+            keyword in folder_name_lower
+            for keyword in ["video", "відео", "фільм", "movie"]
+        ):
             return {
-                'type': 'videos',
-                'name': folder_name,
-                'icon': '🎬',
-                'description': 'Відео'
+                "type": "videos",
+                "name": folder_name,
+                "icon": "🎬",
+                "description": "Відео",
             }
-        elif any(keyword in folder_name_lower for keyword in ['music', 'музика', 'аудіо', 'audio']):
+        elif any(
+            keyword in folder_name_lower
+            for keyword in ["music", "музика", "аудіо", "audio"]
+        ):
             return {
-                'type': 'music',
-                'name': folder_name,
-                'icon': '🎵',
-                'description': 'Музика'
+                "type": "music",
+                "name": folder_name,
+                "icon": "🎵",
+                "description": "Музика",
             }
-        elif any(keyword in folder_name_lower for keyword in ['archive', 'архів', 'backup', 'резерв']):
+        elif any(
+            keyword in folder_name_lower
+            for keyword in ["archive", "архів", "backup", "резерв"]
+        ):
             return {
-                'type': 'archive',
-                'name': folder_name,
-                'icon': '🗜️',
-                'description': 'Архів'
+                "type": "archive",
+                "name": folder_name,
+                "icon": "🗜️",
+                "description": "Архів",
             }
 
         # Default folder
         return {
-            'type': 'folder',
-            'name': folder_name,
-            'icon': '📁',
-            'description': 'Папка'
+            "type": "folder",
+            "name": folder_name,
+            "icon": "📁",
+            "description": "Папка",
         }
 
     def clear_search(self):
@@ -3064,7 +3531,9 @@ class CleanupHelperWidget(QWidget):
         # If no search term, show all files with splash screen
         if not search_term:
             # Show splash screen for refresh
-            self.show_archive_splash("🔄 Оновлення архіву...", "Оновлення списку файлів...")
+            self.show_archive_splash(
+                "🔄 Оновлення архіву...", "Оновлення списку файлів..."
+            )
 
             # Update the search button to show searching state
             search_btn = self.findChild(QPushButton, "search_button")
@@ -3097,13 +3566,14 @@ class CleanupHelperWidget(QWidget):
     def refresh_archive_tree(self, search_term: str = ""):
         """Refresh the archive tree view with optional search and category filtering"""
         # If in analytics mode, ask user if they want to switch to normal mode first
-        if getattr(self, 'is_showing_analytics_results', False):
+        if getattr(self, "is_showing_analytics_results", False):
             reply = QMessageBox.question(
-                self, "Режим аналітики",
+                self,
+                "Режим аналітики",
                 "Ви перебуваєте в режимі перегляду результатів аналітики.\n\n"
                 "Бажаєте очистити результати та переключитися на звичайний режим?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
                 self.switch_to_normal_mode()
@@ -3112,7 +3582,7 @@ class CleanupHelperWidget(QWidget):
                 return  # User chose to stay in analytics mode
 
         # Determine scan path
-        scan_path = getattr(self, 'archive_scan_path', self.working_path)
+        scan_path = getattr(self, "archive_scan_path", self.working_path)
         if not scan_path or not os.path.exists(scan_path):
             self.archive_tree.clear()
             item = QTreeWidgetItem(self.archive_tree)
@@ -3137,15 +3607,19 @@ class CleanupHelperWidget(QWidget):
         # Show splash screen if not already visible
         if not (self.archive_splash and self.archive_splash.isVisible()):
             if search_term:
-                self.show_archive_splash("📂 Пошук в архівах...", f"Пошук: '{search_term}'...")
+                self.show_archive_splash(
+                    "📂 Пошук в архівах...", f"Пошук: '{search_term}'..."
+                )
             else:
-                self.show_archive_splash("🔄 Оновлення архіву...", "Оновлення списку файлів...")
+                self.show_archive_splash(
+                    "🔄 Оновлення архіву...", "Оновлення списку файлів..."
+                )
 
         # Clear tree before rebuilding to prevent duplicates
         self.archive_tree.clear()
 
         # Stop any existing tree building thread
-        if hasattr(self, 'tree_builder_thread') and self.tree_builder_thread:
+        if hasattr(self, "tree_builder_thread") and self.tree_builder_thread:
             self.tree_builder_thread.stop()
             self.tree_builder_thread.wait()
             self.tree_builder_thread.deleteLater()
@@ -3153,7 +3627,10 @@ class CleanupHelperWidget(QWidget):
         # Use threading to prevent freezing
         # Create a simple thread to run the tree building without blocking UI
         import threading
-        tree_thread = threading.Thread(target=self._build_tree_threaded, args=(scan_path, search_term))
+
+        tree_thread = threading.Thread(
+            target=self._build_tree_threaded, args=(scan_path, search_term)
+        )
         tree_thread.daemon = True  # Thread will exit when main program exits
         tree_thread.start()
 
@@ -3161,18 +3638,28 @@ class CleanupHelperWidget(QWidget):
         """Build tree in background thread with progress updates"""
         try:
             # Update splash screen progress immediately
-            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Початок сканування..."))
+            QTimer.singleShot(
+                0, lambda: self._update_splash_progress_safe("Початок сканування...")
+            )
 
             # Small delay to show initial progress
             import time
+
             time.sleep(0.1)
 
             # Update progress for cache building
-            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Побудова кешу файлів..."))
+            QTimer.singleShot(
+                0, lambda: self._update_splash_progress_safe("Побудова кешу файлів...")
+            )
             time.sleep(0.1)
 
             # Update progress for file scanning
-            QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Сканування файлів та папок..."))
+            QTimer.singleShot(
+                0,
+                lambda: self._update_splash_progress_safe(
+                    "Сканування файлів та папок..."
+                ),
+            )
             time.sleep(0.1)
 
             # Run the actual tree building (this won't touch UI)
@@ -3189,7 +3676,7 @@ class CleanupHelperWidget(QWidget):
         """Thread-safe splash screen progress update"""
         if self.archive_splash and self.archive_splash.isVisible():
             self.archive_splash.update_progress(0, message)
-        if hasattr(self, 'archive_status_label'):
+        if hasattr(self, "archive_status_label"):
             self.archive_status_label.setText(message)
 
     def _on_tree_building_completed(self):
@@ -3202,7 +3689,7 @@ class CleanupHelperWidget(QWidget):
             search_btn.setText("Пошук")
 
         # Clear any lingering progress messages by setting a final status
-        if hasattr(self, 'archive_status_label'):
+        if hasattr(self, "archive_status_label"):
             self.archive_status_label.setText("Готовий до пошуку та фільтрації")
 
     def _on_tree_building_error(self, error_message):
@@ -3219,7 +3706,9 @@ class CleanupHelperWidget(QWidget):
         """Build tree in background thread"""
         try:
             # Update splash screen progress using thread-safe method
-            QTimer.singleShot(0, lambda: self._update_splash_progress(25, "Побудова дерева файлів..."))
+            QTimer.singleShot(
+                0, lambda: self._update_splash_progress(25, "Побудова дерева файлів...")
+            )
 
             # Build the tree data in background (this won't touch UI)
             tree_data = self._build_tree_data(scan_path, search_term)
@@ -3239,26 +3728,35 @@ class CleanupHelperWidget(QWidget):
 
         try:
             # Update progress (thread-safe)
-            QTimer.singleShot(0, lambda: self._update_splash_progress(50, "Сканування файлів..."))
+            QTimer.singleShot(
+                0, lambda: self._update_splash_progress(50, "Сканування файлів...")
+            )
 
             # Build file cache
             file_cache = {}
             self._build_file_cache_threaded(scan_path, file_cache)
 
             # Update progress
-            QTimer.singleShot(0, lambda: self._update_splash_progress(75, "Побудова структури..."))
+            QTimer.singleShot(
+                0, lambda: self._update_splash_progress(75, "Побудова структури...")
+            )
 
             # Build tree structure from cache
-            root_items = self._build_tree_structure_threaded(scan_path, file_cache, search_term)
+            root_items = self._build_tree_structure_threaded(
+                scan_path, file_cache, search_term
+            )
             tree_items.extend(root_items)
 
             # Update progress
-            QTimer.singleShot(0, lambda: self._update_splash_progress(90, "Фіналізація результатів..."))
+            QTimer.singleShot(
+                0,
+                lambda: self._update_splash_progress(90, "Фіналізація результатів..."),
+            )
 
             return {
-                'items': tree_items,
-                'count': len(tree_items),
-                'scan_path': scan_path
+                "items": tree_items,
+                "count": len(tree_items),
+                "scan_path": scan_path,
             }
 
         except Exception as e:
@@ -3266,6 +3764,7 @@ class CleanupHelperWidget(QWidget):
 
     def _build_file_cache_threaded(self, scan_path: str, file_cache: dict):
         """Build file cache in background thread"""
+
         def _scan_directory(path: str):
             try:
                 for item_name in os.listdir(path):
@@ -3278,19 +3777,21 @@ class CleanupHelperWidget(QWidget):
                             stat_info = os.stat(item_path)
                             file_size = stat_info.st_size
                             modified_time = stat_info.st_mtime
-                            modified_str = datetime.fromtimestamp(modified_time).strftime("%Y-%m-%d %H:%M")
+                            modified_str = datetime.fromtimestamp(
+                                modified_time
+                            ).strftime("%Y-%m-%d %H:%M")
                         except (OSError, PermissionError):
                             file_size = None
                             modified_time = None
                             modified_str = "Невідомо"
 
                         file_cache[item_path] = {
-                            'name': item_name,
-                            'path': item_path,
-                            'is_dir': is_dir,
-                            'name_lower': item_name.lower(),
-                            'size': file_size,
-                            'modified': modified_str
+                            "name": item_name,
+                            "path": item_path,
+                            "is_dir": is_dir,
+                            "name_lower": item_name.lower(),
+                            "size": file_size,
+                            "modified": modified_str,
                         }
 
                         if is_dir:
@@ -3302,13 +3803,15 @@ class CleanupHelperWidget(QWidget):
 
         _scan_directory(scan_path)
 
-    def _build_tree_structure_threaded(self, scan_path: str, file_cache: dict, search_term: str = ""):
+    def _build_tree_structure_threaded(
+        self, scan_path: str, file_cache: dict, search_term: str = ""
+    ):
         """Build tree structure from cache in background thread"""
         root_items = []
 
         for file_path, file_data in file_cache.items():
             # Check if item matches search term
-            if search_term and search_term.lower() not in file_data['name_lower']:
+            if search_term and search_term.lower() not in file_data["name_lower"]:
                 continue
 
             # Only include items directly in the scan path for now
@@ -3316,7 +3819,7 @@ class CleanupHelperWidget(QWidget):
                 root_items.append(file_data)
 
         # Sort: directories first, then files
-        root_items.sort(key=lambda x: (not x['is_dir'], x['name_lower']))
+        root_items.sort(key=lambda x: (not x["is_dir"], x["name_lower"]))
 
         return root_items
 
@@ -3324,7 +3827,7 @@ class CleanupHelperWidget(QWidget):
         """Thread-safe splash screen progress update"""
         if self.archive_splash and self.archive_splash.isVisible():
             self.archive_splash.update_progress(value, message)
-        if hasattr(self, 'archive_status_label'):
+        if hasattr(self, "archive_status_label"):
             self.archive_status_label.setText(message)
 
     def _update_tree_ui(self, tree_data):
@@ -3332,28 +3835,38 @@ class CleanupHelperWidget(QWidget):
         try:
             self.archive_tree.clear()
 
-            for item_data in tree_data['items']:
+            for item_data in tree_data["items"]:
                 tree_item = QTreeWidgetItem(self.archive_tree)
-                tree_item.setText(0, item_data['name'])
-                tree_item.setData(0, Qt.UserRole, item_data['path'])
+                tree_item.setText(0, item_data["name"])
+                tree_item.setData(0, Qt.UserRole, item_data["path"])
 
-                if item_data['is_dir']:
+                if item_data["is_dir"]:
                     tree_item.setText(0, f"📁 {item_data['name']}")
                     tree_item.setData(1, Qt.DisplayRole, "Папка")
                 else:
-                    file_ext = os.path.splitext(item_data['name'])[1].lower()
+                    file_ext = os.path.splitext(item_data["name"])[1].lower()
                     icon = self._get_file_icon(file_ext)
                     tree_item.setText(0, f"{icon} {item_data['name']}")
-                    size_str = humanize.naturalsize(item_data['size']) if item_data['size'] else "Невідомо"
+                    size_str = (
+                        humanize.naturalsize(item_data["size"])
+                        if item_data["size"]
+                        else "Невідомо"
+                    )
                     tree_item.setData(1, Qt.DisplayRole, size_str)
-                    tree_item.setData(2, Qt.DisplayRole, item_data.get('modified', 'Невідомо'))
+                    tree_item.setData(
+                        2, Qt.DisplayRole, item_data.get("modified", "Невідомо")
+                    )
 
             # Set headers
-            self.archive_tree.setHeaderLabels(["Назва файлу", "Розмір", "Дата модифікації"])
+            self.archive_tree.setHeaderLabels(
+                ["Назва файлу", "Розмір", "Дата модифікації"]
+            )
 
             # Show final count
-            final_count = tree_data['count']
-            self.archive_status_label.setText(f"Дерево побудовано: {final_count} елементів")
+            final_count = tree_data["count"]
+            self.archive_status_label.setText(
+                f"Дерево побудовано: {final_count} елементів"
+            )
 
             # Expand tree
             if final_count > 0:
@@ -3373,8 +3886,10 @@ class CleanupHelperWidget(QWidget):
     def _handle_tree_error(self, error_message):
         """Handle tree building errors (runs on main thread)"""
         self.archive_status_label.setText(f"Помилка: {error_message}")
-        if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева: {error_message}")
+        if hasattr(self, "main_window") and hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                f"CleanupHelper: Помилка побудови дерева: {error_message}"
+            )
 
         # Hide splash screen and reset button on error
         self.hide_archive_splash()
@@ -3386,15 +3901,38 @@ class CleanupHelperWidget(QWidget):
     def _get_file_icon(self, extension: str) -> str:
         """Get appropriate icon for file extension"""
         icon_map = {
-            '.txt': '📄', '.doc': '📝', '.docx': '📝', '.pdf': '📋',
-            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️', '.bmp': '🖼️',
-            '.mp4': '🎬', '.avi': '🎬', '.mkv': '🎬', '.mov': '🎬',
-            '.mp3': '🎵', '.wav': '🎵', '.flac': '🎵', '.aac': '🎵',
-            '.zip': '🗜️', '.rar': '🗜️', '.7z': '🗜️', '.tar': '🗜️', '.gz': '🗜️',
-            '.exe': '⚙️', '.msi': '⚙️', '.bat': '⚙️', '.cmd': '⚙️',
-            '.py': '🐍', '.js': '🌐', '.html': '🌐', '.css': '🎨',
+            ".txt": "📄",
+            ".doc": "📝",
+            ".docx": "📝",
+            ".pdf": "📋",
+            ".jpg": "🖼️",
+            ".jpeg": "🖼️",
+            ".png": "🖼️",
+            ".gif": "🖼️",
+            ".bmp": "🖼️",
+            ".mp4": "🎬",
+            ".avi": "🎬",
+            ".mkv": "🎬",
+            ".mov": "🎬",
+            ".mp3": "🎵",
+            ".wav": "🎵",
+            ".flac": "🎵",
+            ".aac": "🎵",
+            ".zip": "🗜️",
+            ".rar": "🗜️",
+            ".7z": "🗜️",
+            ".tar": "🗜️",
+            ".gz": "🗜️",
+            ".exe": "⚙️",
+            ".msi": "⚙️",
+            ".bat": "⚙️",
+            ".cmd": "⚙️",
+            ".py": "🐍",
+            ".js": "🌐",
+            ".html": "🌐",
+            ".css": "🎨",
         }
-        return icon_map.get(extension, '📄')
+        return icon_map.get(extension, "📄")
 
     def _on_tree_progress_updated(self, value, message):
         """Handle tree building progress updates"""
@@ -3403,7 +3941,7 @@ class CleanupHelperWidget(QWidget):
             self.archive_splash.update_progress(value, message)
 
         # Update status label
-        if hasattr(self, 'archive_status_label'):
+        if hasattr(self, "archive_status_label"):
             self.archive_status_label.setText(message)
 
     def _on_tree_built(self, tree_widget):
@@ -3421,19 +3959,27 @@ class CleanupHelperWidget(QWidget):
                     # Copy all columns
                     for col in range(source_item.columnCount()):
                         target_item.setText(col, source_item.text(col))
-                        target_item.setData(col, Qt.UserRole, source_item.data(col, Qt.UserRole))
+                        target_item.setData(
+                            col, Qt.UserRole, source_item.data(col, Qt.UserRole)
+                        )
 
                     # Recursively copy children
                     copy_tree_items(source_item, target_item)
 
-            copy_tree_items(tree_widget.invisibleRootItem(), self.archive_tree.invisibleRootItem())
+            copy_tree_items(
+                tree_widget.invisibleRootItem(), self.archive_tree.invisibleRootItem()
+            )
 
             # Set tree headers
-            self.archive_tree.setHeaderLabels(["Назва файлу", "Розмір", "Дата модифікації"])
+            self.archive_tree.setHeaderLabels(
+                ["Назва файлу", "Розмір", "Дата модифікації"]
+            )
 
             # Count and display final results
             final_count = self._count_tree_items(self.archive_tree.invisibleRootItem())
-            self.archive_status_label.setText(f"Дерево побудовано: {final_count} елементів")
+            self.archive_status_label.setText(
+                f"Дерево побудовано: {final_count} елементів"
+            )
 
             # Expand the tree to show items
             if final_count > 0:
@@ -3441,8 +3987,12 @@ class CleanupHelperWidget(QWidget):
 
         except Exception as e:
             self.archive_status_label.setText(f"Помилка при відображенні дерева: {e}")
-            if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка відображення дерева: {e}")
+            if hasattr(self, "main_window") and hasattr(
+                self.main_window, "log_message"
+            ):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка відображення дерева: {e}"
+                )
 
         finally:
             # Always hide splash screen and reset button
@@ -3455,8 +4005,10 @@ class CleanupHelperWidget(QWidget):
     def _on_tree_error(self, error_message):
         """Handle tree building errors"""
         self.archive_status_label.setText(f"Помилка: {error_message}")
-        if hasattr(self, 'main_window') and hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева: {error_message}")
+        if hasattr(self, "main_window") and hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                f"CleanupHelper: Помилка побудови дерева: {error_message}"
+            )
 
         # Hide splash screen and reset button on error
         self.hide_archive_splash()
@@ -3484,11 +4036,11 @@ class CleanupHelperWidget(QWidget):
 
             # Count children recursively
             child_counts = self._count_tree_items_with_details(child)
-            count += child_counts['total']
-            file_count += child_counts['files']
-            folder_count += child_counts['folders']
+            count += child_counts["total"]
+            file_count += child_counts["files"]
+            folder_count += child_counts["folders"]
 
-        return {'total': count, 'files': file_count, 'folders': folder_count}
+        return {"total": count, "files": file_count, "folders": folder_count}
 
     def _count_tree_items_with_details(self, item):
         """Count items with file/folder breakdown (recursive)"""
@@ -3508,35 +4060,52 @@ class CleanupHelperWidget(QWidget):
 
             # Recursive count
             child_counts = self._count_tree_items_with_details(child)
-            total += child_counts['total']
-            files += child_counts['files']
-            folders += child_counts['folders']
+            total += child_counts["total"]
+            files += child_counts["files"]
+            folders += child_counts["folders"]
 
-        return {'total': total, 'files': files, 'folders': folders}
+        return {"total": total, "files": files, "folders": folders}
 
     def _build_tree_directly(self, scan_path: str, search_term: str = ""):
         """Build the tree structure directly from filesystem with timeout (thread-safe version)"""
         try:
             # Check if we have cached data for this path
             current_time = time.time()
-            if (self._last_scan_path == scan_path and
-                self._file_cache and
-                current_time - self._cache_timestamp < 300):  # 5 minutes cache
-                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Використання кешу..."))
+            if (
+                self._last_scan_path == scan_path
+                and self._file_cache
+                and current_time - self._cache_timestamp < 300
+            ):  # 5 minutes cache
+                QTimer.singleShot(
+                    0, lambda: self._update_splash_progress_safe("Використання кешу...")
+                )
                 self._build_tree_from_cache(search_term)
             else:
                 # Build cache and tree structure
-                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Сканування файлів..."))
+                QTimer.singleShot(
+                    0, lambda: self._update_splash_progress_safe("Сканування файлів...")
+                )
                 self._build_file_cache(scan_path)
-                QTimer.singleShot(0, lambda: self._update_splash_progress_safe("Побудова дерева файлів..."))
-                self._build_tree_recursive(scan_path, self.archive_tree.invisibleRootItem(), search_term, 0)
+                QTimer.singleShot(
+                    0,
+                    lambda: self._update_splash_progress_safe(
+                        "Побудова дерева файлів..."
+                    ),
+                )
+                self._build_tree_recursive(
+                    scan_path, self.archive_tree.invisibleRootItem(), search_term, 0
+                )
 
             # Update status and count on main thread
-            final_counts = self._count_tree_items_with_breakdown(self.archive_tree.invisibleRootItem())
-            QTimer.singleShot(0, lambda: self._update_tree_status_with_details(final_counts))
+            final_counts = self._count_tree_items_with_breakdown(
+                self.archive_tree.invisibleRootItem()
+            )
+            QTimer.singleShot(
+                0, lambda: self._update_tree_status_with_details(final_counts)
+            )
 
             # Expand tree on main thread
-            if final_counts['total'] > 0:
+            if final_counts["total"] > 0:
                 QTimer.singleShot(0, lambda: self.archive_tree.expandAll())
 
         except Exception as e:
@@ -3549,10 +4118,12 @@ class CleanupHelperWidget(QWidget):
 
     def _update_tree_status_with_details(self, counts):
         """Update tree status with file/folder breakdown on main thread"""
-        total = counts['total']
-        files = counts['files']
-        folders = counts['folders']
-        self.archive_status_label.setText(f"Дерево побудовано: {total} елементів ({folders} папок, {files} файлів)")
+        total = counts["total"]
+        files = counts["files"]
+        folders = counts["folders"]
+        self.archive_status_label.setText(
+            f"Дерево побудовано: {total} елементів ({folders} папок, {files} файлів)"
+        )
 
     def _build_file_cache(self, scan_path: str):
         """Build a cache of the file structure for fast searching"""
@@ -3574,33 +4145,39 @@ class CleanupHelperWidget(QWidget):
                             stat_info = os.stat(item_path)
                             file_size = stat_info.st_size
                             modified_time = stat_info.st_mtime
-                            modified_str = datetime.fromtimestamp(modified_time).strftime("%Y-%m-%d %H:%M")
+                            modified_str = datetime.fromtimestamp(
+                                modified_time
+                            ).strftime("%Y-%m-%d %H:%M")
                         except (OSError, PermissionError):
                             file_size = None
                             modified_time = None
                             modified_str = "Невідомо"
 
                         cache_dict[item_name] = {
-                            'path': item_path,
-                            'is_dir': is_dir,
-                            'name_lower': item_name.lower(),
-                            'size': file_size,
-                            'modified_timestamp': modified_time,
-                            'modified': modified_str
+                            "path": item_path,
+                            "is_dir": is_dir,
+                            "name_lower": item_name.lower(),
+                            "size": file_size,
+                            "modified_timestamp": modified_time,
+                            "modified": modified_str,
                         }
 
                         # Add to search index for faster lookups
                         name_lower = item_name.lower()
                         for i in range(len(name_lower)):
-                            for j in range(i + 1, min(i + 20, len(name_lower) + 1)):  # Limit substring length
+                            for j in range(
+                                i + 1, min(i + 20, len(name_lower) + 1)
+                            ):  # Limit substring length
                                 substring = name_lower[i:j]
                                 if substring not in self._search_index:
                                     self._search_index[substring] = []
                                 self._search_index[substring].append(item_path)
 
                         if is_dir:
-                            cache_dict[item_name]['children'] = {}
-                            _scan_directory(item_path, cache_dict[item_name]['children'])
+                            cache_dict[item_name]["children"] = {}
+                            _scan_directory(
+                                item_path, cache_dict[item_name]["children"]
+                            )
             except (PermissionError, OSError):
                 pass
 
@@ -3611,15 +4188,19 @@ class CleanupHelperWidget(QWidget):
         if not self._file_cache:
             return
 
-        def _build_from_cache(cache_dict: dict, parent_item: QTreeWidgetItem, search_term: str):
+        def _build_from_cache(
+            cache_dict: dict, parent_item: QTreeWidgetItem, search_term: str
+        ):
             """Recursively build tree from cache"""
             for item_name, item_data in cache_dict.items():
-                is_dir = item_data['is_dir']
+                is_dir = item_data["is_dir"]
 
                 if is_dir:
                     # For directories, check both original name and display name
-                    folder_info = self.identify_folder_structure(item_data['path'])
-                    dir_matches = not search_term or self._matches_search_term(search_term, folder_info['name'])
+                    folder_info = self.identify_folder_structure(item_data["path"])
+                    dir_matches = not search_term or self._matches_search_term(
+                        search_term, folder_info["name"]
+                    )
 
                     # Create directory item (always, to preserve tree structure)
                     dir_item = QTreeWidgetItem(parent_item)
@@ -3628,20 +4209,22 @@ class CleanupHelperWidget(QWidget):
                     dir_item.setText(0, display_name)
                     dir_item.setText(1, "Папка")
                     dir_item.setText(2, "")
-                    dir_item.setText(3, folder_info['type'])
-                    dir_item.setText(4, item_data['path'])
+                    dir_item.setText(3, folder_info["type"])
+                    dir_item.setText(4, item_data["path"])
 
                     # Recursively add children (filtered by search term)
-                    if 'children' in item_data:
-                        _build_from_cache(item_data['children'], dir_item, search_term)
+                    if "children" in item_data:
+                        _build_from_cache(item_data["children"], dir_item, search_term)
 
                         # Update item count after building children
                         try:
-                            sub_items = len(item_data.get('children', {}))
+                            sub_items = len(item_data.get("children", {}))
                             if sub_items > 0:
                                 dir_item.setText(1, f"Папка ({sub_items} елементів)")
-                        except:
-                            pass
+                        except Exception:
+                            logger.debug(
+                                f"Failed to count sub-items for directory item"
+                            )
                     else:
                         dir_item.setText(1, "Папка")
 
@@ -3655,19 +4238,20 @@ class CleanupHelperWidget(QWidget):
                 file_item = QTreeWidgetItem(parent_item)
                 try:
                     # Use cached values instead of filesystem calls
-                    file_category = self.get_file_category(item_data['path'])
+                    file_category = self.get_file_category(item_data["path"])
                     _, file_ext = os.path.splitext(item_name)
-                    file_icon = self.get_file_icon(item_data['path'], file_ext)
+                    file_icon = self.get_file_icon(item_data["path"], file_ext)
                     # Include icon emoji in text (like the working _build_tree_recursive does)
                     display_name = f"{file_icon} {item_name}"
 
                     file_item.setText(0, display_name)
 
                     # Use cached size
-                    if 'size' in item_data and item_data['size'] is not None:
-                        file_size = item_data['size']
+                    if "size" in item_data and item_data["size"] is not None:
+                        file_size = item_data["size"]
                         try:
                             import humanize
+
                             file_item.setText(1, humanize.naturalsize(file_size))
                         except ImportError:
                             size_mb = file_size / (1024 * 1024)
@@ -3679,13 +4263,13 @@ class CleanupHelperWidget(QWidget):
                         file_item.setText(1, "Розмір невідомий")
 
                     # Use cached modified time
-                    if 'modified' in item_data and item_data['modified']:
-                        file_item.setText(2, item_data['modified'])
+                    if "modified" in item_data and item_data["modified"]:
+                        file_item.setText(2, item_data["modified"])
                     else:
                         file_item.setText(2, "")
 
                     file_item.setText(3, file_category)
-                    file_item.setText(4, item_data['path'])
+                    file_item.setText(4, item_data["path"])
 
                 except Exception:
                     # Include default file icon in text
@@ -3693,11 +4277,15 @@ class CleanupHelperWidget(QWidget):
                     file_item.setText(1, "Розмір невідомий")
                     file_item.setText(2, "")
                     file_item.setText(3, "Файл")
-                    file_item.setText(4, item_data['path'])
+                    file_item.setText(4, item_data["path"])
 
-        _build_from_cache(self._file_cache, self.archive_tree.invisibleRootItem(), search_term)
+        _build_from_cache(
+            self._file_cache, self.archive_tree.invisibleRootItem(), search_term
+        )
 
-    def _build_tree_recursive(self, path: str, parent_item: QTreeWidgetItem, search_term: str, depth: int = 0):
+    def _build_tree_recursive(
+        self, path: str, parent_item: QTreeWidgetItem, search_term: str, depth: int = 0
+    ):
         """Recursively build tree structure from filesystem"""
         try:
             # Limit depth to prevent infinite recursion
@@ -3721,15 +4309,19 @@ class CleanupHelperWidget(QWidget):
             files = [(name, path) for name, path, is_dir in items if not is_dir]
 
             if depth == 0:
-                self.archive_status_label.setText(f"Сканування: {len(directories)} папок, {len(files)} файлів...")
-            elif not hasattr(self, '_scanned_items'):
+                self.archive_status_label.setText(
+                    f"Сканування: {len(directories)} папок, {len(files)} файлів..."
+                )
+            elif not hasattr(self, "_scanned_items"):
                 self._scanned_items = 0
 
             self._scanned_items += len(directories) + len(files)
 
             # Update progress for full scans
             if depth == 0 and self._scanned_items % 50 == 0:  # Update every 50 items
-                self.archive_status_label.setText(f"Сканування: {self._scanned_items} елементів оброблено...")
+                self.archive_status_label.setText(
+                    f"Сканування: {self._scanned_items} елементів оброблено..."
+                )
 
             # Sort directories first, then files
             directories.sort(key=lambda x: x[0].lower())
@@ -3742,33 +4334,39 @@ class CleanupHelperWidget(QWidget):
                 folder_info = self.identify_folder_structure(dir_path)
                 display_name = f"{folder_info['icon']} {folder_info['name']}"
 
-                dir_matches = not search_term or self._matches_search_term(search_term, folder_info['name'])
+                dir_matches = not search_term or self._matches_search_term(
+                    search_term, folder_info["name"]
+                )
 
                 # Check search filter with improved matching using display name
                 if not dir_matches:
                     # Check if it has matching children
-                    has_matching_children = self._has_matching_children(dir_path, search_term)
+                    has_matching_children = self._has_matching_children(
+                        dir_path, search_term
+                    )
                     if not has_matching_children:
                         # Only remove if no children match
                         parent_item.removeChild(dir_item)
                         continue
                     else:
                         # Directory doesn't match but has matching children - keep it
-                        dir_item.setText(0, f"📁 {folder_info['name']} (має відповідні файли)")
+                        dir_item.setText(
+                            0, f"📁 {folder_info['name']} (має відповідні файли)"
+                        )
                         # Set a light color to indicate it doesn't match directly
                         dir_item.setForeground(0, QColor(128, 128, 128))
                 dir_item.setText(0, display_name)
                 dir_item.setText(1, "Папка")
                 dir_item.setText(2, "")
-                dir_item.setText(3, folder_info['type'])
+                dir_item.setText(3, folder_info["type"])
                 dir_item.setText(4, dir_path)
 
                 # Count items in this directory
                 try:
                     sub_items = len(os.listdir(dir_path))
                     dir_item.setText(1, f"Папка ({sub_items} елементів)")
-                except:
-                    dir_item.setText(1, "Папка")
+                except Exception:
+                    logger.debug(f"Failed to count directory items: {dir_path}")
 
                 # Always add a placeholder child to ensure expand icon is visible
                 # We'll remove it later if we add actual children
@@ -3789,7 +4387,9 @@ class CleanupHelperWidget(QWidget):
             # Add files
             for file_name, file_path in files:
                 # Check search filter with improved matching first using file name only
-                if search_term and not self._matches_search_term(search_term, file_name):
+                if search_term and not self._matches_search_term(
+                    search_term, file_name
+                ):
                     continue
                 # Create file item
                 file_item = QTreeWidgetItem(parent_item)
@@ -3804,7 +4404,9 @@ class CleanupHelperWidget(QWidget):
 
                     file_item.setText(0, display_name)
                     file_item.setText(1, humanize.naturalsize(file_size))
-                    file_item.setText(2, datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M"))
+                    file_item.setText(
+                        2, datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M")
+                    )
                     file_item.setText(3, file_category)
                     file_item.setText(4, file_path)
                 except OSError:
@@ -3819,8 +4421,10 @@ class CleanupHelperWidget(QWidget):
                 pass
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Error processing {path}: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Error processing {path}: {e}"
+                )
 
     def _count_tree_items(self, item: QTreeWidgetItem) -> int:
         """Count all items in the tree recursively"""
@@ -3841,11 +4445,11 @@ class CleanupHelperWidget(QWidget):
     def on_archive_scan_finished(self, results):
         """Handle archive scan completion"""
         # Cache the results for faster future access
-        if hasattr(self, 'current_scan_path'):
+        if hasattr(self, "current_scan_path"):
             self.cache_scan_results(self.current_scan_path, results)
 
         # Apply search filters if needed
-        search_term = getattr(self, 'current_search_term', "")
+        search_term = getattr(self, "current_search_term", "")
 
         if search_term:
             self._populate_from_filtered_results(results, search_term)
@@ -3853,12 +4457,12 @@ class CleanupHelperWidget(QWidget):
             self._populate_from_cached_results(results, "")
 
         # Hide progress bar after completion
-                
+
     def _populate_from_cached_results(self, results: dict, search_term: str = ""):
         """Populate archive tree from cached or scan results"""
         self.archive_tree.clear()
 
-        if not results.get('files'):
+        if not results.get("files"):
             item = QTreeWidgetItem(self.archive_tree)
             item.setText(0, "Файли не знайдено")
             return
@@ -3866,8 +4470,8 @@ class CleanupHelperWidget(QWidget):
         # Apply filters if needed
         if search_term:
             filtered_files = []
-            for file_info in results['files']:
-                file_path = file_info.get('path', '')
+            for file_info in results["files"]:
+                file_path = file_info.get("path", "")
                 if not file_path or not os.path.exists(file_path):
                     continue
 
@@ -3877,20 +4481,21 @@ class CleanupHelperWidget(QWidget):
                     if search_term not in file_name:
                         continue
 
-                
                 filtered_files.append(file_info)
-            results['files'] = filtered_files
+            results["files"] = filtered_files
 
         # Group files by directory
         directory_tree = {}
-        for file_info in results['files']:
-            dir_path = os.path.dirname(file_info['path'])
+        for file_info in results["files"]:
+            dir_path = os.path.dirname(file_info["path"])
             if dir_path not in directory_tree:
                 directory_tree[dir_path] = []
             directory_tree[dir_path].append(file_info)
 
         # Populate tree
-        self._populate_archive_tree_from_scan_results(directory_tree, self.archive_tree.invisibleRootItem())
+        self._populate_archive_tree_from_scan_results(
+            directory_tree, self.archive_tree.invisibleRootItem()
+        )
 
     def _populate_from_filtered_results(self, results: dict, search_term: str):
         """Populate archive tree with filtered results"""
@@ -3898,7 +4503,10 @@ class CleanupHelperWidget(QWidget):
 
     def _filter_analytics_results(self, search_term: str):
         """Filter already loaded analytics results"""
-        if not hasattr(self, 'analytics_scan_results') or not self.analytics_scan_results:
+        if (
+            not hasattr(self, "analytics_scan_results")
+            or not self.analytics_scan_results
+        ):
             return
 
         self.archive_status_label.setText("Фільтрація результатів аналітики...")
@@ -3920,11 +4528,11 @@ class CleanupHelperWidget(QWidget):
         root_item.setExpanded(True)
 
         # Filter files based on criteria
-        scanned_files = self.analytics_scan_results.get('files', [])
+        scanned_files = self.analytics_scan_results.get("files", [])
         filtered_files = []
 
         for file_info in scanned_files:
-            file_path = file_info.get('path', '')
+            file_path = file_info.get("path", "")
             if not file_path or not os.path.exists(file_path):
                 continue
 
@@ -3937,24 +4545,25 @@ class CleanupHelperWidget(QWidget):
                 if search_term not in file_name:
                     include_file = False
 
-            
             if include_file:
                 filtered_files.append(file_info)
 
         # Build directory structure from filtered results
         directory_tree = {}
         for file_info in filtered_files:
-            dir_path = os.path.dirname(file_info['path'])
+            dir_path = os.path.dirname(file_info["path"])
             if dir_path not in directory_tree:
                 directory_tree[dir_path] = []
-            directory_tree[dir_path].append({
-                'name': file_info['name'],
-                'path': file_info['path'],
-                'size': file_info.get('size', 0),
-                'modified': file_info.get('modified', datetime.now()),
-                'extension': file_info.get('extension', ''),
-                'type': file_info.get('type', 'unknown')
-            })
+            directory_tree[dir_path].append(
+                {
+                    "name": file_info["name"],
+                    "path": file_info["path"],
+                    "size": file_info.get("size", 0),
+                    "modified": file_info.get("modified", datetime.now()),
+                    "extension": file_info.get("extension", ""),
+                    "type": file_info.get("type", "unknown"),
+                }
+            )
 
         # Populate tree with filtered results
         self._populate_archive_tree_from_scan_results(directory_tree, root_item)
@@ -3963,27 +4572,86 @@ class CleanupHelperWidget(QWidget):
         root_item.setText(1, f"{len(filtered_files)} файлів (з {len(scanned_files)})")
 
         # Update status and hide progress
-        self.archive_status_label.setText(f"📊 Відфільтровано: {len(filtered_files)} з {len(scanned_files)} файлів")
-        
+        self.archive_status_label.setText(
+            f"📊 Відфільтровано: {len(filtered_files)} з {len(scanned_files)} файлів"
+        )
+
     def _get_file_category(self, extension: str) -> str:
         """Get file category based on extension"""
-        ext = extension.lower().lstrip('.')
+        ext = extension.lower().lstrip(".")
 
         categories = {
-            'Документи': ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.xls', '.xlsx', '.ppt', '.pptx', '.ods', '.odp'],
-            'Зображення': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', '.ico'],
-            'Відео': ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp'],
-            'Аудіо': ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a', '.opus'],
-            'Архіви': ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.tar.gz', '.tar.bz2', '.tar.xz'],
-            'Програми': ['.exe', '.msi', '.deb', '.rpm', '.dmg', '.pkg', '.app'],
-            'Тексти': ['.txt', '.md', '.rst', '.log', '.ini', '.cfg', '.conf', '.yaml', '.yml', '.json', '.xml', '.csv']
+            "Документи": [
+                ".pdf",
+                ".doc",
+                ".docx",
+                ".txt",
+                ".rtf",
+                ".odt",
+                ".xls",
+                ".xlsx",
+                ".ppt",
+                ".pptx",
+                ".ods",
+                ".odp",
+            ],
+            "Зображення": [
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".bmp",
+                ".tiff",
+                ".svg",
+                ".webp",
+                ".ico",
+            ],
+            "Відео": [
+                ".mp4",
+                ".avi",
+                ".mkv",
+                ".mov",
+                ".wmv",
+                ".flv",
+                ".webm",
+                ".m4v",
+                ".3gp",
+            ],
+            "Аудіо": [".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".opus"],
+            "Архіви": [
+                ".zip",
+                ".rar",
+                ".7z",
+                ".tar",
+                ".gz",
+                ".bz2",
+                ".xz",
+                ".tar.gz",
+                ".tar.bz2",
+                ".tar.xz",
+            ],
+            "Програми": [".exe", ".msi", ".deb", ".rpm", ".dmg", ".pkg", ".app"],
+            "Тексти": [
+                ".txt",
+                ".md",
+                ".rst",
+                ".log",
+                ".ini",
+                ".cfg",
+                ".conf",
+                ".yaml",
+                ".yml",
+                ".json",
+                ".xml",
+                ".csv",
+            ],
         }
 
         for category, extensions in categories.items():
             if ext in extensions:
                 return category
 
-        return 'Всі файли'
+        return "Всі файли"
 
     def _build_folder_tree(self, root_path: str, parent_item: QTreeWidgetItem = None):
         """Build hierarchical folder tree with proper structure detection"""
@@ -4004,7 +4672,7 @@ class CleanupHelperWidget(QWidget):
             # Process directories first
             for dir_name, dir_path in sorted(directories):
                 # Skip hidden files unless enabled
-                if dir_name.startswith('.') and not hasattr(self, 'show_hidden_files'):
+                if dir_name.startswith(".") and not hasattr(self, "show_hidden_files"):
                     continue
 
                 # Identify folder structure
@@ -4015,7 +4683,7 @@ class CleanupHelperWidget(QWidget):
                 dir_item.setText(0, f"{folder_info['icon']} {folder_info['name']}")
                 dir_item.setText(1, "")  # Size will be calculated later
                 dir_item.setText(2, "")  # Modified time
-                dir_item.setText(3, folder_info['type'])
+                dir_item.setText(3, folder_info["type"])
                 dir_item.setText(4, dir_path)
 
                 # Store folder info in item data
@@ -4034,7 +4702,7 @@ class CleanupHelperWidget(QWidget):
                     continue
 
                 # Skip hidden files unless enabled
-                if file_name.startswith('.') and not hasattr(self, 'show_hidden_files'):
+                if file_name.startswith(".") and not hasattr(self, "show_hidden_files"):
                     continue
 
                 try:
@@ -4047,7 +4715,9 @@ class CleanupHelperWidget(QWidget):
                     file_icon = self.get_file_icon(file_path)
                     file_item.setText(0, f"{file_icon} {file_name}")
                     file_item.setText(1, humanize.naturalsize(file_size))
-                    file_item.setText(2, datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M"))
+                    file_item.setText(
+                        2, datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M")
+                    )
                     file_item.setText(3, file_category)
                     file_item.setText(4, file_path)
 
@@ -4055,8 +4725,10 @@ class CleanupHelperWidget(QWidget):
                     continue
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка побудови дерева папок: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка побудови дерева папок: {e}"
+                )
 
     def _should_show_file(self, file_name: str, file_path: str) -> bool:
         """Check if file should be shown based on search criteria"""
@@ -4065,7 +4737,6 @@ class CleanupHelperWidget(QWidget):
             if self.current_search_term not in file_name.lower():
                 return False
 
-        
         return True
 
     def _calculate_folder_stats(self, folder_item: QTreeWidgetItem, folder_path: str):
@@ -4114,7 +4785,8 @@ class CleanupHelperWidget(QWidget):
         if len(search_lower) >= 3:
             # Simple word boundary matching
             import re
-            words = re.findall(r'\b\w+\b', item_lower)
+
+            words = re.findall(r"\b\w+\b", item_lower)
             for word in words:
                 if len(word) >= len(search_lower):
                     if word.startswith(search_lower) or word.endswith(search_lower):
@@ -4158,7 +4830,7 @@ class CleanupHelperWidget(QWidget):
 
         # Simple sliding window approach
         for i in range(text_len - pattern_len + 1):
-            window = text[i:i + pattern_len]
+            window = text[i : i + pattern_len]
             distance = 0
             for j in range(pattern_len):
                 if j < len(window) and pattern[j] != window[j]:
@@ -4176,16 +4848,17 @@ class CleanupHelperWidget(QWidget):
         file_path = item.text(4)
         if file_path and os.path.exists(file_path):
             import subprocess
+
             # Ensure the path is absolute and normalized
             abs_path = os.path.abspath(file_path)
             if sys.platform == "win32":
                 # Use a list of arguments for security and to handle paths correctly
-                subprocess.run(['explorer', '/select,', abs_path])
+                subprocess.run(["explorer", "/select,", abs_path])
             elif sys.platform == "darwin":
-                subprocess.run(['open', '-R', abs_path])
+                subprocess.run(["open", "-R", abs_path])
             else:
                 # For Linux, open the containing directory
-                subprocess.run(['xdg-open', os.path.dirname(abs_path)])
+                subprocess.run(["xdg-open", os.path.dirname(abs_path)])
 
     def open_selected_location(self):
         """Open selected file location"""
@@ -4221,14 +4894,22 @@ class CleanupHelperWidget(QWidget):
             else:
                 shutil.copytree(source_path, target_path)
 
-            QMessageBox.information(self, "Успіх", f"Файл відновлено на робочий стіл:\n{os.path.basename(target_path)}")
+            QMessageBox.information(
+                self,
+                "Успіх",
+                f"Файл відновлено на робочий стіл:\n{os.path.basename(target_path)}",
+            )
 
             # Log to main application
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Restored {os.path.basename(source_path)} to desktop")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Restored {os.path.basename(source_path)} to desktop"
+                )
 
         except Exception as e:
-            QMessageBox.critical(self, "Помилка", f"Не вдалося відновити файл:\n{str(e)}")
+            QMessageBox.critical(
+                self, "Помилка", f"Не вдалося відновити файл:\n{str(e)}"
+            )
 
     def select_all_duplicates(self):
         """Select all duplicate files"""
@@ -4239,9 +4920,10 @@ class CleanupHelperWidget(QWidget):
         """Delete selected duplicate files"""
         # Implement deletion logic with confirmation
         reply = QMessageBox.question(
-            self, "Confirm Deletion",
+            self,
+            "Confirm Deletion",
             "Are you sure you want to delete the selected duplicate files? This action cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -4252,40 +4934,43 @@ class CleanupHelperWidget(QWidget):
         """Save module settings"""
         try:
             settings = {
-                'default_scan_path': self.default_scan_path_edit.text(),
-                'auto_detect_archives': self.auto_detect_archives.isChecked(),
-                'show_hidden_files': self.show_hidden_files.isChecked(),
-                'large_file_threshold_mb': self.large_file_threshold_spin.value(),
-                'old_file_threshold_days': self.old_file_threshold_spin.value(),
-                'thread_count': self.thread_count_spin.value(),
-                'enable_caching': self.enable_caching.isChecked()
+                "default_scan_path": self.default_scan_path_edit.text(),
+                "auto_detect_archives": self.auto_detect_archives.isChecked(),
+                "show_hidden_files": self.show_hidden_files.isChecked(),
+                "large_file_threshold_mb": self.large_file_threshold_spin.value(),
+                "old_file_threshold_days": self.old_file_threshold_spin.value(),
+                "thread_count": self.thread_count_spin.value(),
+                "enable_caching": self.enable_caching.isChecked(),
             }
 
             settings_file = os.path.join(
                 os.path.expanduser("~"),
                 ".DesktopOrganizer",
-                "cleanup_helper_settings.json"
+                "cleanup_helper_settings.json",
             )
 
             os.makedirs(os.path.dirname(settings_file), exist_ok=True)
-            with open(settings_file, 'w', encoding='utf-8') as f:
+            with open(settings_file, "w", encoding="utf-8") as f:
                 json.dump(settings, f, indent=2, ensure_ascii=False)
 
             QMessageBox.information(self, "Успіх", "Налаштування успішно збережено!")
 
             # Log to main application
-            if hasattr(self.main_window, 'log_message'):
+            if hasattr(self.main_window, "log_message"):
                 self.main_window.log_message("CleanupHelper: Settings saved")
 
         except Exception as e:
-            QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти налаштування:\n{str(e)}")
+            QMessageBox.critical(
+                self, "Помилка", f"Не вдалося зберегти налаштування:\n{str(e)}"
+            )
 
     def reset_settings(self):
         """Reset settings to defaults"""
         reply = QMessageBox.question(
-            self, "Confirm Reset",
+            self,
+            "Confirm Reset",
             "Are you sure you want to reset all settings to defaults?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -4303,30 +4988,34 @@ class CleanupHelperWidget(QWidget):
             settings_file = os.path.join(
                 os.path.expanduser("~"),
                 ".DesktopOrganizer",
-                "cleanup_helper_settings.json"
+                "cleanup_helper_settings.json",
             )
 
             if not os.path.exists(settings_file):
                 return  # Use defaults
 
-            with open(settings_file, 'r', encoding='utf-8') as f:
+            with open(settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
 
             # Apply loaded settings to UI
-            if 'default_scan_path' in settings:
-                self.default_scan_path_edit.setText(settings['default_scan_path'])
-            if 'auto_detect_archives' in settings:
-                self.auto_detect_archives.setChecked(settings['auto_detect_archives'])
-            if 'show_hidden_files' in settings:
-                self.show_hidden_files.setChecked(settings['show_hidden_files'])
-            if 'large_file_threshold_mb' in settings:
-                self.large_file_threshold_spin.setValue(settings['large_file_threshold_mb'])
-            if 'old_file_threshold_days' in settings:
-                self.old_file_threshold_spin.setValue(settings['old_file_threshold_days'])
-            if 'thread_count' in settings:
-                self.thread_count_spin.setValue(settings['thread_count'])
-            if 'enable_caching' in settings:
-                self.enable_caching.setChecked(settings['enable_caching'])
+            if "default_scan_path" in settings:
+                self.default_scan_path_edit.setText(settings["default_scan_path"])
+            if "auto_detect_archives" in settings:
+                self.auto_detect_archives.setChecked(settings["auto_detect_archives"])
+            if "show_hidden_files" in settings:
+                self.show_hidden_files.setChecked(settings["show_hidden_files"])
+            if "large_file_threshold_mb" in settings:
+                self.large_file_threshold_spin.setValue(
+                    settings["large_file_threshold_mb"]
+                )
+            if "old_file_threshold_days" in settings:
+                self.old_file_threshold_spin.setValue(
+                    settings["old_file_threshold_days"]
+                )
+            if "thread_count" in settings:
+                self.thread_count_spin.setValue(settings["thread_count"])
+            if "enable_caching" in settings:
+                self.enable_caching.setChecked(settings["enable_caching"])
 
         except Exception as e:
             print(f"Failed to load settings: {e}")
@@ -4398,6 +5087,7 @@ class CleanupHelperWidget(QWidget):
 
     def expand_all_tree_items(self):
         """Expand all tree items recursively"""
+
         def expand_items(item):
             item.setExpanded(True)
             for i in range(item.childCount()):
@@ -4408,6 +5098,7 @@ class CleanupHelperWidget(QWidget):
 
     def collapse_all_tree_items(self):
         """Collapse all tree items recursively"""
+
         def collapse_items(item):
             item.setExpanded(False)
             for i in range(item.childCount()):
@@ -4442,22 +5133,30 @@ class CleanupHelperWidget(QWidget):
             # Duplicate-specific actions
             if selected_files:
                 # Keep newest (smart selection)
-                keep_newest_action = menu.addAction("🕐 Залишити найновіший, видалити інші")
+                keep_newest_action = menu.addAction(
+                    "🕐 Залишити найновіший, видалити інші"
+                )
                 keep_newest_action.triggered.connect(self.keep_newest_delete_others)
 
                 # Keep oldest
-                keep_oldest_action = menu.addAction("🕐 Залишити найстаріший, видалити інші")
+                keep_oldest_action = menu.addAction(
+                    "🕐 Залишити найстаріший, видалити інші"
+                )
                 keep_oldest_action.triggered.connect(self.keep_oldest_delete_others)
 
                 # Keep in specific location
                 keep_location_action = menu.addAction("📁 Залишити у вибраній папці")
-                keep_location_action.triggered.connect(self.keep_in_location_delete_others)
+                keep_location_action.triggered.connect(
+                    self.keep_in_location_delete_others
+                )
 
                 menu.addSeparator()
 
             # Selection-based actions
             if selected_groups:
-                select_all_in_group_action = menu.addAction("✅ Вибрати всі файли у групі")
+                select_all_in_group_action = menu.addAction(
+                    "✅ Вибрати всі файли у групі"
+                )
                 select_all_in_group_action.triggered.connect(self.select_all_in_groups)
 
                 menu.addSeparator()
@@ -4465,11 +5164,15 @@ class CleanupHelperWidget(QWidget):
             # Delete actions
             if selected_files:
                 delete_selected_action = menu.addAction("🗑️ Видалити вибрані файли")
-                delete_selected_action.triggered.connect(self.delete_selected_duplicate_files)
+                delete_selected_action.triggered.connect(
+                    self.delete_selected_duplicate_files
+                )
 
             if selected_groups:
                 delete_group_action = menu.addAction("🗑️ Видалити всю групу дублікатів")
-                delete_group_action.triggered.connect(self.delete_selected_duplicate_groups)
+                delete_group_action.triggered.connect(
+                    self.delete_selected_duplicate_groups
+                )
 
             menu.addSeparator()
 
@@ -4524,9 +5227,9 @@ class CleanupHelperWidget(QWidget):
                 if sys.platform == "win32":
                     os.startfile(file_path)
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', file_path])
+                    subprocess.run(["open", file_path])
                 else:
-                    subprocess.run(['xdg-open', file_path])
+                    subprocess.run(["xdg-open", file_path])
 
     def show_selected_duplicates_in_explorer(self):
         """Show selected duplicate files in file explorer"""
@@ -4537,24 +5240,28 @@ class CleanupHelperWidget(QWidget):
                 abs_path = os.path.abspath(file_path)
                 if sys.platform == "win32":
                     # Use a list of arguments for security and to handle paths correctly
-                    subprocess.run(['explorer', '/select,', abs_path])
+                    subprocess.run(["explorer", "/select,", abs_path])
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', '-R', abs_path])
+                    subprocess.run(["open", "-R", abs_path])
                 else:
-                    subprocess.run(['xdg-open', os.path.dirname(abs_path)])
+                    subprocess.run(["xdg-open", os.path.dirname(abs_path)])
 
     def keep_newest_delete_others(self):
         """Keep the newest file in each selected group and delete others"""
         selected_groups = self.get_selected_duplicate_groups()
         if not selected_groups:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            QMessageBox.warning(
+                self, "Попередження", "Будь ласка, виберіть групи дублікатів."
+            )
             return
 
         reply = QMessageBox.question(
-            self, "Підтвердження",
+            self,
+            "Підтвердження",
             f"Ви впевнені, що хочете залишити найновіші файли та видалити інші?\n\n"
             f"Це видалить {sum(group.childCount() - 1 for group in selected_groups)} файлів.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
 
         if reply != QMessageBox.Yes:
@@ -4582,14 +5289,18 @@ class CleanupHelperWidget(QWidget):
         """Keep the oldest file in each selected group and delete others"""
         selected_groups = self.get_selected_duplicate_groups()
         if not selected_groups:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            QMessageBox.warning(
+                self, "Попередження", "Будь ласка, виберіть групи дублікатів."
+            )
             return
 
         reply = QMessageBox.question(
-            self, "Підтвердження",
+            self,
+            "Підтвердження",
             f"Ви впевнені, що хочете залишити найстаріші файли та видалити інші?\n\n"
             f"Це видалить {sum(group.childCount() - 1 for group in selected_groups)} файлів.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
 
         if reply != QMessageBox.Yes:
@@ -4617,7 +5328,9 @@ class CleanupHelperWidget(QWidget):
         """Keep files in preferred location and delete others"""
         selected_groups = self.get_selected_duplicate_groups()
         if not selected_groups:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи дублікатів.")
+            QMessageBox.warning(
+                self, "Попередження", "Будь ласка, виберіть групи дублікатів."
+            )
             return
 
         # Let user choose preferred location
@@ -4658,9 +5371,11 @@ class CleanupHelperWidget(QWidget):
 
         if files_to_delete:
             reply = QMessageBox.question(
-                self, "Підтвердження",
+                self,
+                "Підтвердження",
                 f"Видалити {len(files_to_delete)} файлів, що не знаходяться у вибраній папці?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
             )
 
             if reply == QMessageBox.Yes:
@@ -4678,14 +5393,18 @@ class CleanupHelperWidget(QWidget):
         """Delete selected duplicate files"""
         selected_files = self.get_selected_duplicate_files()
         if not selected_files:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть файли для видалення.")
+            QMessageBox.warning(
+                self, "Попередження", "Будь ласка, виберіть файли для видалення."
+            )
             return
 
         reply = QMessageBox.question(
-            self, "Підтвердження видалення",
+            self,
+            "Підтвердження видалення",
             f"Ви впевнені, що хочете видалити {len(selected_files)} файлів?\n\n"
             "Ця дія не може бути скасована!",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -4695,15 +5414,19 @@ class CleanupHelperWidget(QWidget):
         """Delete entire selected duplicate groups"""
         selected_groups = self.get_selected_duplicate_groups()
         if not selected_groups:
-            QMessageBox.warning(self, "Попередження", "Будь ласка, виберіть групи для видалення.")
+            QMessageBox.warning(
+                self, "Попередження", "Будь ласка, виберіть групи для видалення."
+            )
             return
 
         total_files = sum(group.childCount() for group in selected_groups)
         reply = QMessageBox.question(
-            self, "Підтвердження видалення",
+            self,
+            "Підтвердження видалення",
             f"Ви впевнені, що хочете видалити всі {total_files} файлів у вибраних групах?\n\n"
             "Ця дія не може бути скасована!",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -4721,8 +5444,9 @@ class CleanupHelperWidget(QWidget):
         selected_files = self.get_selected_duplicate_files()
         if selected_files:
             from PyQt5.QtWidgets import QApplication
+
             clipboard = QApplication.clipboard()
-            clipboard.setText('\n'.join(selected_files))
+            clipboard.setText("\n".join(selected_files))
 
     def copy_selected_duplicate_hashes(self):
         """Copy hashes of selected duplicate groups"""
@@ -4730,8 +5454,9 @@ class CleanupHelperWidget(QWidget):
         if selected_groups:
             hashes = [group.text(0) for group in selected_groups]
             from PyQt5.QtWidgets import QApplication
+
             clipboard = QApplication.clipboard()
-            clipboard.setText('\n'.join(hashes))
+            clipboard.setText("\n".join(hashes))
 
     def expand_all_duplicate_items(self):
         """Expand all duplicate tree items"""
@@ -4763,8 +5488,10 @@ class CleanupHelperWidget(QWidget):
                     os.remove(file_path)
                     deleted_count += 1
                     # Log to main application
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message(f"CleanupHelper: Deleted duplicate {file_path}")
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            f"CleanupHelper: Deleted duplicate {file_path}"
+                        )
             except Exception as e:
                 failed_count += 1
                 failed_files.append(f"{file_path}: {str(e)}")
@@ -4772,8 +5499,7 @@ class CleanupHelperWidget(QWidget):
         # Show results
         if failed_count == 0:
             QMessageBox.information(
-                self, "Видалення завершено",
-                f"Успішно видалено {deleted_count} файлів."
+                self, "Видалення завершено", f"Успішно видалено {deleted_count} файлів."
             )
             # Refresh the duplicate tree
             self.refresh_duplicates()
@@ -4783,9 +5509,10 @@ class CleanupHelperWidget(QWidget):
                 error_details += f"\n... та ще {len(failed_files) - 5} помилок"
 
             QMessageBox.warning(
-                self, "Часткове видалення",
+                self,
+                "Часткове видалення",
                 f"Видалено {deleted_count} файлів.\n"
-                f"Не вдалося видалити {failed_count} файлів:\n{error_details}"
+                f"Не вдалося видалити {failed_count} файлів:\n{error_details}",
             )
 
     def handle_action_selection(self, selected_option: str):
@@ -4828,8 +5555,9 @@ class CleanupHelperWidget(QWidget):
     def choose_archive_scan_path(self):
         """Choose a different scan path for archive viewer"""
         scan_path = QFileDialog.getExistingDirectory(
-            self, "Вибрати каталог для сканування",
-            self.working_path if self.working_path else ""
+            self,
+            "Вибрати каталог для сканування",
+            self.working_path if self.working_path else "",
         )
 
         if scan_path:
@@ -4839,13 +5567,13 @@ class CleanupHelperWidget(QWidget):
 
     def clear_archive_cache(self):
         """Clear cached analytics results"""
-        if hasattr(self, 'analytics_scan_results'):
+        if hasattr(self, "analytics_scan_results"):
             self.analytics_scan_results = None
 
         self.is_showing_analytics_results = False
         self.archive_tree.clear()
 
-        if hasattr(self.main_window, 'log_message'):
+        if hasattr(self.main_window, "log_message"):
             self.main_window.log_message("CleanupHelper: Archive cache cleared")
 
     def sort_archive_tree(self, sort_by: str, ascending: bool = True):
@@ -4862,12 +5590,14 @@ class CleanupHelperWidget(QWidget):
                 top_items.append(root.child(i))
 
             if not top_items:
-                                return
+                return
 
             # Sort items based on criteria
             if sort_by == "name":
                 # Sort by name (column 0)
-                top_items.sort(key=lambda item: item.text(0).lower(), reverse=not ascending)
+                top_items.sort(
+                    key=lambda item: item.text(0).lower(), reverse=not ascending
+                )
             elif sort_by == "size":
                 # Sort by size (column 1) - need to parse human-readable sizes
                 def size_to_bytes(size_str: str) -> int:
@@ -4877,25 +5607,28 @@ class CleanupHelperWidget(QWidget):
 
                     # Remove common formatting and extract number
                     import re
-                    match = re.search(r'([\d.]+)', size_str)
+
+                    match = re.search(r"([\d.]+)", size_str)
                     if not match:
                         return 0
 
                     number = float(match.group(1))
 
                     # Determine multiplier based on unit
-                    if 'КБ' in size_str.upper() or 'KB' in size_str.upper():
+                    if "КБ" in size_str.upper() or "KB" in size_str.upper():
                         return int(number * 1024)
-                    elif 'МБ' in size_str.upper() or 'MB' in size_str.upper():
+                    elif "МБ" in size_str.upper() or "MB" in size_str.upper():
                         return int(number * 1024 * 1024)
-                    elif 'ГБ' in size_str.upper() or 'GB' in size_str.upper():
+                    elif "ГБ" in size_str.upper() or "GB" in size_str.upper():
                         return int(number * 1024 * 1024 * 1024)
-                    elif 'ТБ' in size_str.upper() or 'TB' in size_str.upper():
+                    elif "ТБ" in size_str.upper() or "TB" in size_str.upper():
                         return int(number * 1024 * 1024 * 1024 * 1024)
                     else:
                         return int(number)  # Assume bytes
 
-                top_items.sort(key=lambda item: size_to_bytes(item.text(1)), reverse=not ascending)
+                top_items.sort(
+                    key=lambda item: size_to_bytes(item.text(1)), reverse=not ascending
+                )
             elif sort_by == "date":
                 # Sort by date (column 2)
                 def date_to_timestamp(date_str: str) -> float:
@@ -4905,9 +5638,15 @@ class CleanupHelperWidget(QWidget):
 
                     try:
                         # Try different date formats
-                        for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d", "%d-%m-%Y %H:%M", "%d-%m-%Y"]:
+                        for fmt in [
+                            "%Y-%m-%d %H:%M",
+                            "%Y-%m-%d",
+                            "%d-%m-%Y %H:%M",
+                            "%d-%m-%Y",
+                        ]:
                             try:
                                 from datetime import datetime
+
                                 return datetime.strptime(date_str, fmt).timestamp()
                             except ValueError:
                                 continue
@@ -4915,7 +5654,10 @@ class CleanupHelperWidget(QWidget):
                     except Exception:
                         return 0
 
-                top_items.sort(key=lambda item: date_to_timestamp(item.text(2)), reverse=not ascending)
+                top_items.sort(
+                    key=lambda item: date_to_timestamp(item.text(2)),
+                    reverse=not ascending,
+                )
 
             # Remove all items from tree
             self.archive_tree.clear()
@@ -4929,17 +5671,22 @@ class CleanupHelperWidget(QWidget):
             for item in top_items:
                 self._sort_children_recursive(item, sort_by, ascending)
 
-                self.archive_status_label.setText(f"Відсортовано за {sort_by} ({'за зростанням' if ascending else 'за спаданням'})")
+                self.archive_status_label.setText(
+                    f"Відсортовано за {sort_by} ({'за зростанням' if ascending else 'за спаданням'})"
+                )
 
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Sorted {len(top_items)} items by {sort_by}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Sorted {len(top_items)} items by {sort_by}"
+                )
 
-            
         except Exception as e:
-                        if hasattr(self.main_window, 'log_message'):
-                            self.main_window.log_message(f"CleanupHelper: Error sorting tree: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(f"CleanupHelper: Error sorting tree: {e}")
 
-    def _sort_children_recursive(self, parent_item: QTreeWidgetItem, sort_by: str, ascending: bool):
+    def _sort_children_recursive(
+        self, parent_item: QTreeWidgetItem, sort_by: str, ascending: bool
+    ):
         """Recursively sort children of a tree item"""
         try:
             # Collect children
@@ -4952,34 +5699,47 @@ class CleanupHelperWidget(QWidget):
 
             # Sort children based on same criteria
             if sort_by == "name":
-                children.sort(key=lambda item: item.text(0).lower(), reverse=not ascending)
+                children.sort(
+                    key=lambda item: item.text(0).lower(), reverse=not ascending
+                )
             elif sort_by == "size":
+
                 def size_to_bytes(size_str: str) -> int:
                     if not size_str or size_str == "":
                         return 0
                     import re
-                    match = re.search(r'([\d.]+)', size_str)
+
+                    match = re.search(r"([\d.]+)", size_str)
                     if not match:
                         return 0
                     number = float(match.group(1))
-                    if 'КБ' in size_str.upper() or 'KB' in size_str.upper():
+                    if "КБ" in size_str.upper() or "KB" in size_str.upper():
                         return int(number * 1024)
-                    elif 'МБ' in size_str.upper() or 'MB' in size_str.upper():
+                    elif "МБ" in size_str.upper() or "MB" in size_str.upper():
                         return int(number * 1024 * 1024)
-                    elif 'ГБ' in size_str.upper() or 'GB' in size_str.upper():
+                    elif "ГБ" in size_str.upper() or "GB" in size_str.upper():
                         return int(number * 1024 * 1024 * 1024)
                     else:
                         return int(number)
 
-                children.sort(key=lambda item: size_to_bytes(item.text(1)), reverse=not ascending)
+                children.sort(
+                    key=lambda item: size_to_bytes(item.text(1)), reverse=not ascending
+                )
             elif sort_by == "date":
+
                 def date_to_timestamp(date_str: str) -> float:
                     if not date_str or date_str == "":
                         return 0
                     try:
-                        for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d", "%d-%m-%Y %H:%M", "%d-%m-%Y"]:
+                        for fmt in [
+                            "%Y-%m-%d %H:%M",
+                            "%Y-%m-%d",
+                            "%d-%m-%Y %H:%M",
+                            "%d-%m-%Y",
+                        ]:
                             try:
                                 from datetime import datetime
+
                                 return datetime.strptime(date_str, fmt).timestamp()
                             except ValueError:
                                 continue
@@ -4987,7 +5747,10 @@ class CleanupHelperWidget(QWidget):
                     except Exception:
                         return 0
 
-                children.sort(key=lambda item: date_to_timestamp(item.text(2)), reverse=not ascending)
+                children.sort(
+                    key=lambda item: date_to_timestamp(item.text(2)),
+                    reverse=not ascending,
+                )
 
             # Remove and re-add children in sorted order
             parent_item.takeChildren()
@@ -4997,8 +5760,10 @@ class CleanupHelperWidget(QWidget):
                 self._sort_children_recursive(child, sort_by, ascending)
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Error sorting children: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Error sorting children: {e}"
+                )
 
     def reset_all_filters(self):
         """Reset all filters and show all items"""
@@ -5010,29 +5775,31 @@ class CleanupHelperWidget(QWidget):
             self.search_edit.clear()
 
             # Clear advanced filters
-            if hasattr(self, 'archive_filters'):
+            if hasattr(self, "archive_filters"):
                 self.archive_filters = {
-                    'file_types': [],
-                    'min_date': None,
-                    'max_date': None,
-                    'min_size': None,
-                    'max_size': None
+                    "file_types": [],
+                    "min_date": None,
+                    "max_date": None,
+                    "min_size": None,
+                    "max_size": None,
                 }
 
             # Clear filter history to prevent re-application
-            if hasattr(self, '_filter_history'):
+            if hasattr(self, "_filter_history"):
                 self._filter_history = []
 
             # Reset any active date/size filters
-            if hasattr(self, 'date_filter_active'):
+            if hasattr(self, "date_filter_active"):
                 self.date_filter_active = False
-            if hasattr(self, 'size_filter_active'):
+            if hasattr(self, "size_filter_active"):
                 self.size_filter_active = False
 
             # Rebuild the tree to show all items without new scan
             self._rebuild_tree_without_scan()
 
-            self.archive_status_label.setText("✅ Усі фільтри скинуто - показано всі файли")
+            self.archive_status_label.setText(
+                "✅ Усі фільтри скинуто - показано всі файли"
+            )
             self.archive_status_label.setStyleSheet("""
                 QLabel {
                     font-size: 11px;
@@ -5045,14 +5812,18 @@ class CleanupHelperWidget(QWidget):
                 }
             """)
 
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message("CleanupHelper: All filters reset - showing all files")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    "CleanupHelper: All filters reset - showing all files"
+                )
 
             QTimer.singleShot(2000, lambda: self._reset_status_style())
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Error resetting filters: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Error resetting filters: {e}"
+                )
 
     def _rebuild_tree_without_scan(self):
         """Show all items in current tree without starting a new scan"""
@@ -5103,25 +5874,25 @@ class CleanupHelperWidget(QWidget):
         """Get cached scan results for faster secondary searches"""
         cache_key = scan_path.lower()
 
-        if hasattr(self, 'scan_cache') and cache_key in self.scan_cache:
+        if hasattr(self, "scan_cache") and cache_key in self.scan_cache:
             cached_data = self.scan_cache[cache_key]
             # Check if cache is still valid (within last 5 minutes)
-            cache_time = cached_data.get('timestamp', 0)
+            cache_time = cached_data.get("timestamp", 0)
             current_time = datetime.now().timestamp()
             if current_time - cache_time < 300:  # 5 minutes
-                return cached_data.get('results', {})
+                return cached_data.get("results", {})
 
         return None
 
     def cache_scan_results(self, scan_path: str, results: dict):
         """Cache scan results for faster future access"""
-        if not hasattr(self, 'scan_cache'):
+        if not hasattr(self, "scan_cache"):
             self.scan_cache = {}
 
         cache_key = scan_path.lower()
         self.scan_cache[cache_key] = {
-            'results': results,
-            'timestamp': datetime.now().timestamp()
+            "results": results,
+            "timestamp": datetime.now().timestamp(),
         }
 
     def get_file_icon(self, file_path: str, extension: str = "") -> str:
@@ -5138,107 +5909,99 @@ class CleanupHelperWidget(QWidget):
         # File type icons mapping
         icon_map = {
             # Documents
-            '.pdf': '📄',
-            '.doc': '📝',
-            '.docx': '📝',
-            '.txt': '📄',
-            '.rtf': '📄',
-            '.odt': '📝',
-            '.xls': '📊',
-            '.xlsx': '📊',
-            '.ppt': '📊',
-            '.pptx': '📊',
-            '.csv': '📋',
-
+            ".pdf": "📄",
+            ".doc": "📝",
+            ".docx": "📝",
+            ".txt": "📄",
+            ".rtf": "📄",
+            ".odt": "📝",
+            ".xls": "📊",
+            ".xlsx": "📊",
+            ".ppt": "📊",
+            ".pptx": "📊",
+            ".csv": "📋",
             # Images
-            '.jpg': '🖼️',
-            '.jpeg': '🖼️',
-            '.png': '🖼️',
-            '.gif': '🖼️',
-            '.bmp': '🖼️',
-            '.tiff': '🖼️',
-            '.svg': '🎨',
-            '.webp': '🖼️',
-            '.ico': '🖼️',
-
+            ".jpg": "🖼️",
+            ".jpeg": "🖼️",
+            ".png": "🖼️",
+            ".gif": "🖼️",
+            ".bmp": "🖼️",
+            ".tiff": "🖼️",
+            ".svg": "🎨",
+            ".webp": "🖼️",
+            ".ico": "🖼️",
             # Videos
-            '.mp4': '🎬',
-            '.avi': '🎬',
-            '.mkv': '🎬',
-            '.mov': '🎬',
-            '.wmv': '🎬',
-            '.flv': '🎬',
-            '.webm': '🎬',
-            '.m4v': '🎬',
-            '.3gp': '🎬',
-
+            ".mp4": "🎬",
+            ".avi": "🎬",
+            ".mkv": "🎬",
+            ".mov": "🎬",
+            ".wmv": "🎬",
+            ".flv": "🎬",
+            ".webm": "🎬",
+            ".m4v": "🎬",
+            ".3gp": "🎬",
             # Audio
-            '.mp3': '🎵',
-            '.wav': '🎵',
-            '.flac': '🎵',
-            '.aac': '🎵',
-            '.ogg': '🎵',
-            '.wma': '🎵',
-            '.m4a': '🎵',
-            '.opus': '🎵',
-
+            ".mp3": "🎵",
+            ".wav": "🎵",
+            ".flac": "🎵",
+            ".aac": "🎵",
+            ".ogg": "🎵",
+            ".wma": "🎵",
+            ".m4a": "🎵",
+            ".opus": "🎵",
             # Archives
-            '.zip': '🗜️',
-            '.rar': '🗜️',
-            '.7z': '🗜️',
-            '.tar': '🗜️',
-            '.gz': '🗜️',
-            '.bz2': '🗜️',
-            '.xz': '🗜️',
-            '.tar.gz': '🗜️',
-            '.tar.bz2': '🗜️',
-            '.tar.xz': '🗜️',
-
+            ".zip": "🗜️",
+            ".rar": "🗜️",
+            ".7z": "🗜️",
+            ".tar": "🗜️",
+            ".gz": "🗜️",
+            ".bz2": "🗜️",
+            ".xz": "🗜️",
+            ".tar.gz": "🗜️",
+            ".tar.bz2": "🗜️",
+            ".tar.xz": "🗜️",
             # Programs
-            '.exe': '⚙️',
-            '.msi': '⚙️',
-            '.deb': '⚙️',
-            '.rpm': '⚙️',
-            '.dmg': '⚙️',
-            '.pkg': '⚙️',
-            '.app': '⚙️',
-
+            ".exe": "⚙️",
+            ".msi": "⚙️",
+            ".deb": "⚙️",
+            ".rpm": "⚙️",
+            ".dmg": "⚙️",
+            ".pkg": "⚙️",
+            ".app": "⚙️",
             # Code files
-            '.py': '🐍',
-            '.js': '📜',
-            '.html': '🌐',
-            '.css': '🎨',
-            '.php': '🐘',
-            '.java': '☕',
-            '.cpp': '⚙️',
-            '.c': '⚙️',
-            '.cs': '🔷',
-            '.rb': '💎',
-            '.go': '🐹',
-            '.rs': '🦀',
-            '.swift': '🦉',
-
+            ".py": "🐍",
+            ".js": "📜",
+            ".html": "🌐",
+            ".css": "🎨",
+            ".php": "🐘",
+            ".java": "☕",
+            ".cpp": "⚙️",
+            ".c": "⚙️",
+            ".cs": "🔷",
+            ".rb": "💎",
+            ".go": "🐹",
+            ".rs": "🦀",
+            ".swift": "🦉",
             # Config files
-            '.json': '📋',
-            '.xml': '📋',
-            '.yaml': '📋',
-            '.yml': '📋',
-            '.ini': '⚙️',
-            '.cfg': '⚙️',
-            '.conf': '⚙️',
-            '.log': '📝',
-
+            ".json": "📋",
+            ".xml": "📋",
+            ".yaml": "📋",
+            ".yml": "📋",
+            ".ini": "⚙️",
+            ".cfg": "⚙️",
+            ".conf": "⚙️",
+            ".log": "📝",
             # Other common files
-            '.md': '📝',
-            '.rst': '📝',
-            '.pdf': '📄',
-            '.epub': '📚',
-            '.mobi': '📚',
-            '.azw': '📚',
-            '.azw3': '📚'
+            ".md": "📝",
+            ".rst": "📝",
+            ".pdf": "📄",
+            ".epub": "📚",
+            ".mobi": "📚",
+            ".azw": "📚",
+            ".azw3": "📚",
         }
 
-        return icon_map.get(extension, '📄')
+        return icon_map.get(extension, "📄")
 
     def get_selected_files(self) -> List[str]:
         """Get paths of selected files only (exclude directories)"""
@@ -5277,7 +6040,9 @@ class CleanupHelperWidget(QWidget):
         selected_items = selected_files + selected_directories
 
         if not selected_items:
-            QMessageBox.warning(self, "Увага", "Будь ласка, оберіть файли або папки для стиснення.")
+            QMessageBox.warning(
+                self, "Увага", "Будь ласка, оберіть файли або папки для стиснення."
+            )
             return
 
         self.compression_window = CompressionWindow(selected_items, self)
@@ -5290,11 +6055,12 @@ class CleanupHelperWidget(QWidget):
             return
 
         reply = QMessageBox.question(
-            self, "Підтвердження видалення",
+            self,
+            "Підтвердження видалення",
             f"Ви впевнені, що хочете видалити {len(selected_files)} файл(ів)?\n\n"
             "Цю дію неможливо скасувати.",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -5307,15 +6073,21 @@ class CleanupHelperWidget(QWidget):
                         os.remove(file_path)
                         deleted_count += 1
                 except Exception as e:
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message(f"CleanupHelper: Помилка видалення {file_path}: {e}")
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            f"CleanupHelper: Помилка видалення {file_path}: {e}"
+                        )
 
-            self.archive_status_label.setText(f"Видалено {deleted_count} з {len(selected_files)} файлів")
+            self.archive_status_label.setText(
+                f"Видалено {deleted_count} з {len(selected_files)} файлів"
+            )
 
             # Refresh tree after deletion
             self.refresh_archive_tree()
 
-            QMessageBox.information(self, "Готово", f"Видалено {deleted_count} файл(ів).")
+            QMessageBox.information(
+                self, "Готово", f"Видалено {deleted_count} файл(ів)."
+            )
 
     def delete_selected_items(self):
         """Delete selected files and directories with confirmation"""
@@ -5358,10 +6130,11 @@ class CleanupHelperWidget(QWidget):
 
         # Confirmation dialog
         reply = QMessageBox.question(
-            self, "Підтвердження видалення",
+            self,
+            "Підтвердження видалення",
             message,
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -5378,22 +6151,26 @@ class CleanupHelperWidget(QWidget):
                         deleted_count += 1
                     current_progress += 1
                 except Exception as e:
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message(f"CleanupHelper: Помилка видалення файлу {file_path}: {e}")
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            f"CleanupHelper: Помилка видалення файлу {file_path}: {e}"
+                        )
 
             # Delete directories
             for dir_path in selected_directories:
                 try:
                     if os.path.exists(dir_path):
                         import shutil
+
                         shutil.rmtree(dir_path)
                         deleted_count += 1
                     current_progress += 1
                 except Exception as e:
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message(f"CleanupHelper: Помилка видалення папки {dir_path}: {e}")
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            f"CleanupHelper: Помилка видалення папки {dir_path}: {e}"
+                        )
 
-            
             # Success message
             success_parts = []
             if len(selected_files) > 0:
@@ -5412,16 +6189,18 @@ class CleanupHelperWidget(QWidget):
             self._last_scan_path = ""
 
             # Update analytics if on analytics tab
-            if hasattr(self, 'current_analytics_data') and self.current_analytics_data:
+            if hasattr(self, "current_analytics_data") and self.current_analytics_data:
                 self._update_analytics_after_deletion(selected_items)
 
             # Show success message immediately
-            QMessageBox.information(self, "Готово", f"Видалено {', '.join(success_parts)}.")
+            QMessageBox.information(
+                self, "Готово", f"Видалено {', '.join(success_parts)}."
+            )
 
     def _remove_items_from_tree(self, deleted_items):
         """Immediately remove deleted items from the archive tree UI"""
         try:
-            if not deleted_items or not hasattr(self, 'archive_tree'):
+            if not deleted_items or not hasattr(self, "archive_tree"):
                 return
 
             root = self.archive_tree.invisibleRootItem()
@@ -5465,7 +6244,7 @@ class CleanupHelperWidget(QWidget):
             print(f"Error removing items from tree: {e}")
         finally:
             # Re-enable signals and updates
-            if hasattr(self, 'archive_tree'):
+            if hasattr(self, "archive_tree"):
                 self.archive_tree.blockSignals(False)
                 self.archive_tree.setUpdatesEnabled(True)
                 self.archive_tree.viewport().update()  # Force redraw
@@ -5473,7 +6252,7 @@ class CleanupHelperWidget(QWidget):
     def _clean_empty_directories(self, parent_item):
         """Remove empty directory items from tree"""
         try:
-            if not hasattr(self, 'archive_tree'):
+            if not hasattr(self, "archive_tree"):
                 return
 
             # Keep cleaning until no more empty directories are found
@@ -5490,7 +6269,9 @@ class CleanupHelperWidget(QWidget):
                 # Find empty directories
                 for item in items_to_check:
                     # Directory if column 4 is empty AND it has no children
-                    if (not item.text(4) or item.text(4).strip() == "") and item.childCount() == 0:
+                    if (
+                        not item.text(4) or item.text(4).strip() == ""
+                    ) and item.childCount() == 0:
                         empty_dirs.append(item)
 
                 # If no empty directories found, we're done
@@ -5524,28 +6305,33 @@ class CleanupHelperWidget(QWidget):
 
                 # Update total file count
                 if os.path.isfile(item_path):
-                    self.current_analytics_data['total_files'] -= 1
+                    self.current_analytics_data["total_files"] -= 1
 
                 # Update large files list
-                self.current_analytics_data['large_files'] = [
-                    f for f in self.current_analytics_data['large_files']
-                    if f['path'] != item_path
+                self.current_analytics_data["large_files"] = [
+                    f
+                    for f in self.current_analytics_data["large_files"]
+                    if f["path"] != item_path
                 ]
 
                 # Update file types
                 ext = os.path.splitext(item_path)[1].lower()
-                if ext in self.current_analytics_data['file_types']:
-                    file_type_data = self.current_analytics_data['file_types'][ext]
-                    file_type_data['count'] -= 1
+                if ext in self.current_analytics_data["file_types"]:
+                    file_type_data = self.current_analytics_data["file_types"][ext]
+                    file_type_data["count"] -= 1
 
-                    if file_type_data['count'] <= 0:
-                        del self.current_analytics_data['file_types'][ext]
+                    if file_type_data["count"] <= 0:
+                        del self.current_analytics_data["file_types"][ext]
                     else:
                         # Estimate size removal (we don't have exact size anymore)
-                        file_type_data['size'] = max(0, file_type_data['size'] - 1024)  # Remove estimated 1KB
+                        file_type_data["size"] = max(
+                            0, file_type_data["size"] - 1024
+                        )  # Remove estimated 1KB
 
             # Update large files count
-            self.current_analytics_data['large_files_count'] = len(self.current_analytics_data['large_files'])
+            self.current_analytics_data["large_files_count"] = len(
+                self.current_analytics_data["large_files"]
+            )
 
             # Update analytics display
             self.update_analytics_display(self.current_analytics_data)
@@ -5561,12 +6347,14 @@ class CleanupHelperWidget(QWidget):
                 if sys.platform == "win32":
                     os.startfile(item_path)
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', item_path])
+                    subprocess.run(["open", item_path])
                 else:
-                    subprocess.run(['xdg-open', item_path])
+                    subprocess.run(["xdg-open", item_path])
             except Exception as e:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message(f"CleanupHelper: Помилка відкриття {item_path}: {e}")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        f"CleanupHelper: Помилка відкриття {item_path}: {e}"
+                    )
 
     def show_in_explorer(self):
         """Show selected items in file explorer"""
@@ -5580,24 +6368,29 @@ class CleanupHelperWidget(QWidget):
                 abs_path = os.path.abspath(item_path)
                 if sys.platform == "win32":
                     # Use a list of arguments for security and to handle paths correctly
-                    subprocess.run(['explorer', '/select,', abs_path])
+                    subprocess.run(["explorer", "/select,", abs_path])
                 elif sys.platform == "darwin":
-                    subprocess.run(['open', '-R', abs_path])
+                    subprocess.run(["open", "-R", abs_path])
                 else:
-                    subprocess.run(['xdg-open', os.path.dirname(abs_path)])
+                    subprocess.run(["xdg-open", os.path.dirname(abs_path)])
             except Exception as e:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message(f"CleanupHelper: Помилка показу {item_path}: {e}")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        f"CleanupHelper: Помилка показу {item_path}: {e}"
+                    )
 
     def copy_selected_paths(self):
         """Copy selected paths to clipboard"""
         selected_items = self.get_selected_items()
         if selected_items:
             from PyQt5.QtWidgets import QApplication
+
             clipboard = QApplication.clipboard()
-            paths_text = '\n'.join(selected_items)
+            paths_text = "\n".join(selected_items)
             clipboard.setText(paths_text)
-            self.archive_status_label.setText(f"Скопійовано {len(selected_items)} шлях(ів) до буфера обміну")
+            self.archive_status_label.setText(
+                f"Скопійовано {len(selected_items)} шлях(ів) до буфера обміну"
+            )
 
     def restore_selected_files(self):
         """Restore selected files to desktop"""
@@ -5626,17 +6419,23 @@ class CleanupHelperWidget(QWidget):
                     shutil.copy2(source_path, target_path)
                     restored_count += 1
             except Exception as e:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message(f"CleanupHelper: Помилка відновлення {source_path}: {e}")
-                self.archive_status_label.setText(f"Відновлено {restored_count} з {len(selected_files)} файлів")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        f"CleanupHelper: Помилка відновлення {source_path}: {e}"
+                    )
+                self.archive_status_label.setText(
+                    f"Відновлено {restored_count} з {len(selected_files)} файлів"
+                )
 
-        QMessageBox.information(self, "Готово", f"Відновлено {restored_count} файл(ів) на робочий стіл.")
+        QMessageBox.information(
+            self, "Готово", f"Відновлено {restored_count} файл(ів) на робочий стіл."
+        )
 
     def install_compress_package(self):
         """Install the compress package"""
         try:
             # Check if we can access the main window's module manager
-            if hasattr(self.main_window, 'module_manager'):
+            if hasattr(self.main_window, "module_manager"):
                 venv_manager = self.main_window.module_manager.get_virtual_env_manager()
                 success = venv_manager.install_user_package("compress>=1.0.0")
 
@@ -5645,46 +6444,48 @@ class CleanupHelperWidget(QWidget):
                         self,
                         "Success",
                         "compress package installed successfully!\n\n"
-                        "Please restart the Desktop Organizer application to enable advanced compression features."
+                        "Please restart the Desktop Organizer application to enable advanced compression features.",
                     )
 
                     # Log to main application
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message("CleanupHelper: compress package installed")
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            "CleanupHelper: compress package installed"
+                        )
                 else:
                     QMessageBox.critical(
                         self,
                         "Error",
                         "Failed to install compress package.\n\n"
-                        "Please check the main application log for details."
+                        "Please check the main application log for details.",
                     )
             else:
                 # Fallback: try to install with subprocess
                 import subprocess
 
-                result = subprocess.run([
-                    sys.executable, "-m", "pip", "install", "compress>=1.0.0"
-                ], capture_output=True, text=True)
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "compress>=1.0.0"],
+                    capture_output=True,
+                    text=True,
+                )
 
                 if result.returncode == 0:
                     QMessageBox.information(
                         self,
                         "Success",
                         "compress package installed successfully!\n\n"
-                        "Please restart the Desktop Organizer application to enable advanced compression features."
+                        "Please restart the Desktop Organizer application to enable advanced compression features.",
                     )
                 else:
                     QMessageBox.critical(
                         self,
                         "Error",
-                        f"Failed to install compress package:\n\n{result.stderr}"
+                        f"Failed to install compress package:\n\n{result.stderr}",
                     )
 
         except Exception as e:
             QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to install compress package:\n\n{str(e)}"
+                self, "Error", f"Failed to install compress package:\n\n{str(e)}"
             )
 
     def closeEvent(self, event):
@@ -5707,34 +6508,34 @@ class CleanupHelperWidget(QWidget):
     def apply_quick_filter(self, filter_type: str):
         """Apply a quick filter preset to the archive tree"""
         filter_configs = {
-            'oil_gas': {
-                'extensions': '.pet,.las,.dlis,.lis,.witsml,.resqml,.sep,.zmap,.grd,.plt,.surfer,.gocad,.rms,.ecl,.data,.dat,.include,.prn,.hdf,.nc,.segy,.sgy,.su,.vdf,.tvd,.azm,.incl',
-                'name': 'Нафтогазова інженерія'
+            "oil_gas": {
+                "extensions": ".pet,.las,.dlis,.lis,.witsml,.resqml,.sep,.zmap,.grd,.plt,.surfer,.gocad,.rms,.ecl,.data,.dat,.include,.prn,.hdf,.nc,.segy,.sgy,.su,.vdf,.tvd,.azm,.incl",
+                "name": "Нафтогазова інженерія",
             },
-            'images': {
-                'extensions': '.jpg,.jpeg,.png,.gif,.bmp,.tiff,.tif,.svg,.webp,.ico,.psd,.raw,.heic,.heif',
-                'name': 'Зображення'
+            "images": {
+                "extensions": ".jpg,.jpeg,.png,.gif,.bmp,.tiff,.tif,.svg,.webp,.ico,.psd,.raw,.heic,.heif",
+                "name": "Зображення",
             },
-            'documents': {
-                'extensions': '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.pages,.numbers,.key,.md',
-                'name': 'Документи'
+            "documents": {
+                "extensions": ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.pages,.numbers,.key,.md",
+                "name": "Документи",
             },
-            'video': {
-                'extensions': '.mp4,.avi,.mov,.wmv,.mkv,.flv,.webm,.m4v,.3gp,.mpg,.mpeg,.vob,.ts,.mts,.m2ts',
-                'name': 'Відео'
+            "video": {
+                "extensions": ".mp4,.avi,.mov,.wmv,.mkv,.flv,.webm,.m4v,.3gp,.mpg,.mpeg,.vob,.ts,.mts,.m2ts",
+                "name": "Відео",
             },
-            'archives': {
-                'extensions': '.zip,.rar,.7z,.tar,.gz,.bz2,.xz,.7zip,.ace,.arj,.cab,.lzh,.z,.tar.gz,.tgz,.tar.bz2,.tbz2',
-                'name': 'Архіви'
-            }
+            "archives": {
+                "extensions": ".zip,.rar,.7z,.tar,.gz,.bz2,.xz,.7zip,.ace,.arj,.cab,.lzh,.z,.tar.gz,.tgz,.tar.bz2,.tbz2",
+                "name": "Архіви",
+            },
         }
 
         if filter_type not in filter_configs:
             return
 
         config = filter_configs[filter_type]
-        self._apply_filter_to_tree(config['extensions'], config['name'])
-        self._update_filter_status(config['name'], self._count_visible_items())
+        self._apply_filter_to_tree(config["extensions"], config["name"])
+        self._update_filter_status(config["name"], self._count_visible_items())
 
     def clear_all_archive_filters(self):
         """Clear all filters and show all cached items"""
@@ -5770,15 +6571,19 @@ class CleanupHelperWidget(QWidget):
                 for i in range(self.archive_tree.topLevelItemCount()):
                     self._make_tree_item_selectable(self.archive_tree.topLevelItem(i))
 
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message(f"CleanupHelper: Фільтри скинуто. Показано {total_count} файлів")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        f"CleanupHelper: Фільтри скинуто. Показано {total_count} файлів"
+                    )
             else:
                 # If no cache, refresh the tree normally
                 self.refresh_archive_tree()
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка скидання фільтрів: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка скидання фільтрів: {e}"
+                )
 
     def _count_cache_items(self, cache_dict: dict) -> int:
         """Count all items in cache dictionary"""
@@ -5786,10 +6591,11 @@ class CleanupHelperWidget(QWidget):
             count = 0
             for item_name, item_data in cache_dict.items():
                 count += 1
-                if item_data.get('is_dir') and 'children' in item_data:
-                    count += self._count_cache_items(item_data['children'])
+                if item_data.get("is_dir") and "children" in item_data:
+                    count += self._count_cache_items(item_data["children"])
             return count
-        except:
+        except Exception:
+            logger.debug("Failed to count cache items")
             return 0
 
     def _make_tree_item_selectable(self, item: QTreeWidgetItem):
@@ -5810,8 +6616,10 @@ class CleanupHelperWidget(QWidget):
             self.filter_presets_window = FilterPresetsWindow(self)
             self.filter_presets_window.show()
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка відкриття розширених фільтрів: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка відкриття розширених фільтрів: {e}"
+                )
 
     def toggle_filters(self):
         """Toggle the visibility of filter controls"""
@@ -5828,8 +6636,12 @@ class CleanupHelperWidget(QWidget):
 
     def _update_filter_status(self, filter_name: str, visible_count: int):
         """Update the filter status label"""
-        total_count = self._count_cache_items(self._file_cache) if self._file_cache else 0
-        self.archive_status_label.setText(f"Фільтр: {filter_name} ({visible_count} з {total_count} файлів)")
+        total_count = (
+            self._count_cache_items(self._file_cache) if self._file_cache else 0
+        )
+        self.archive_status_label.setText(
+            f"Фільтр: {filter_name} ({visible_count} з {total_count} файлів)"
+        )
         self.archive_status_label.setStyleSheet("""
             QLabel {
                 font-size: 11px;
@@ -5842,13 +6654,16 @@ class CleanupHelperWidget(QWidget):
             }
         """)
 
-        if hasattr(self.main_window, 'log_message'):
-            self.main_window.log_message(f"CleanupHelper: Застосовано фільтр '{filter_name}'. Знайдено {visible_count} файлів")
+        if hasattr(self.main_window, "log_message"):
+            self.main_window.log_message(
+                f"CleanupHelper: Застосовано фільтр '{filter_name}'. Знайдено {visible_count} файлів"
+            )
 
     def _count_visible_items(self) -> int:
         """Count visible items in the archive tree"""
         try:
             root = self.archive_tree.invisibleRootItem()
+
             def count_visible(item):
                 if item.isHidden():
                     return 0
@@ -5861,13 +6676,15 @@ class CleanupHelperWidget(QWidget):
             for i in range(root.childCount()):
                 total += count_visible(root.child(i))
             return total
-        except:
+        except Exception:
+            logger.debug("Failed to count visible items")
             return 0
 
     def _count_all_items(self) -> int:
         """Count all items in the archive tree (visible and hidden)"""
         try:
             root = self.archive_tree.invisibleRootItem()
+
             def count_all(item):
                 count = 1
                 for i in range(item.childCount()):
@@ -5878,43 +6695,52 @@ class CleanupHelperWidget(QWidget):
             for i in range(root.childCount()):
                 total += count_all(root.child(i))
             return total
-        except:
+        except Exception:
+            logger.debug("Failed to count all items")
             return 0
 
     def _apply_filter_to_tree(self, extensions: str, preset_name: str):
         """Apply filter using cached data for optimal performance"""
         try:
-            extensions = [ext.strip().lower() for ext in extensions.split(',') if ext.strip()]
+            extensions = [
+                ext.strip().lower() for ext in extensions.split(",") if ext.strip()
+            ]
             if not extensions:
                 return
 
             # Check if we have cached data to work with
             if not self._file_cache:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message("CleanupHelper: Кеш відсутній, оновлення дерева...")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        "CleanupHelper: Кеш відсутній, оновлення дерева..."
+                    )
                 self.refresh_archive_tree()
                 return
 
             self.archive_status_label.setText("Застосування фільтру...")
-                        
+
             # Clear current tree and rebuild from cache with filter
             self.archive_tree.clear()
 
-            def _build_filtered_tree_from_cache(cache_dict: dict, parent_item: QTreeWidgetItem, extensions: list):
+            def _build_filtered_tree_from_cache(
+                cache_dict: dict, parent_item: QTreeWidgetItem, extensions: list
+            ):
                 """Build tree from cache applying extension filter"""
                 visible_count = 0
                 items_processed = 0
 
                 for item_name, item_data in cache_dict.items():
                     items_processed += 1
-                    if item_data['is_dir']:
+                    if item_data["is_dir"]:
                         # Check if this directory should be included
                         should_include_dir = False
                         dir_has_matching_children = False
 
                         # Check if directory itself has matching children
-                        for child_name, child_data in item_data.get('children', {}).items():
-                            if not child_data['is_dir']:
+                        for child_name, child_data in item_data.get(
+                            "children", {}
+                        ).items():
+                            if not child_data["is_dir"]:
                                 _, child_ext = os.path.splitext(child_name)
                                 if child_ext.lower() in extensions:
                                     dir_has_matching_children = True
@@ -5923,22 +6749,26 @@ class CleanupHelperWidget(QWidget):
 
                         if should_include_dir:
                             # Create directory item
-                            folder_info = self.identify_folder_structure(item_data['path'])
+                            folder_info = self.identify_folder_structure(
+                                item_data["path"]
+                            )
                             dir_item = QTreeWidgetItem(parent_item)
-                            dir_item.setText(0, folder_info['name'])
+                            dir_item.setText(0, folder_info["name"])
                             dir_item.setText(2, "Папка")
-                            dir_item.setText(3, item_data.get('modified', ''))
-                            dir_item.setText(4, item_data['path'])
-                            dir_item.setIcon(0, QIcon(folder_info['icon']))
+                            dir_item.setText(3, item_data.get("modified", ""))
+                            dir_item.setText(4, item_data["path"])
+                            dir_item.setIcon(0, QIcon(folder_info["icon"]))
 
                             # Build children recursively
                             child_visible = _build_filtered_tree_from_cache(
-                                item_data.get('children', {}), dir_item, extensions
+                                item_data.get("children", {}), dir_item, extensions
                             )
 
                             # Update directory item count
                             if child_visible > 0:
-                                dir_item.setText(1, f"Папка ({child_visible} елементів)")
+                                dir_item.setText(
+                                    1, f"Папка ({child_visible} елементів)"
+                                )
                             else:
                                 dir_item.setText(1, "Папка")
 
@@ -5950,37 +6780,48 @@ class CleanupHelperWidget(QWidget):
                             file_item = QTreeWidgetItem(parent_item)
 
                             # Build display name with icon
-                            icon_name = self.get_file_icon(item_data['path'], file_ext)
+                            icon_name = self.get_file_icon(item_data["path"], file_ext)
                             display_name = f"{icon_name} {item_name}"
 
                             file_item.setText(0, display_name)
 
-                            if 'size' in item_data:
-                                file_size = item_data['size']
+                            if "size" in item_data:
+                                file_size = item_data["size"]
                                 try:
                                     import humanize
-                                    file_item.setText(1, humanize.naturalsize(file_size))
+
+                                    file_item.setText(
+                                        1, humanize.naturalsize(file_size)
+                                    )
                                 except ImportError:
                                     size_mb = file_size / (1024 * 1024)
                                     if size_mb < 1:
-                                        file_item.setText(1, f"{file_size / 1024:.1f} KB")
+                                        file_item.setText(
+                                            1, f"{file_size / 1024:.1f} KB"
+                                        )
                                     else:
                                         file_item.setText(1, f"{size_mb:.1f} MB")
                             else:
                                 file_item.setText(1, "Розмір невідомий")
 
-                            file_item.setText(2, self.get_file_category(item_data['path']))
-                            file_item.setText(3, item_data.get('modified', ''))
-                            file_item.setText(4, item_data['path'])
+                            file_item.setText(
+                                2, self.get_file_category(item_data["path"])
+                            )
+                            file_item.setText(3, item_data.get("modified", ""))
+                            file_item.setText(4, item_data["path"])
                             visible_count += 1
 
                 return visible_count
 
             # Build filtered tree
-            total_visible = _build_filtered_tree_from_cache(self._file_cache, self.archive_tree.invisibleRootItem(), extensions)
+            total_visible = _build_filtered_tree_from_cache(
+                self._file_cache, self.archive_tree.invisibleRootItem(), extensions
+            )
 
             # Update progress and status
-            self.archive_status_label.setText(f"Фільтр застосовано: {total_visible} файлів")
+            self.archive_status_label.setText(
+                f"Фільтр застосовано: {total_visible} файлів"
+            )
 
             # Expand tree to show results
             if total_visible > 0:
@@ -5994,12 +6835,16 @@ class CleanupHelperWidget(QWidget):
             self._update_filter_status(preset_name, total_visible)
 
             # Log success
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Застосовано фільтр '{preset_name}' - {total_visible} файлів знайдено")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Застосовано фільтр '{preset_name}' - {total_visible} файлів знайдено"
+                )
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка застосування фільтра: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка застосування фільтра: {e}"
+                )
             else:
                 print(f"CleanupHelper: Error applying filter: {e}")
 
@@ -6008,8 +6853,10 @@ class CleanupHelperWidget(QWidget):
         try:
             # Check if we have cached data to work with
             if not self._file_cache:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message("CleanupHelper: Кеш відсутній, оновлення дерева...")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        "CleanupHelper: Кеш відсутній, оновлення дерева..."
+                    )
                 self.refresh_archive_tree()
                 return
 
@@ -6017,64 +6864,82 @@ class CleanupHelperWidget(QWidget):
             max_bytes = max_mb * 1024 * 1024
 
             self.archive_status_label.setText("Застосування фільтру розміру...")
-                        
+
             # Clear current tree and rebuild from cache with size filter
             self.archive_tree.clear()
 
-            def _build_filtered_tree_by_size(cache_dict: dict, parent_item: QTreeWidgetItem, min_bytes: int, max_bytes: int):
+            def _build_filtered_tree_by_size(
+                cache_dict: dict,
+                parent_item: QTreeWidgetItem,
+                min_bytes: int,
+                max_bytes: int,
+            ):
                 """Build tree from cache applying size filter"""
                 visible_count = 0
                 items_processed = 0
 
                 for item_name, item_data in cache_dict.items():
                     items_processed += 1
-                    if item_data['is_dir']:
+                    if item_data["is_dir"]:
                         # Check if directory should be included (has matching children)
                         should_include_dir = False
 
-                        for child_name, child_data in item_data.get('children', {}).items():
-                            if not child_data['is_dir'] and 'size' in child_data:
-                                if min_bytes <= child_data['size'] <= max_bytes:
+                        for child_name, child_data in item_data.get(
+                            "children", {}
+                        ).items():
+                            if not child_data["is_dir"] and "size" in child_data:
+                                if min_bytes <= child_data["size"] <= max_bytes:
                                     should_include_dir = True
                                     break
 
                         if should_include_dir:
                             # Create directory item
-                            folder_info = self.identify_folder_structure(item_data['path'])
+                            folder_info = self.identify_folder_structure(
+                                item_data["path"]
+                            )
                             dir_item = QTreeWidgetItem(parent_item)
-                            dir_item.setText(0, folder_info['name'])
+                            dir_item.setText(0, folder_info["name"])
                             dir_item.setText(2, "Папка")
-                            dir_item.setText(3, item_data.get('modified', ''))
-                            dir_item.setText(4, item_data['path'])
-                            dir_item.setIcon(0, QIcon(folder_info['icon']))
+                            dir_item.setText(3, item_data.get("modified", ""))
+                            dir_item.setText(4, item_data["path"])
+                            dir_item.setIcon(0, QIcon(folder_info["icon"]))
 
                             # Build children recursively
                             child_visible = _build_filtered_tree_by_size(
-                                item_data.get('children', {}), dir_item, min_bytes, max_bytes
+                                item_data.get("children", {}),
+                                dir_item,
+                                min_bytes,
+                                max_bytes,
                             )
 
                             # Update directory item count
                             if child_visible > 0:
-                                dir_item.setText(1, f"Папка ({child_visible} елементів)")
+                                dir_item.setText(
+                                    1, f"Папка ({child_visible} елементів)"
+                                )
                             else:
                                 dir_item.setText(1, "Папка")
 
                             visible_count += 1
                     else:
                         # For files, check size
-                        if 'size' in item_data and min_bytes <= item_data['size'] <= max_bytes:
+                        if (
+                            "size" in item_data
+                            and min_bytes <= item_data["size"] <= max_bytes
+                        ):
                             file_item = QTreeWidgetItem(parent_item)
 
                             # Build display name with icon
                             _, file_ext = os.path.splitext(item_name)
-                            icon_name = self.get_file_icon(item_data['path'], file_ext)
+                            icon_name = self.get_file_icon(item_data["path"], file_ext)
                             display_name = f"{icon_name} {item_name}"
 
                             file_item.setText(0, display_name)
 
-                            file_size = item_data['size']
+                            file_size = item_data["size"]
                             try:
                                 import humanize
+
                                 file_item.setText(1, humanize.naturalsize(file_size))
                             except ImportError:
                                 size_mb = file_size / (1024 * 1024)
@@ -6083,18 +6948,27 @@ class CleanupHelperWidget(QWidget):
                                 else:
                                     file_item.setText(1, f"{size_mb:.1f} MB")
 
-                            file_item.setText(2, self.get_file_category(item_data['path']))
-                            file_item.setText(3, item_data.get('modified', ''))
-                            file_item.setText(4, item_data['path'])
+                            file_item.setText(
+                                2, self.get_file_category(item_data["path"])
+                            )
+                            file_item.setText(3, item_data.get("modified", ""))
+                            file_item.setText(4, item_data["path"])
                             visible_count += 1
 
                 return visible_count
 
             # Build filtered tree
-            total_visible = _build_filtered_tree_by_size(self._file_cache, self.archive_tree.invisibleRootItem(), min_bytes, max_bytes)
+            total_visible = _build_filtered_tree_by_size(
+                self._file_cache,
+                self.archive_tree.invisibleRootItem(),
+                min_bytes,
+                max_bytes,
+            )
 
             # Update progress and status
-            self.archive_status_label.setText(f"Фільтр розміру застосовано: {total_visible} файлів")
+            self.archive_status_label.setText(
+                f"Фільтр розміру застосовано: {total_visible} файлів"
+            )
 
             # Expand tree to show results
             if total_visible > 0:
@@ -6107,20 +6981,26 @@ class CleanupHelperWidget(QWidget):
             # Update filter status
             self._update_filter_status(filter_name, total_visible)
 
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Застосовано фільтр розміру '{filter_name}' - {total_visible} файлів знайдено")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Застосовано фільтр розміру '{filter_name}' - {total_visible} файлів знайдено"
+                )
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка застосування фільтра розміру: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка застосування фільтра розміру: {e}"
+                )
 
     def _apply_date_filter(self, min_date, max_date, filter_name: str):
         """Apply date filter using cached data for optimal performance"""
         try:
             # Check if we have cached data to work with
             if not self._file_cache:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message("CleanupHelper: Кеш відсутній, оновлення дерева...")
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        "CleanupHelper: Кеш відсутній, оновлення дерева..."
+                    )
                 self.refresh_archive_tree()
                 return
 
@@ -6128,88 +7008,126 @@ class CleanupHelperWidget(QWidget):
             max_timestamp = max_date.timestamp()
 
             self.archive_status_label.setText("Застосування фільтру дати...")
-                        
+
             # Clear current tree and rebuild from cache with date filter
             self.archive_tree.clear()
 
-            def _build_filtered_tree_by_date(cache_dict: dict, parent_item: QTreeWidgetItem, min_timestamp: float, max_timestamp: float):
+            def _build_filtered_tree_by_date(
+                cache_dict: dict,
+                parent_item: QTreeWidgetItem,
+                min_timestamp: float,
+                max_timestamp: float,
+            ):
                 """Build tree from cache applying date filter"""
                 visible_count = 0
                 items_processed = 0
 
                 for item_name, item_data in cache_dict.items():
                     items_processed += 1
-                    if item_data['is_dir']:
+                    if item_data["is_dir"]:
                         # Check if directory should be included (has matching children)
                         should_include_dir = False
 
-                        for child_name, child_data in item_data.get('children', {}).items():
-                            if not child_data['is_dir'] and 'modified_timestamp' in child_data:
-                                if min_timestamp <= child_data['modified_timestamp'] <= max_timestamp:
+                        for child_name, child_data in item_data.get(
+                            "children", {}
+                        ).items():
+                            if (
+                                not child_data["is_dir"]
+                                and "modified_timestamp" in child_data
+                            ):
+                                if (
+                                    min_timestamp
+                                    <= child_data["modified_timestamp"]
+                                    <= max_timestamp
+                                ):
                                     should_include_dir = True
                                     break
 
                         if should_include_dir:
                             # Create directory item
-                            folder_info = self.identify_folder_structure(item_data['path'])
+                            folder_info = self.identify_folder_structure(
+                                item_data["path"]
+                            )
                             dir_item = QTreeWidgetItem(parent_item)
-                            dir_item.setText(0, folder_info['name'])
+                            dir_item.setText(0, folder_info["name"])
                             dir_item.setText(2, "Папка")
-                            dir_item.setText(3, item_data.get('modified', ''))
-                            dir_item.setText(4, item_data['path'])
-                            dir_item.setIcon(0, QIcon(folder_info['icon']))
+                            dir_item.setText(3, item_data.get("modified", ""))
+                            dir_item.setText(4, item_data["path"])
+                            dir_item.setIcon(0, QIcon(folder_info["icon"]))
 
                             # Build children recursively
                             child_visible = _build_filtered_tree_by_date(
-                                item_data.get('children', {}), dir_item, min_timestamp, max_timestamp
+                                item_data.get("children", {}),
+                                dir_item,
+                                min_timestamp,
+                                max_timestamp,
                             )
 
                             # Update directory item count
                             if child_visible > 0:
-                                dir_item.setText(1, f"Папка ({child_visible} елементів)")
+                                dir_item.setText(
+                                    1, f"Папка ({child_visible} елементів)"
+                                )
                             else:
                                 dir_item.setText(1, "Папка")
 
                             visible_count += 1
                     else:
                         # For files, check modification date
-                        item_modified = item_data.get('modified_timestamp')
-                        if item_modified and min_timestamp <= item_modified <= max_timestamp:
+                        item_modified = item_data.get("modified_timestamp")
+                        if (
+                            item_modified
+                            and min_timestamp <= item_modified <= max_timestamp
+                        ):
                             file_item = QTreeWidgetItem(parent_item)
 
                             # Build display name with icon
                             _, file_ext = os.path.splitext(item_name)
-                            icon_name = self.get_file_icon(item_data['path'], file_ext)
+                            icon_name = self.get_file_icon(item_data["path"], file_ext)
                             display_name = f"{icon_name} {item_name}"
 
                             file_item.setText(0, display_name)
 
-                            if 'size' in item_data:
-                                file_size = item_data['size']
+                            if "size" in item_data:
+                                file_size = item_data["size"]
                                 try:
                                     import humanize
-                                    file_item.setText(1, humanize.naturalsize(file_size))
+
+                                    file_item.setText(
+                                        1, humanize.naturalsize(file_size)
+                                    )
                                 except ImportError:
                                     size_mb = file_size / (1024 * 1024)
                                     if size_mb < 1:
-                                        file_item.setText(1, f"{file_size / 1024:.1f} KB")
+                                        file_item.setText(
+                                            1, f"{file_size / 1024:.1f} KB"
+                                        )
                                     else:
                                         file_item.setText(1, f"{size_mb:.1f} MB")
                             else:
                                 file_item.setText(1, "Розмір невідомий")
 
-                            file_item.setText(2, self.get_file_category(item_data['path']))
-                            file_item.setText(3, item_data.get('modified', ''))
-                            file_item.setText(4, item_data['path'])
+                            file_item.setText(
+                                2, self.get_file_category(item_data["path"])
+                            )
+                            file_item.setText(3, item_data.get("modified", ""))
+                            file_item.setText(4, item_data["path"])
                             visible_count += 1
 
                 return visible_count
 
             # Build filtered tree
-            total_visible = _build_filtered_tree_by_date(self._file_cache, self.archive_tree.invisibleRootItem(), min_timestamp, max_timestamp)
+            total_visible = _build_filtered_tree_by_date(
+                self._file_cache,
+                self.archive_tree.invisibleRootItem(),
+                min_timestamp,
+                max_timestamp,
+            )
 
             # Update progress and status
-            self.archive_status_label.setText(f"Фільтр дати застосовано: {total_visible} файлів")
+            self.archive_status_label.setText(
+                f"Фільтр дати застосовано: {total_visible} файлів"
+            )
 
             # Expand tree to show results
             if total_visible > 0:
@@ -6222,19 +7140,24 @@ class CleanupHelperWidget(QWidget):
             # Update filter status
             self._update_filter_status(filter_name, total_visible)
 
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Застосовано фільтр дати '{filter_name}' - {total_visible} файлів знайдено")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Застосовано фільтр дати '{filter_name}' - {total_visible} файлів знайдено"
+                )
 
         except Exception as e:
-            if hasattr(self.main_window, 'log_message'):
-                self.main_window.log_message(f"CleanupHelper: Помилка застосування фільтра дати: {e}")
+            if hasattr(self.main_window, "log_message"):
+                self.main_window.log_message(
+                    f"CleanupHelper: Помилка застосування фільтра дати: {e}"
+                )
+
 
 class FilterPresetsWindow(QDialog):
     """Quick filter presets window with common file type filters"""
 
     def __init__(self, parent_widget):
         # Handle parent widget - archive tree or standalone
-        if hasattr(parent_widget, 'archive_tree'):
+        if hasattr(parent_widget, "archive_tree"):
             # Parent has archive tree (main window)
             super().__init__(parent_widget)
             self.archive_tree = parent_widget.archive_tree
@@ -6279,15 +7202,23 @@ class FilterPresetsWindow(QDialog):
         quick_preset_layout.addWidget(QLabel("Швидкі пресети:"))
 
         quick_custom_btn = QPushButton("Зображення")
-        quick_custom_btn.clicked.connect(lambda: self.set_custom_extension(".jpg, .jpeg, .png, .gif, .bmp, .svg, .webp"))
+        quick_custom_btn.clicked.connect(
+            lambda: self.set_custom_extension(
+                ".jpg, .jpeg, .png, .gif, .bmp, .svg, .webp"
+            )
+        )
         quick_preset_layout.addWidget(quick_custom_btn)
 
         quick_docs_btn = QPushButton("Документи")
-        quick_docs_btn.clicked.connect(lambda: self.set_custom_extension(".pdf, .doc, .docx, .txt, .rtf, .odt"))
+        quick_docs_btn.clicked.connect(
+            lambda: self.set_custom_extension(".pdf, .doc, .docx, .txt, .rtf, .odt")
+        )
         quick_preset_layout.addWidget(quick_docs_btn)
 
         quick_code_btn = QPushButton("Код")
-        quick_code_btn.clicked.connect(lambda: self.set_custom_extension(".py, .js, .html, .css, .java, .cpp, .c"))
+        quick_code_btn.clicked.connect(
+            lambda: self.set_custom_extension(".py, .js, .html, .css, .java, .cpp, .c")
+        )
         quick_preset_layout.addWidget(quick_code_btn)
 
         quick_preset_layout.addStretch()
@@ -6303,19 +7234,27 @@ class FilterPresetsWindow(QDialog):
         size_buttons_layout = QHBoxLayout()
 
         small_btn = QPushButton("< 1 МБ")
-        small_btn.clicked.connect(lambda: self.apply_size_filter("small", "Маленькі файли (< 1 МБ)"))
+        small_btn.clicked.connect(
+            lambda: self.apply_size_filter("small", "Маленькі файли (< 1 МБ)")
+        )
         size_buttons_layout.addWidget(small_btn)
 
         medium_btn = QPushButton("1-10 МБ")
-        medium_btn.clicked.connect(lambda: self.apply_size_filter("medium", "Середні файли (1-10 МБ)"))
+        medium_btn.clicked.connect(
+            lambda: self.apply_size_filter("medium", "Середні файли (1-10 МБ)")
+        )
         size_buttons_layout.addWidget(medium_btn)
 
         large_btn = QPushButton("10-100 МБ")
-        large_btn.clicked.connect(lambda: self.apply_size_filter("large", "Великі файли (10-100 МБ)"))
+        large_btn.clicked.connect(
+            lambda: self.apply_size_filter("large", "Великі файли (10-100 МБ)")
+        )
         size_buttons_layout.addWidget(large_btn)
 
         huge_btn = QPushButton("> 100 МБ")
-        huge_btn.clicked.connect(lambda: self.apply_size_filter("huge", "Дуже великі файли (> 100 МБ)"))
+        huge_btn.clicked.connect(
+            lambda: self.apply_size_filter("huge", "Дуже великі файли (> 100 МБ)")
+        )
         size_buttons_layout.addWidget(huge_btn)
 
         size_group_layout.addLayout(size_buttons_layout)
@@ -6351,21 +7290,29 @@ class FilterPresetsWindow(QDialog):
         date_buttons_layout = QHBoxLayout()
 
         recent_btn = QPushButton("За останні 7 днів")
-        recent_btn.clicked.connect(lambda: self.apply_date_filter("recent_7", "Файли за останні 7 днів"))
+        recent_btn.clicked.connect(
+            lambda: self.apply_date_filter("recent_7", "Файли за останні 7 днів")
+        )
         date_buttons_layout.addWidget(recent_btn)
 
         month_btn = QPushButton("За останній місяць")
-        month_btn.clicked.connect(lambda: self.apply_date_filter("recent_30", "Файли за останній місяць"))
+        month_btn.clicked.connect(
+            lambda: self.apply_date_filter("recent_30", "Файли за останній місяць")
+        )
         date_buttons_layout.addWidget(month_btn)
 
         year_btn = QPushButton("За останній рік")
-        year_btn.clicked.connect(lambda: self.apply_date_filter("recent_365", "Файли за останній рік"))
+        year_btn.clicked.connect(
+            lambda: self.apply_date_filter("recent_365", "Файли за останній рік")
+        )
         date_buttons_layout.addWidget(year_btn)
 
         date_group_layout.addLayout(date_buttons_layout)
 
         old_btn = QPushButton("Старіші за 1 рік")
-        old_btn.clicked.connect(lambda: self.apply_date_filter("older_365", "Файли старіші за 1 рік"))
+        old_btn.clicked.connect(
+            lambda: self.apply_date_filter("older_365", "Файли старіші за 1 рік")
+        )
         date_group_layout.addWidget(old_btn)
 
         # Custom date filter
@@ -6419,7 +7366,9 @@ class FilterPresetsWindow(QDialog):
         # Saved filters list
         self.saved_filters_list = QListWidget()
         self.saved_filters_list.setMaximumHeight(150)
-        self.saved_filters_list.itemDoubleClicked.connect(self.on_saved_filter_double_clicked)
+        self.saved_filters_list.itemDoubleClicked.connect(
+            self.on_saved_filter_double_clicked
+        )
         saved_group_layout.addWidget(self.saved_filters_list)
 
         # Saved filter controls
@@ -6445,12 +7394,11 @@ class FilterPresetsWindow(QDialog):
         # Load saved filters
         self.load_saved_filters()
 
-
     def apply_extension_filter(self, extensions: str, preset_name: str):
         """Apply an extension filter preset"""
         try:
             # Apply filter using main window's optimized method
-            if hasattr(self, 'main_window') and self.main_window:
+            if hasattr(self, "main_window") and self.main_window:
                 self.main_window._apply_filter_to_tree(extensions, preset_name)
             else:
                 # Fallback: create a simple filter application
@@ -6458,12 +7406,13 @@ class FilterPresetsWindow(QDialog):
         except Exception as e:
             print(f"FilterPresetsWindow: Error applying extension filter: {e}")
 
-    
     def _apply_filter_to_tree_standalone(self, extensions: str, preset_name: str):
         """Apply filter directly to archive tree when standalone (no main window)"""
         try:
             # Simple filter application - hide items that don't match extensions
-            extensions = [ext.strip().lower() for ext in extensions.split(',') if ext.strip()]
+            extensions = [
+                ext.strip().lower() for ext in extensions.split(",") if ext.strip()
+            ]
             if not extensions:
                 return
 
@@ -6473,7 +7422,7 @@ class FilterPresetsWindow(QDialog):
 
             def filter_item(item):
                 nonlocal hidden_count, visible_count
-                item_path = item.data(0, Qt.UserRole) if hasattr(item, 'data') else ""
+                item_path = item.data(0, Qt.UserRole) if hasattr(item, "data") else ""
                 if not item_path:
                     item_path = item.text(4) if item.columnCount() > 4 else ""
 
@@ -6493,8 +7442,14 @@ class FilterPresetsWindow(QDialog):
                 filter_item(root.child(i))
 
             # Update status label if main window is available
-            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'archive_status_label'):
-                self.main_window.archive_status_label.setText(f"Фільтр застосовано: {preset_name} ({visible_count} файлів)")
+            if (
+                hasattr(self, "main_window")
+                and self.main_window
+                and hasattr(self.main_window, "archive_status_label")
+            ):
+                self.main_window.archive_status_label.setText(
+                    f"Фільтр застосовано: {preset_name} ({visible_count} файлів)"
+                )
                 self.main_window.archive_status_label.setStyleSheet("""
                     QLabel {
                         font-size: 11px;
@@ -6507,12 +7462,13 @@ class FilterPresetsWindow(QDialog):
                     }
                 """)
 
-            print(f"FilterPresetsWindow: Applied filter '{preset_name}' - {visible_count} items visible, {hidden_count} hidden")
+            print(
+                f"FilterPresetsWindow: Applied filter '{preset_name}' - {visible_count} items visible, {hidden_count} hidden"
+            )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error applying filter: {e}")
 
-    
     def apply_special_filter(self, preset_type: str, preset_name: str):
         """Apply a special filter preset"""
         # Apply filter directly to archive tree
@@ -6543,13 +7499,17 @@ class FilterPresetsWindow(QDialog):
                 elif preset_type == "recent_7_days":
                     return (current_time - file_mtime) < 7 * 24 * 3600  # Last 7 days
                 elif preset_type == "old_1_year":
-                    return (current_time - file_mtime) > 365 * 24 * 3600  # Older than 1 year
+                    return (
+                        current_time - file_mtime
+                    ) > 365 * 24 * 3600  # Older than 1 year
                 elif preset_type == "size_small":
                     return file_size < 1024 * 1024  # < 1 MB
                 elif preset_type == "size_medium":
                     return 1024 * 1024 <= file_size <= 10 * 1024 * 1024  # 1-10 MB
                 elif preset_type == "size_large_10":
-                    return 10 * 1024 * 1024 <= file_size <= 100 * 1024 * 1024  # 10-100 MB
+                    return (
+                        10 * 1024 * 1024 <= file_size <= 100 * 1024 * 1024
+                    )  # 10-100 MB
                 elif preset_type == "size_very_large":
                     return file_size > 100 * 1024 * 1024  # > 100 MB
 
@@ -6557,8 +7517,11 @@ class FilterPresetsWindow(QDialog):
 
             def filter_item(item):
                 nonlocal hidden_count, visible_count
-                item_path = item.data(0, Qt.UserRole) if hasattr(item, 'data') else ""
-                if item_path and matches_filter(item_path, item.data(1, Qt.DisplayRole) if hasattr(item, 'data') else ""):
+                item_path = item.data(0, Qt.UserRole) if hasattr(item, "data") else ""
+                if item_path and matches_filter(
+                    item_path,
+                    item.data(1, Qt.DisplayRole) if hasattr(item, "data") else "",
+                ):
                     item.setHidden(False)
                     visible_count += 1
                 else:
@@ -6574,8 +7537,14 @@ class FilterPresetsWindow(QDialog):
                 filter_item(root.child(i))
 
             # Update status label if main window is available
-            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'archive_status_label'):
-                self.main_window.archive_status_label.setText(f"Фільтр застосовано: {preset_name} ({visible_count} файлів)")
+            if (
+                hasattr(self, "main_window")
+                and self.main_window
+                and hasattr(self.main_window, "archive_status_label")
+            ):
+                self.main_window.archive_status_label.setText(
+                    f"Фільтр застосовано: {preset_name} ({visible_count} файлів)"
+                )
                 self.main_window.archive_status_label.setStyleSheet("""
                     QLabel {
                         font-size: 11px;
@@ -6588,7 +7557,9 @@ class FilterPresetsWindow(QDialog):
                     }
                 """)
 
-            print(f"FilterPresetsWindow: Applied special filter '{preset_name}' - {visible_count} items visible, {hidden_count} hidden")
+            print(
+                f"FilterPresetsWindow: Applied special filter '{preset_name}' - {visible_count} items visible, {hidden_count} hidden"
+            )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error applying special filter: {e}")
@@ -6604,6 +7575,7 @@ class FilterPresetsWindow(QDialog):
         # Show all items in archive tree
         try:
             root = self.archive_tree.invisibleRootItem()
+
             def show_item(item):
                 item.setHidden(False)
                 for i in range(item.childCount()):
@@ -6613,8 +7585,14 @@ class FilterPresetsWindow(QDialog):
                 show_item(root.child(i))
 
             # Update status label if main window is available
-            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'archive_status_label'):
-                self.main_window.archive_status_label.setText("Готовий до пошуку та фільтрації")
+            if (
+                hasattr(self, "main_window")
+                and self.main_window
+                and hasattr(self.main_window, "archive_status_label")
+            ):
+                self.main_window.archive_status_label.setText(
+                    "Готовий до пошуку та фільтрації"
+                )
                 self.main_window.archive_status_label.setStyleSheet("""
                     QLabel {
                         font-size: 11px;
@@ -6637,10 +7615,10 @@ class FilterPresetsWindow(QDialog):
     def apply_size_filter(self, size_type: str, filter_name: str):
         """Apply predefined size-based filter"""
         size_limits = {
-            'small': (0, 1),      # < 1 MB
-            'medium': (1, 10),    # 1-10 MB
-            'large': (10, 100),   # 10-100 MB
-            'huge': (100, float('inf'))  # > 100 MB
+            "small": (0, 1),  # < 1 MB
+            "medium": (1, 10),  # 1-10 MB
+            "large": (10, 100),  # 10-100 MB
+            "huge": (100, float("inf")),  # > 100 MB
         }
 
         if size_type in size_limits:
@@ -6655,7 +7633,7 @@ class FilterPresetsWindow(QDialog):
 
             # Convert operator text to numeric range
             if operator == ">":
-                min_size, max_size = size_mb, float('inf')
+                min_size, max_size = size_mb, float("inf")
                 filter_name = f"Файли > {size_mb} МБ"
             elif operator == "<":
                 min_size, max_size = 0, size_mb
@@ -6664,7 +7642,7 @@ class FilterPresetsWindow(QDialog):
                 min_size, max_size = size_mb, size_mb
                 filter_name = f"Файли = {size_mb} МБ"
             elif operator == "≥":
-                min_size, max_size = size_mb, float('inf')
+                min_size, max_size = size_mb, float("inf")
                 filter_name = f"Файли ≥ {size_mb} МБ"
             elif operator == "≤":
                 min_size, max_size = 0, size_mb
@@ -6680,14 +7658,16 @@ class FilterPresetsWindow(QDialog):
     def _apply_size_filter(self, min_mb: float, max_mb: float, filter_name: str):
         """Apply size filter to archive tree"""
         try:
-            if hasattr(self, 'main_window') and self.main_window:
+            if hasattr(self, "main_window") and self.main_window:
                 self.main_window._apply_size_filter(min_mb, max_mb, filter_name)
             else:
                 self._apply_size_filter_standalone(min_mb, max_mb, filter_name)
         except Exception as e:
             print(f"FilterPresetsWindow: Error applying size filter: {e}")
 
-    def _apply_size_filter_standalone(self, min_mb: float, max_mb: float, filter_name: str):
+    def _apply_size_filter_standalone(
+        self, min_mb: float, max_mb: float, filter_name: str
+    ):
         """Apply size filter when standalone (no main window)"""
         try:
             root = self.archive_tree.invisibleRootItem()
@@ -6698,7 +7678,7 @@ class FilterPresetsWindow(QDialog):
 
             def filter_by_size(item):
                 nonlocal visible_count, hidden_count
-                item_path = item.data(0, Qt.UserRole) if hasattr(item, 'data') else ""
+                item_path = item.data(0, Qt.UserRole) if hasattr(item, "data") else ""
                 if not item_path:
                     item_path = item.text(4) if item.columnCount() > 4 else ""
 
@@ -6724,8 +7704,14 @@ class FilterPresetsWindow(QDialog):
                 filter_by_size(root.child(i))
 
             # Update status label if main window is available
-            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'archive_status_label'):
-                self.main_window.archive_status_label.setText(f"Фільтр застосовано: {filter_name} ({visible_count} файлів)")
+            if (
+                hasattr(self, "main_window")
+                and self.main_window
+                and hasattr(self.main_window, "archive_status_label")
+            ):
+                self.main_window.archive_status_label.setText(
+                    f"Фільтр застосовано: {filter_name} ({visible_count} файлів)"
+                )
                 self.main_window.archive_status_label.setStyleSheet("""
                     QLabel {
                         font-size: 11px;
@@ -6738,7 +7724,9 @@ class FilterPresetsWindow(QDialog):
                     }
                 """)
 
-            print(f"FilterPresetsWindow: Applied size filter '{filter_name}' - {visible_count} items visible, {hidden_count} hidden")
+            print(
+                f"FilterPresetsWindow: Applied size filter '{filter_name}' - {visible_count} items visible, {hidden_count} hidden"
+            )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error in size filter: {e}")
@@ -6778,8 +7766,17 @@ class FilterPresetsWindow(QDialog):
             from_date_qdate = self.from_date.date()
             to_date_qdate = self.to_date.date()
 
-            min_date = datetime(from_date_qdate.year(), from_date_qdate.month(), from_date_qdate.day())
-            max_date = datetime(to_date_qdate.year(), to_date_qdate.month(), to_date_qdate.day(), 23, 59, 59)
+            min_date = datetime(
+                from_date_qdate.year(), from_date_qdate.month(), from_date_qdate.day()
+            )
+            max_date = datetime(
+                to_date_qdate.year(),
+                to_date_qdate.month(),
+                to_date_qdate.day(),
+                23,
+                59,
+                59,
+            )
 
             filter_name = f"Файли з {from_date_qdate.toString('dd.MM.yyyy')} по {to_date_qdate.toString('dd.MM.yyyy')}"
 
@@ -6791,7 +7788,7 @@ class FilterPresetsWindow(QDialog):
     def _apply_date_filter(self, min_date, max_date, filter_name: str):
         """Apply date filter to archive tree"""
         try:
-            if hasattr(self, 'main_window') and self.main_window:
+            if hasattr(self, "main_window") and self.main_window:
                 self.main_window._apply_date_filter(min_date, max_date, filter_name)
             else:
                 self._apply_date_filter_standalone(min_date, max_date, filter_name)
@@ -6809,7 +7806,7 @@ class FilterPresetsWindow(QDialog):
 
             def filter_by_date(item):
                 nonlocal visible_count, hidden_count
-                item_path = item.data(0, Qt.UserRole) if hasattr(item, 'data') else ""
+                item_path = item.data(0, Qt.UserRole) if hasattr(item, "data") else ""
                 if not item_path:
                     item_path = item.text(4) if item.columnCount() > 4 else ""
 
@@ -6835,8 +7832,14 @@ class FilterPresetsWindow(QDialog):
                 filter_by_date(root.child(i))
 
             # Update status label if main window is available
-            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'archive_status_label'):
-                self.main_window.archive_status_label.setText(f"Фільтр застосовано: {filter_name} ({visible_count} файлів)")
+            if (
+                hasattr(self, "main_window")
+                and self.main_window
+                and hasattr(self.main_window, "archive_status_label")
+            ):
+                self.main_window.archive_status_label.setText(
+                    f"Фільтр застосовано: {filter_name} ({visible_count} файлів)"
+                )
                 self.main_window.archive_status_label.setStyleSheet("""
                     QLabel {
                         font-size: 11px;
@@ -6849,7 +7852,9 @@ class FilterPresetsWindow(QDialog):
                     }
                 """)
 
-            print(f"FilterPresetsWindow: Applied date filter '{filter_name}' - {visible_count} items visible, {hidden_count} hidden")
+            print(
+                f"FilterPresetsWindow: Applied date filter '{filter_name}' - {visible_count} items visible, {hidden_count} hidden"
+            )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error in date filter: {e}")
@@ -6857,6 +7862,7 @@ class FilterPresetsWindow(QDialog):
     def get_saved_filters_path(self):
         """Get path to saved filters file"""
         import os
+
         filters_dir = os.path.join(os.path.expanduser("~"), ".DesktopOrganizer")
         if not os.path.exists(filters_dir):
             os.makedirs(filters_dir)
@@ -6866,9 +7872,10 @@ class FilterPresetsWindow(QDialog):
         """Load saved filters from file"""
         try:
             import json
+
             filters_path = self.get_saved_filters_path()
             if os.path.exists(filters_path):
-                with open(filters_path, 'r', encoding='utf-8') as f:
+                with open(filters_path, "r", encoding="utf-8") as f:
                     self.saved_filters = json.load(f)
             else:
                 self.saved_filters = []
@@ -6882,8 +7889,9 @@ class FilterPresetsWindow(QDialog):
         """Save filters to file"""
         try:
             import json
+
             filters_path = self.get_saved_filters_path()
-            with open(filters_path, 'w', encoding='utf-8') as f:
+            with open(filters_path, "w", encoding="utf-8") as f:
                 json.dump(self.saved_filters, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"FilterPresetsWindow: Error saving filters: {e}")
@@ -6892,14 +7900,14 @@ class FilterPresetsWindow(QDialog):
         """Update the saved filters list widget"""
         self.saved_filters_list.clear()
         for i, filter_data in enumerate(self.saved_filters):
-            filter_type = filter_data.get('type', 'extension')
-            name = filter_data.get('name', f'Фільтр {i+1}')
+            filter_type = filter_data.get("type", "extension")
+            name = filter_data.get("name", f"Фільтр {i + 1}")
 
-            if filter_type == 'extension':
+            if filter_type == "extension":
                 desc = f"📄 {name} ({filter_data.get('extensions', '')})"
-            elif filter_type == 'size':
+            elif filter_type == "size":
                 desc = f"📏 {name} ({filter_data.get('description', '')})"
-            elif filter_type == 'date':
+            elif filter_type == "date":
                 desc = f"📅 {name} ({filter_data.get('description', '')})"
             else:
                 desc = f"🔧 {name}"
@@ -6915,31 +7923,33 @@ class FilterPresetsWindow(QDialog):
             if custom_extensions:
                 # Save as extension filter
                 filter_data = {
-                    'type': 'extension',
-                    'name': f"Кастомний фільтр {len(self.saved_filters) + 1}",
-                    'extensions': custom_extensions,
-                    'created_at': __import__('datetime').datetime.now().isoformat()
+                    "type": "extension",
+                    "name": f"Кастомний фільтр {len(self.saved_filters) + 1}",
+                    "extensions": custom_extensions,
+                    "created_at": __import__("datetime").datetime.now().isoformat(),
                 }
             else:
                 # Save as size filter if size is specified
                 size_value = self.size_input.value()
                 size_operator = self.size_operator.currentText()
                 filter_data = {
-                    'type': 'size',
-                    'name': f"Фільтр розміру {len(self.saved_filters) + 1}",
-                    'size_mb': size_value,
-                    'operator': size_operator,
-                    'description': f"Файли {size_operator} {size_value} МБ",
-                    'created_at': __import__('datetime').datetime.now().isoformat()
+                    "type": "size",
+                    "name": f"Фільтр розміру {len(self.saved_filters) + 1}",
+                    "size_mb": size_value,
+                    "operator": size_operator,
+                    "description": f"Файли {size_operator} {size_value} МБ",
+                    "created_at": __import__("datetime").datetime.now().isoformat(),
                 }
 
             self.saved_filters.append(filter_data)
             self.save_filters_to_file()
             self.update_saved_filters_list()
 
-            if hasattr(self, 'main_window') and self.main_window:
-                if hasattr(self.main_window, 'log_message'):
-                    self.main_window.log_message(f"CleanupHelper: Фільтр '{filter_data['name']}' збережено")
+            if hasattr(self, "main_window") and self.main_window:
+                if hasattr(self.main_window, "log_message"):
+                    self.main_window.log_message(
+                        f"CleanupHelper: Фільтр '{filter_data['name']}' збережено"
+                    )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error saving filter: {e}")
@@ -6954,7 +7964,14 @@ class FilterPresetsWindow(QDialog):
             filter_data = self.saved_filters[current_row]
 
             # Create edit dialog
-            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+            from PyQt5.QtWidgets import (
+                QDialog,
+                QVBoxLayout,
+                QHBoxLayout,
+                QLabel,
+                QLineEdit,
+                QPushButton,
+            )
 
             edit_dialog = QDialog(self)
             edit_dialog.setWindowTitle("Редагувати фільтр")
@@ -6964,24 +7981,25 @@ class FilterPresetsWindow(QDialog):
             # Name input
             name_layout = QHBoxLayout()
             name_layout.addWidget(QLabel("Назва:"))
-            name_input = QLineEdit(filter_data.get('name', ''))
+            name_input = QLineEdit(filter_data.get("name", ""))
             name_layout.addWidget(name_input)
             layout.addLayout(name_layout)
 
             # Type-specific inputs
-            if filter_data.get('type') == 'extension':
+            if filter_data.get("type") == "extension":
                 ext_layout = QHBoxLayout()
                 ext_layout.addWidget(QLabel("Розширення:"))
-                ext_input = QLineEdit(filter_data.get('extensions', ''))
+                ext_input = QLineEdit(filter_data.get("extensions", ""))
                 ext_layout.addWidget(ext_input)
                 layout.addLayout(ext_layout)
-            elif filter_data.get('type') == 'size':
+            elif filter_data.get("type") == "size":
                 size_layout = QHBoxLayout()
                 size_layout.addWidget(QLabel("Розмір (МБ):"))
                 from PyQt5.QtWidgets import QSpinBox
+
                 size_input = QSpinBox()
                 size_input.setRange(1, 10000)
-                size_input.setValue(filter_data.get('size_mb', 10))
+                size_input.setValue(filter_data.get("size_mb", 10))
                 size_layout.addWidget(size_input)
                 layout.addLayout(size_layout)
 
@@ -6994,14 +8012,16 @@ class FilterPresetsWindow(QDialog):
             layout.addLayout(button_layout)
 
             def save_changes():
-                if filter_data.get('type') == 'extension':
-                    filter_data['extensions'] = ext_input.text().strip()
-                elif filter_data.get('type') == 'size':
-                    filter_data['size_mb'] = size_input.value()
-                    operator = filter_data.get('operator', '>')
-                    filter_data['description'] = f"Файли {operator} {size_input.value()} МБ"
+                if filter_data.get("type") == "extension":
+                    filter_data["extensions"] = ext_input.text().strip()
+                elif filter_data.get("type") == "size":
+                    filter_data["size_mb"] = size_input.value()
+                    operator = filter_data.get("operator", ">")
+                    filter_data["description"] = (
+                        f"Файли {operator} {size_input.value()} МБ"
+                    )
 
-                filter_data['name'] = name_input.text().strip()
+                filter_data["name"] = name_input.text().strip()
                 self.save_filters_to_file()
                 self.update_saved_filters_list()
                 edit_dialog.accept()
@@ -7023,11 +8043,13 @@ class FilterPresetsWindow(QDialog):
 
             # Confirm deletion
             from PyQt5.QtWidgets import QMessageBox
+
             reply = QMessageBox.question(
-                self, 'Підтвердження видалення',
-                'Ви впевнені, що хочете видалити цей фільтр?',
+                self,
+                "Підтвердження видалення",
+                "Ви впевнені, що хочете видалити цей фільтр?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.No,
             )
 
             if reply == QMessageBox.Yes:
@@ -7035,9 +8057,11 @@ class FilterPresetsWindow(QDialog):
                 self.save_filters_to_file()
                 self.update_saved_filters_list()
 
-                if hasattr(self, 'main_window') and self.main_window:
-                    if hasattr(self.main_window, 'log_message'):
-                        self.main_window.log_message(f"CleanupHelper: Фільтр '{deleted_filter.get('name', '')}' видалено")
+                if hasattr(self, "main_window") and self.main_window:
+                    if hasattr(self.main_window, "log_message"):
+                        self.main_window.log_message(
+                            f"CleanupHelper: Фільтр '{deleted_filter.get('name', '')}' видалено"
+                        )
 
         except Exception as e:
             print(f"FilterPresetsWindow: Error deleting filter: {e}")
@@ -7050,32 +8074,34 @@ class FilterPresetsWindow(QDialog):
                 filter_data = self.saved_filters[current_row]
                 self.apply_saved_filter(filter_data)
         except Exception as e:
-            print(f"FilterPresetsWindow: Error applying saved filter on double-click: {e}")
+            print(
+                f"FilterPresetsWindow: Error applying saved filter on double-click: {e}"
+            )
 
     def apply_saved_filter(self, filter_data):
         """Apply a saved filter"""
         try:
-            filter_type = filter_data.get('type', 'extension')
-            filter_name = filter_data.get('name', 'Збережений фільтр')
+            filter_type = filter_data.get("type", "extension")
+            filter_name = filter_data.get("name", "Збережений фільтр")
 
-            if filter_type == 'extension':
-                extensions = filter_data.get('extensions', '')
+            if filter_type == "extension":
+                extensions = filter_data.get("extensions", "")
                 if extensions:
                     self.apply_extension_filter(extensions, filter_name)
-            elif filter_type == 'size':
-                size_mb = filter_data.get('size_mb', 10)
-                operator = filter_data.get('operator', '>')
+            elif filter_type == "size":
+                size_mb = filter_data.get("size_mb", 10)
+                operator = filter_data.get("operator", ">")
 
                 # Convert operator to range
-                if operator == '>':
-                    min_size, max_size = size_mb, float('inf')
-                elif operator == '<':
+                if operator == ">":
+                    min_size, max_size = size_mb, float("inf")
+                elif operator == "<":
                     min_size, max_size = 0, size_mb
-                elif operator == '=':
+                elif operator == "=":
                     min_size, max_size = size_mb, size_mb
-                elif operator == '≥':
-                    min_size, max_size = size_mb, float('inf')
-                elif operator == '≤':
+                elif operator == "≥":
+                    min_size, max_size = size_mb, float("inf")
+                elif operator == "≤":
                     min_size, max_size = 0, size_mb
                 else:
                     return
@@ -7085,9 +8111,11 @@ class FilterPresetsWindow(QDialog):
         except Exception as e:
             print(f"FilterPresetsWindow: Error applying saved filter: {e}")
 
+
 # ControlPanelWindow class has been removed - all filtering functionality is now handled directly
 
-    # REMOVED: All ControlPanelWindow UI and methods have been removed
+# REMOVED: All ControlPanelWindow UI and methods have been removed
+
 
 class CompressionWindow(QDialog):
     """Separate window for file compression"""
@@ -7165,7 +8193,9 @@ class CompressionWindow(QDialog):
 
         # Archive name
         options_layout.addWidget(QLabel("Назва:"), 0, 0)
-        self.archive_name_edit = QLineEdit(f"compressed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+        self.archive_name_edit = QLineEdit(
+            f"compressed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        )
         options_layout.addWidget(self.archive_name_edit, 0, 1)
 
         # Compression level
@@ -7186,13 +8216,7 @@ class CompressionWindow(QDialog):
         # Format selection
         options_layout.addWidget(QLabel("Формат:"), 2, 0)
         self.format_combo = QComboBox()
-        self.format_combo.addItems([
-            "ZIP",
-            "TAR.GZ",
-            "TAR.BZ2",
-            "TAR.XZ",
-            "7Z"
-        ])
+        self.format_combo.addItems(["ZIP", "TAR.GZ", "TAR.BZ2", "TAR.XZ", "7Z"])
         options_layout.addWidget(self.format_combo, 2, 1)
 
         layout.addLayout(options_layout)
@@ -7222,9 +8246,10 @@ class CompressionWindow(QDialog):
 
         # Get output path
         output_path, _ = QFileDialog.getSaveFileName(
-            self, "Зберегти архів як",
+            self,
+            "Зберегти архів як",
             self.archive_name_edit.text(),
-            self.get_format_filter()
+            self.get_format_filter(),
         )
 
         if not output_path:
@@ -7240,9 +8265,13 @@ class CompressionWindow(QDialog):
 
         # Start compression thread
         compression_level = self.compression_level_slider.value()
-        self.compression_thread = FileCompressor(self.selected_items, output_path, compression_level)
+        self.compression_thread = FileCompressor(
+            self.selected_items, output_path, compression_level
+        )
         self.compression_thread.progress_updated.connect(self.update_progress)
-        self.compression_thread.compression_finished.connect(self.on_compression_finished)
+        self.compression_thread.compression_finished.connect(
+            self.on_compression_finished
+        )
         self.compression_thread.start()
 
     def get_format_filter(self) -> str:
@@ -7253,7 +8282,7 @@ class CompressionWindow(QDialog):
             "TAR.GZ": "TAR.GZ Files (*.tar.gz;*.tgz);;All Files (*)",
             "TAR.BZ2": "TAR.BZ2 Files (*.tar.bz2);;All Files (*)",
             "TAR.XZ": "TAR.XZ Files (*.tar.xz);;All Files (*)",
-            "7Z": "7-Zip Files (*.7z);;All Files (*)"
+            "7Z": "7-Zip Files (*.7z);;All Files (*)",
         }
         return filters.get(format_text, "ZIP Files (*.zip);;All Files (*)")
 
@@ -7264,24 +8293,26 @@ class CompressionWindow(QDialog):
             "TAR.GZ": ".tar.gz",
             "TAR.BZ2": ".tar.bz2",
             "TAR.XZ": ".tar.xz",
-            "7Z": ".7z"
+            "7Z": ".7z",
         }
         return format_exts.get(self.format_combo.currentText(), ".zip")
 
     def update_progress(self, progress, message):
         """Update compression progress"""
-        
+
     def on_compression_finished(self, output_path, success):
         """Handle compression completion"""
         self.compress_btn.setEnabled(True)
-        
+
         if success:
             pass
 
             # Check actual file size
             if os.path.exists(output_path):
                 compressed_size = os.path.getsize(output_path)
-                original_size = sum(os.path.getsize(f) for f in self.selected_files if os.path.exists(f))
+                original_size = sum(
+                    os.path.getsize(f) for f in self.selected_files if os.path.exists(f)
+                )
                 if original_size > 0:
                     ratio = (1 - compressed_size / original_size) * 100
                     self.estimated_size_label.setText(
@@ -7289,17 +8320,25 @@ class CompressionWindow(QDialog):
                         f"(збережено {ratio:.1f}%)"
                     )
 
-            QMessageBox.information(self, "Успіх", f"Файли успішно стиснено!\nЗбережено в: {output_path}")
+            QMessageBox.information(
+                self, "Успіх", f"Файли успішно стиснено!\nЗбережено в: {output_path}"
+            )
 
             # Log to parent application
-            if hasattr(self.parent_widget, 'main_window') and hasattr(self.parent_widget.main_window, 'log_message'):
+            if hasattr(self.parent_widget, "main_window") and hasattr(
+                self.parent_widget.main_window, "log_message"
+            ):
                 self.parent_widget.main_window.log_message(
                     f"CleanupHelper: Стиснено {len(self.selected_files)} файлів до {output_path}"
                 )
 
             self.close()
         else:
-            QMessageBox.critical(self, "Помилка", "Стиснення не вдалося. Будь ласка, перевірте журнал для деталей.")
+            QMessageBox.critical(
+                self,
+                "Помилка",
+                "Стиснення не вдалося. Будь ласка, перевірте журнал для деталей.",
+            )
 
     def closeEvent(self, event):
         """Handle window close event"""
@@ -7308,6 +8347,7 @@ class CompressionWindow(QDialog):
             self.compression_thread.wait()
         event.accept()
 
+
 # Standalone testing
 if __name__ == "__main__":
     from PyQt5.QtWidgets import QApplication
@@ -7315,7 +8355,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # Set application style
-    app.setStyle('Fusion')
+    app.setStyle("Fusion")
 
     window = CleanupHelperWidget()
     window.setWindowTitle("Desktop Cleanup Helper - Standalone Mode")

@@ -2303,7 +2303,7 @@ class ProgramInstaller:
         inst_dir_hint = ""
         if installer_path_hint:
              try: inst_dir_hint = str(Path(installer_path_hint).parent).lower()
-             except: pass
+             except Exception: logger.debug(f"Failed to get installer parent path: {installer_path_hint}")
 
         hkey = winreg.HKEY_LOCAL_MACHINE
 
