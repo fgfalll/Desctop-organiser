@@ -2364,8 +2364,6 @@ class ModuleManager(QObject):
         self.venv_manager = SharedVirtualEnvironmentManager(modules_dir, self.settings)
         self.package_installer = NGITPackageInstaller(modules_dir, self.venv_manager)
 
-        return discovered
-
     def _process_module_info(
         self, module_info: ModuleInfo, item: str, discovered: dict
     ):
@@ -2398,6 +2396,35 @@ class ModuleManager(QObject):
         else:
             print(f"ERROR: Invalid module {item}: {module_info.error}")
             self.module_error.emit(item, module_info.error)
+
+    def discover_modules(self) -> dict:
+        """Discover all modules in the modules directory"""
+        discovered = {}
+
+        if not os.path.exists(self.modules_dir):
+            print(f"Modules directory does not exist: {self.modules_dir}")
+            return discovered
+
+        for item in os.listdir(self.modules_dir):
+            module_path = os.path.join(self.modules_dir, item)
+
+            if item.startswith("_") or item.startswith("."):
+                continue
+
+            if item.endswith(".pyc"):
+                continue
+
+            if os.path.isfile(module_path) and not item.endswith(".py"):
+                continue
+
+            try:
+                module_info = ModuleInfo(module_path)
+                self._process_module_info(module_info, item, discovered)
+            except Exception as e:
+                print(f"ERROR: Failed to process module {item}: {e}")
+                self.module_error.emit(item, str(e))
+
+        return discovered
 
     def refresh_package_cache(self):
         """Manually refresh the package cache - call after installing new packages"""
@@ -9181,7 +9208,7 @@ class MainWindow(QMainWindow):
         if global_splash:
             add_splash_message("🔧 Ініціалізація менеджера модулів...")
         # Initialize Module Manager
-        self.module_manager = ModuleManager(self.get_module_dir(), self, self.settings)
+        self.module_manager = ModuleManager(self.get_module_dir(), self.settings)
         self.module_manager.module_loaded.connect(self.on_module_loaded)
         self.module_manager.module_error.connect(self.on_module_error)
         self.module_manager.module_discovered.connect(self.on_module_discovered)
