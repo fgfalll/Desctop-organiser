@@ -3708,6 +3708,12 @@ class SettingsDialog(QDialog):
                 import subprocess
                 import os
 
+                # Update settings to enable minimize to tray
+                current_settings = self.settings.copy()
+                current_settings['application']['minimize_to_tray'] = True
+                self.settings = current_settings
+                save_settings(current_settings)
+
                 # Get current executable path
                 current_exe = sys.executable
                 current_script = os.path.abspath(__file__)
@@ -8339,10 +8345,14 @@ class MainWindow(QMainWindow):
     def quick_start_cleanup(self):
         """Quick start the cleanup process from system tray"""
         try:
-            # Show the main window
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            # Show the main window if in tray
+            if not self.isVisible():
+                self.show()
+                self.raise_()
+                self.activateWindow()
+                # Resume schedule timer when showing window
+                if self.is_schedule_active():
+                    self.schedule_timer.start()
 
             # Start the cleanup process
             self.start_process()
@@ -8394,14 +8404,44 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.log_message(f"❌ Failed to update tray tooltip: {e}")
 
+    def is_tray_mode(self):
+        """Check if app is running in tray (minimized to tray)"""
+        return (self.settings.get('application', {}).get('minimize_to_tray', False) and 
+                self.tray_icon and not self.isVisible())
+
+    def is_schedule_active(self):
+        """Check if we're within the scheduled time window and schedule is enabled"""
+        schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
+        if schedule_cfg.get('type', 'disabled') == 'disabled':
+            return False
+        app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
+        if not app_settings.get('autostart_timer_enabled', True):
+            return False
+        current_time = QTime.currentTime()
+        start = QTime.fromString(schedule_cfg.get('time_start', '16:00'), "HH:mm")
+        end = QTime.fromString(schedule_cfg.get('time_end', '23:59'), "HH:mm")
+        return is_scheduled_day(schedule_cfg) and start <= current_time <= end
+
+    def update_schedule_timer_state(self):
+        """Start or stop schedule timer based on current state"""
+        if self.is_tray_mode() or not self.is_schedule_active():
+            if self.schedule_timer.isActive():
+                self.schedule_timer.stop()
+        else:
+            if not self.schedule_timer.isActive():
+                self.schedule_timer.start()
+
     def toggle_window_visibility(self):
         """Toggle main window visibility"""
         if self.isVisible():
             self.hide()
+            self.schedule_timer.stop()
         else:
             self.show()
             self.raise_()
             self.activateWindow()
+            if self.is_schedule_active():
+                self.schedule_timer.start()
 
     def on_tray_icon_activated(self, reason):
         """Handle tray icon activation"""
@@ -9362,12 +9402,15 @@ class MainWindow(QMainWindow):
         schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
         self._log_current_schedule_settings(schedule_cfg)
 
-        if not self.auto_start_timer.isActive():
-            app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
-            if not app_settings.get('autostart_timer_enabled', True):
-                 self.stop_auto_timer(log_disabled=True)
-            else:
-                 self.update_timer_label_when_stopped()
+        # Handle autostart timer based on setting, not current timer state
+        app_settings = self.settings.get('application', DEFAULT_SETTINGS['application'])
+        if not app_settings.get('autostart_timer_enabled', True):
+            self.stop_auto_timer(log_disabled=True)
+        else:
+            self.start_auto_timer()
+
+        # Update schedule timer based on new settings
+        self.update_schedule_timer_state()
 
 
     def open_settings_dialog(self):
@@ -9610,6 +9653,10 @@ class MainWindow(QMainWindow):
         schedule_cfg = self.settings.get('schedule', DEFAULT_SETTINGS['schedule'])
         schedule_type = schedule_cfg.get('type', 'disabled')
 
+        # Do not run if in tray mode
+        if self.is_tray_mode():
+            return
+
         # Do not run if both the schedule and the autostart timer are disabled
         if schedule_type == 'disabled' or not app_settings.get('autostart_timer_enabled', True):
             return
@@ -9650,6 +9697,9 @@ class MainWindow(QMainWindow):
             self.start_process()
             self.last_scheduled_run_date = today
             self.save_last_run_date(today)
+
+        # Update schedule timer state based on current time
+        self.update_schedule_timer_state()
 
 
     def start_process(self):
@@ -9696,9 +9746,20 @@ class MainWindow(QMainWindow):
         else:
              self.log_message(f"❌ {path}")
 
-        stats_dialog = RunStatisticsDialog(success, errors, path, self)
-        stats_dialog.exec_()
-        self.close()
+        if self.is_tray_mode():
+            # In tray - show notification with small report
+            if self.tray_icon:
+                msg = f"✅ Оброблено: {success} | ❌ Помилок: {errors}"
+                self.tray_icon.showMessage(
+                    "Desktop Organizer",
+                    msg,
+                    QSystemTrayIcon.Information,
+                    5000)
+        else:
+            # UI mode - show stats dialog
+            stats_dialog = RunStatisticsDialog(success, errors, path, self)
+            stats_dialog.exec_()
+            self.close()
 
 
     def closeEvent(self, event):
@@ -9713,6 +9774,11 @@ class MainWindow(QMainWindow):
             # Instead of closing, minimize to tray
             event.ignore()
             self.hide()
+            # Stop schedule timer when going to tray
+            if self.schedule_timer.isActive():
+                self.schedule_timer.stop()
+            if hasattr(self, 'auto_start_timer') and self.auto_start_timer.isActive():
+                self.auto_start_timer.stop()
             if self.tray_icon:
                 self.tray_icon.showMessage(
                     "Desktop Organizer",
@@ -9725,6 +9791,14 @@ class MainWindow(QMainWindow):
             global global_splash
             if global_splash and hasattr(global_splash, 'cleanup'):
                 global_splash.cleanup()
+
+            # Stop all timers before quitting
+            if self.schedule_timer.isActive():
+                self.schedule_timer.stop()
+            if hasattr(self, 'auto_start_timer') and self.auto_start_timer.isActive():
+                self.auto_start_timer.stop()
+            if hasattr(self, 'tray_tooltip_timer') and self.tray_tooltip_timer.isActive():
+                self.tray_tooltip_timer.stop()
 
             # Save settings before closing
             self.save_settings()
@@ -9784,6 +9858,9 @@ if __name__ == "__main__":
         if startup_to_tray:
             # Windows startup - start minimized to tray
             show_window = False
+            # Stop schedule timer for tray mode - only runs when window is visible
+            if window.schedule_timer.isActive():
+                window.schedule_timer.stop()
             splash.add_message("🔄 Згортання в трей...")
         elif start_minimized:
             # Manual start minimized request
